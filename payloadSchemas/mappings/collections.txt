@@ -1,0 +1,74 @@
+collection_no				collection.oldpbdbid
+authorizer_no				authorizer_person_id
+enterer_no					enterer_person_id
+collection_type				collection.collectionType (use enum from pbdb)
+collection_name				collection.name
+reference_no				reference_id
+
+country						collection.country (must be a full_name from dictionaries.countries)
+state						collection.state (??)
+county						collection.county
+coordinates 				geom
+latlng_basis				collection.locationBasis (enum based on current pbdb values)
+paleolng 					paleogeom (from paleolat and paleolng)
+paleolat 					(see paleogeom)
+plate						collection.plate (enum based on current pbdb values, or is there another source?)
+gps_datum					collection.gpsDatum (use enum from pbdb)
+altitude_value				collection.altitude.value
+altitude_unit				collection.altitude.unit (use enum from pbdb)
+geogscale					collection.geographicScale (use enum from pbdb)
+geogcomments				collection.geographicComments
+
+formation					collection.stratigraphy.formation
+geological_group			collection.stratigraphy.group
+member						collection.stratigraphy.member
+regionalsection				collection.stratigraphy.regionalSection
+regionalbed					collection.stratigraphy.regionalBed
+regionalbedunit				collection.stratigraphy.regionalBedUnit (use enum from pbdb)
+regionalorder				collection.stratigraphy.regionalOrder (use enum from pbdb)
+localsection				collection.stratigraphy.localSection
+localbed					collection.stratigraphy.localBed
+localbedunit				collection.stratigraphy.localBedUnit (use enum from pbdb)
+localorder					collection.stratigraphy.localOrder (use enum from pbdb)
+stratscale					collection.stratigraphy.stratScale (use enum from pbdb)
+stratcomments				collection.stratigraphy.comments
+
+tectonic_setting			collection.tectonicSetting (use enum from pbdb)
+environment					collection.environment (use enum from pbdb)
+
+lithdescript				collection.lithology.description
+lithification				collection.lithology.observations[0].lithification (use enum from pbdb)
+lithology1					collection.lithology.observations[0].major (use enum from pbdb)
+minor_lithology				collection.lithology.observations[0].minor (use set from pbdb)
+fossilsfrom1				collection.lithology.observations[0].fossils
+lithadj	(csv)				collection.lithology.observations[0].adjectives (array)
+lithification2				collection.lithology.observations[1].lithification (use enum from pbdb)
+lithology2					collection.lithology.observations[1].major (use enum from pbdb)
+minor_lithology2			collection.lithology.observations[1].minor (use set from pbdb)
+fossilsfrom2				collection.lithology.observations[1].fossils
+lithadj2 (csv)				collection.lithology.observations[1].adjectives (array)
+
+max_interval_no				collection.maxAge (from pbdb interval_data[max_interval_no].interval_name)
+min_interval_no				collection.minAge (from pbdb interval_data[min_interval_no].interval_name)
+
+direct_ma					collection.ageMeasurements[0].age
+direct_ma_error				collection.ageMeasurements[0].error
+direct_ma_unit				collection.ageMeasurements[0].unit (use enum from pbdb)
+direct_ma_method			collection.ageMeasurements[0].method (use enum from pbdb)
+max_ma						collection.ageMeasurements[1].age
+max_ma_error				collection.ageMeasurements[1].error
+max_ma_unit					collection.ageMeasurements[1].unit (use enum from pbdb)
+max_ma_method				collection.ageMeasurements[1].method (use enum from pbdb)
+min_ma						collection.ageMeasurements[2].age
+min_ma_error				collection.ageMeasurements[2].error
+min_ma_unit					collection.ageMeasurements[2].unit (use enum from pbdb)
+min_ma_method				collection.ageMeasurements[2].method (use enum from pbdb)
+
+research_group				group_id (fk to id in groups table, determined by name)
+museum						collection.museum
+pres_mode					collection.preservationModes (use set from pbdb)
+collection_comments			collection.comments
+access_level				access_level_id (fk to id in access_levels table, determined by name)
+coll_meth					collection.collectionMethods (use set from pbdb)
+collection_dates			collection.dates (This string has no consistency and can't reliably be parsed)
+collectors					collection.collectors
