@@ -257,13 +257,18 @@ const referenceProperties = {
 		type: "string",
 		enum: ["journal article","standalone book","edited collection","article in edited collection","serial monograph","unpublished","other"]
 	},
-	pbdb2ID: {
-		type: "string",
-		description: "UUID for the reference"
-	},
-	oldpbdbID: {
-		type: "string",
-		description: "Historic identifier for the reference in the old PBDB database"
+	legacyIDs: {
+		type: "object",
+		properties: {
+			oldpbdbID: {
+				type: "string",
+				description: "Legacy ID for collections migrated from old PBDB"
+			}
+			pbotID: {
+				type: "string",
+				description: "Legacy ID for collections migrated from PBot"
+			},
+		}
 	},
 	title: {type: "string"},
 	authors: {
@@ -282,11 +287,11 @@ const referenceProperties = {
 		type: "object",
 		properties: {
 			first: {
-				type: integer,
+				type: "integer",
 				minimum: 1
 			},
 			last: {
-				type: integer,
+				type: "integer"",
 				minimum: 1
 			}
 		},
