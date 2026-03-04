@@ -3,8 +3,10 @@ Validation schemas in JSON Schema format. Note that fastify uses ajv (https://aj
 */
 //TODO: Right now, publication type differentiation and required fields are split off into createSchema. This create/editSchema dichotomy is an artifact of our use of JSON Merge Patch in the upload API.
 /*
- * Note: Some enum values (timescale, lithology, environment, intervals, preservationModes)
- * are dynamically loaded from external APIs or the database and are represented as strings. These will require pre-processing of the schema before it can be used for validation.
+ * Note: Some enum values (timescale, lithology, environment, intervals, preservationMos)de
+ * are dynamically loaded from external APIs or the database and are represented as strings.
+ * These will require pre-processing of the schema before it can be used for validation.
+ * Ultimately, all enums will load from the dictionaries schema in the postgresql db.
  */
 
 const collectionProperties = {
@@ -80,9 +82,7 @@ const collectionProperties = {
                             },
                             method: {
                                 type: "string",
-                                enum: [
-                                    "correlation","RASC","seriation","UA",'other"","unknown"
-                                ]
+                                enum: ["Ar/Ar","astronomical","14C","14C (calibrated)","dendrochronology","ESR","fission track","K-Ar","Lu-Hf","paleomagnetic","Rb-Sr","Sr isotope","U/Pb","U/Th","age-depth","AEO","CONOP","graphic correlation","RASC","seriation","UA","other","unknown"]
                             }
                         }
                     }
@@ -170,11 +170,11 @@ const collectionProperties = {
                         properties: {
                             lithification: {
                                 type: "string",
-                                enum: ["lithified","unlithified","metamorphosed"]
+                                enum: ["lithified","poorly lithified","unlithified","metamorphosed"]
                             },
                             major: {
                                 type: "string",
-                                enum: ["ball","tar","evaporite","gypsum","phosphorite","pyrite","ironstone","siderite","phyllite","slate","schist","quartzite","\"volcaniclastic\"","ash","tuff"]
+                                enum: ["not reported","\"siliciclastic\"","clayston","mudstone","\"shale\"","siltstone","sandstone","gravel","conglomerate","breccia","\"mixed carbonate-siliciclastic\"","marl","lime mudstone","chalk","travertine","wackestone","packstone","grainstone","\"reef rocks\"","floatstone","rudstone","bafflestone","bindstone","framestone","\"limestone\"","dolomite","\"carbonate\"","calcareous ooze","chert","diatomite","silicious ooze","radiolarite","amber","coal","peat","lignite","subbituminous coal","bituminous coal","anthracite","coal ball","tar","evaporite","gypsum","phosphorite","pyrite","ironstone","siderite","phyllite","slate","schist","quartzite","\"volcaniclastic\"","ash","tuff"]
                             },
                             minor: {
                                 type: "string",
@@ -187,7 +187,7 @@ const collectionProperties = {
                                 type: "array"
                                 items: {
                                     type: "string",
-                                    enum: ["brown","white","yellow","blue","thrombolitic"]
+                                    enum: ["massive","lenticular","tabular","desiccation cracks","current ripples","dunes","hummocky CS","wave ripples","\"cross stratification\"","wavy/flaser/lenticular bedding","planar lamination","tool marks","flute casts","deformed bedding","grading","burrows","bioturbation","paleosol/pedogenic","condensed","firmground","hardground","lag","very fine","fine","medium","coarse","very coarse","bentonitic","concretionary","diatomaceous","dolomitic","ferruginous","glauconitic","gypsiferous","hematitic","micaceous","nodular","pebbly","phosphatic","pyritic","quartzose","rubbly","sideritic","tuffaceous","stromatolitic","volcaniclastic","flat-pebble","intraclastic","oncoidal","ooidal","peloidal","shelly/skeletal","black","brown","gray","green","red","red or brown","white","yellow","blue","thrombolitic"]
                                 }
                             }
                         }
@@ -245,13 +245,13 @@ const collectionProperties = {
                         }
                         type: {
                             type: "string",
-                            enum: ["shelly","trilobite","other"]
+                            enum: ["ammonoid","brachiopod","conodont","foram","graptolite","inoceramid","mammal","nannofossil","pollen","small shelly","trilobite","other"]
                         }
                     }
                 },
                 scale: {
                     type: "string",
-                    enum: ["area","basin"]
+                    enum: ["bed","group of beds","member","formation","group"]
                 },
                 comments: {
                     type: "string",
@@ -361,16 +361,7 @@ const collectionProperties = {
                     items: {
                         type: "string",
                         enum: [
-                            "cast",
-                            "mold/impression",
-                            "adpression/compression",
-                            "recrystallized",
-                            "concretion",
-                            "charcoalification",
-                            "coalified",
-                            "body",
-                            "trace",
-                            "permineralization"
+                            "body","cast","mold/impression","adpression","trace","concretion","soft parts","recrystallized","permineralized","dissolution traces","charcoalification","coalified","original aragonite","original calcite","original phosphate","original silica","original chitin","original carbon","original sporopollenin","original cellulose","replaced with calcite","replaced with dolomite","replaced with silica","replaced with pyrite","replaced with siderite","replaced with hematite","replaced with limonite","replaced with phosphate","replaced with carbon","replaced with other","amber","anthropogenic","bone collector","coquina","coprolite","midden","shellbed"
                         ]
                     },
                     description: "List of preservation mode IDs"
@@ -392,14 +383,7 @@ const collectionProperties = {
                     items: {
                         type: "string",
                         enum: [
-                            "bulk",
-                            "sieve",
-                            "core",
-                            "quarrying",
-                            "surface (float)",
-                            "surface (in situ)",
-                            "salvage",
-                            "anthill"
+                          "bulk","core","salvage","selective quarrying","surface (float)","surface (in situ)","anthill","chemical","mechanical","peel or thin section","smear slide","acetic","hydrochloric","hydroflouric","peroxide","sieve","field collection","survey of museum collection","private collection","observed (not collected)","repository not specified"
                         ]
                     },
                     description: "Methods used for collection"
