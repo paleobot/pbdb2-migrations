@@ -48,21 +48,6 @@ const collectionProperties = {
         age: {
             type: "string",
             properties: {
-                timescale: {
-                    type: "string",
-                    description: "Timescale identifier (from dictionaries.timescales)"
-                    //This requires pre-processing of schema before it can be used
-                },
-                maxInterval: {
-                    type: "string",
-                    description: "Maximum interval name (from dictionaries.intervals)"
-                    //This requires pre-processing of schema before it can be used
-                },
-                minInterval: {
-                    type: "string",
-                    description: "Minimum interval name (from dictionaries.intervals)"
-                    //This requires pre-processing of schema before it can be used
-                },
                 measurements: {
                     type: "array",
                     items: {
