@@ -325,6 +325,9 @@ export const getSchema = {
 
 }
 
+/*
+ * I don't think we're going to need these, but I'm ghosting them here as examples,
+ * just in case.
 export const patchSchema = {
     body: {
 		examples: [{
@@ -386,11 +389,16 @@ export const editSchema = {
 		}	
 	}
 }
+*/
 
-export const createSchema = {
-	tags:["Reference"],
-	hide: true,
-    body: {
+//export const createSchema = {
+export const referenceSchema = {
+    $schema: "https://json-schema.org/draft/2019-09/schema",
+    $id: "https://pbdb2.example.com/schemas/reference.json",
+    title: "Reference",
+    description: "A reference payload in the PBDB database",
+    type: "object",
+    properties: {
 		type: 'object',
 		properties: {
 			reference: {
@@ -454,7 +462,8 @@ export const createSchema = {
 	}
 }
 
-
+/*
+ * Not sure about this either. Ghosting for now
 export const getPropertiesForPubType = (pubType, fastify) => {
 	fastify.log.trace("getPropertiesForPubType")
 	fastify.log.trace(pubType)
@@ -492,6 +501,7 @@ export const getPropertiesForPubType = (pubType, fastify) => {
 		requiredProps: reqProps
 	}
 }
+*/
 
 
 

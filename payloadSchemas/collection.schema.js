@@ -10,12 +10,6 @@ Validation schemas in JSON Schema format. Note that fastify uses ajv (https://aj
  */
 
 const collectionProperties = {
-    $schema: "http://json-schema.org/draft-2019-09/schema#",
-    $id: "https://pbdb2.example.com/schemas/collection.json",
-    title: "Collection",
-    description: "A collection entry payload in the PBDB database",
-    type: "object",
-    properties: {
         name: {
             type: "string",
             description: "Name of the collection"
@@ -397,7 +391,7 @@ const collectionProperties = {
         museum: {
             type: "string",
         }
-    },
+
 };
 
 
@@ -450,10 +444,13 @@ completeCollectionProperties.geographic.required = [
 completeCollectionProperties.preservationModes.minItems = 1
 
 
-export const createSchema = {
-	tags:["Collection"],
-	hide: true,
-    body: {
+export const collectionSchema = {
+    $schema: "https://json-schema.org/draft/2019-09/schema",
+    $id: "https://pbdb2.example.com/schemas/collection.json",
+    title: "Collection",
+    description: "A collection payload in the PBDB database",
+    type: "object",
+    properties: {
 		type: 'object',
 		properties: {
 			collection: {
