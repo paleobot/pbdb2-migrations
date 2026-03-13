@@ -1,6 +1,6 @@
-require('dotenv').config();
+import 'dotenv/config';
 
-const { Pool } = require('pg');
+import { Pool } from 'pg';
 
 // --- PG-only connection (no MariaDB dependency) ---
 

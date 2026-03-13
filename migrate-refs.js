@@ -1,5 +1,5 @@
-const { mariadb, pg, closeAll } = require('./db');
-const crypto = require('crypto');
+import { mariadb, pg, closeAll } from './db.js';
+import { randomUUID } from 'crypto';
 
 // --- Publication type mapping ---
 // Legacy value → { referenceType (target name), bookType (jsonb field or null) }
@@ -294,7 +294,7 @@ async function main() {
 
     return {
       id: ref.reference_no,
-      permid: crypto.randomUUID(),
+      permid: randomUUID(),
       reference_type_id: pubType.referenceTypeId,
       authorizer_person_id: authorizerPersonId,
       enterer_person_id: entererPersonId,

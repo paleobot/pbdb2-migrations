@@ -1,4 +1,4 @@
-require('dotenv').config();
+import 'dotenv/config';
 
 const REQUIRED_VARS = [
   'MARIADB_HOST',
@@ -16,8 +16,8 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-const mysql = require('mysql2/promise');
-const { Pool } = require('pg');
+import mysql from 'mysql2/promise';
+import { Pool } from 'pg';
 
 const mariadb = mysql.createPool({
   host: process.env.MARIADB_HOST,
@@ -43,4 +43,4 @@ async function closeAll() {
   await pg.end();
 }
 
-module.exports = { mariadb, pg, closeAll };
+export { mariadb, pg, closeAll };

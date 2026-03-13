@@ -1,4 +1,4 @@
-const { mariadb, pg, closeAll } = require('./db');
+import { mariadb, pg, closeAll } from './db.js';
 
 /**
  * Derive middle name by comparing the display name against first/last.
