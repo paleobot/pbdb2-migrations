@@ -28,6 +28,7 @@ export const schemaSchema = {
             },
             // quantitative conditional
             if: {
+                required: ["name"],
                 properties: {
                     name: {
                         const: "quantity"
