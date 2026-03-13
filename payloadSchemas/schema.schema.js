@@ -84,89 +84,97 @@ export const schemaSchema = {
         "schemaDefinition"
     ],
     properties: {
-        legacyIDs: {
-            type: "object",
-            properties: {
-                pbotID: {
-                    type: "string",
-                    description: "Legacy ID for schemas migrated from PBot"
-                },
-            }
-        },
-        title: {
-            type: "string",
-            description: "Name of the schema"
-        },
-        year: {
-            type: "string",
-            maxLength: 4
-        },
-        purpose: {
-            type: "string",
-            description: "Purpose of the schema"
-        },
-        authors: {
-            type: "array",
-            minItems: 1,
-            items: {
+        type: 'object',
+        properties: {
+            schema: {
                 type: "object",
                 properties: {
-                    familyName: {
-                        type: "string",
+                    legacyIDs: {
+                        type: "object",
+                        properties: {
+                            pbotID: {
+                                type: "string",
+                                description: "Legacy ID for schemas migrated from PBot"
+                            },
+                        }
                     },
-                    givenName: {
+                    title: {
                         type: "string",
+                        description: "Name of the schema"
                     },
-                    order: {
-                        type: "integer",
-                        minimum: 1
+                    year: {
+                        type: "string",
+                        maxLength: 4
+                    },
+                    purpose: {
+                        type: "string",
+                        description: "Purpose of the schema"
+                    },
+                    authors: {
+                        type: "array",
+                        minItems: 1,
+                        items: {
+                            type: "object",
+                            properties: {
+                                familyName: {
+                                    type: "string",
+                                },
+                                givenName: {
+                                    type: "string",
+                                },
+                                order: {
+                                    type: "integer",
+                                    minimum: 1
+                                }
+                            }
+                        }
+                    },
+                    acknowledgments: {
+                        type: "string",
+                        description: "Acknowledgments for schema"
+                    },
+                    partsPreserved: {
+                        type: "array",
+                        items: {
+                            type: "string",
+                            enum: [ //TODO: pull from dictionaries.parts_perserved
+                                "root",
+                                "shoot/axis/wood",
+                                "leaf",
+                                "pollen/spore",
+                                "inflorescence/flower",
+                                "infructescence/fruit",
+                                "ovuliferous (seed) cone",
+                                "staminate (pollen) cone",
+                                "seed",
+                                "cuticle",
+                                "other",
+                                "unknown"
+                            ]
+                        }
+                    },
+                    notableFeatures: {
+                        type: "array",
+                        items: {
+                            type: "string",
+                            enum: [ //TODO: pull from dictionaries.notable_features
+                                "cuticle/epidermal features",
+                                "wood anatomy (secondary growth)",
+                                "internal anatomy",
+                                "trace fossils (e.g., insect damage)"
+                            ]
+                        }
+                    },
+                    schemaDefinition: {
+                        //$ref: "https://pbdb2.example.com/schemas/schemaDefinition.json"
+                        type: "object",
+                        properties: {
+                            characters: {
+                                type: "array",
+                                items: { $ref: "#/$defs/character" }
+                            }
+                        }
                     }
-                }
-            }
-        },
-        acknowledgments: {
-            type: "string",
-            description: "Acknowledgments for schema"
-        },
-        partsPreserved: {
-            type: "array",
-            items: {
-                type: "string",
-                enum: [ //TODO: pull from dictionaries.parts_perserved
-                    "root",
-                    "shoot/axis/wood",
-                    "leaf",
-                    "pollen/spore",
-                    "inflorescence/flower",
-                    "infructescence/fruit",
-                    "ovuliferous (seed) cone",
-                    "staminate (pollen) cone",
-                    "seed",
-                    "cuticle",
-                    "other",
-                    "unknown"
-                ]
-            }
-        },
-        notableFeatures: {
-            type: "array",
-            items: {
-                type: "string",
-                enum: [ //TODO: pull from dictionaries.notable_features
-                    "cuticle/epidermal features",
-                    "wood anatomy (secondary growth)",
-                    "internal anatomy",
-                    "trace fossils (e.g., insect damage)"
-                ]
-            }
-        },
-        schemaDefinition: {
-            //$ref: "https://pbdb2.example.com/schemas/schemaDefinition.json"
-            type: "object",
-            properties: {
-                characters: {
-                    type: "array",
-                    items: { $ref: "#/$defs/character" }
                 }
             }
         }
