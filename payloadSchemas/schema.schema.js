@@ -2,31 +2,7 @@
 Validation schemas in JSON Schema format. Note that fastify uses ajv (https://ajv.js.org/) for validation, which expects the schemas to be javascript objects rather than raw JSON. Consequently, property names (keys) do not require double quotes.
 */
 
-const quantitativeState = {
-    if: {
-        properties: {
-            name: {
-                const: "quantity"
-            },
-        },
-    },
-    then: {
-        properties: {
-            value: {
-                type: "string"
-            },
-        },
-        required: ["value"]
-    }
-}
-
 const schemaProperties = {
-    $schema: "http://json-schema.org/draft-2019-09/schema#",
-    $id: "https://pbdb2.example.com/schemas/schema.json",
-    title: "Collection",
-    description: "A schema entry payload in the PBDB database",
-    type: "object",
-    properties: {
         legacyIDs: {
             type: "object",
             properties: {
@@ -54,11 +30,16 @@ const schemaProperties = {
             items: {
                 type: "object",
                 properties: {
-                    familyName: "string",
-                    givenName: "string,
+                    familyName: {
+                        type: "string",
+                    },
+                    givenName: {
+                        type: "string",
+                    },
                     order: {
                         type: "integer",
                         minimum: 1
+                    }
                 }
             }
         },
@@ -73,7 +54,7 @@ const schemaProperties = {
                 enum: [ //TODO: pull from dictionaries.parts_perserved
                     "root",
                     "shoot/axis/wood",
-                    "Leaf",
+                    "leaf",
                     "pollen/spore",
                     "inflorescence/flower",
                     "infructescence/fruit",
@@ -102,55 +83,87 @@ const schemaProperties = {
             //$ref: "https://pbdb2.example.com/schemas/schemaDefinition.json"
             type: "object",
             properties: {
-                characters: { //TODO: move this into separate schema
+                characters: {
                     type: "array",
-                    items: {
-                        type: "object",
-                        properties: {
-                            name: {
-                                type: "string",
-                            },
-                            definition: {
-                                type: "string"
-                            },
-                            order: {
-                                type: "integer",
-                                minimum: 1,
-                                description: "Used to sorting characters for presentation"
-                            },
-                            states: {
-                                type: "array",
-                                items: {
-                                    type: "object",
-                                    properties: {
-                                        name: {
-                                            type: "string"
-                                        },
-                                        definition: {
-                                            type: "string"
-                                        },
-                                        order: {
-                                            type: "integer",
-                                            minimum: 1,
-                                            description: "Used to sorting states for presentation"
-                                        },
-                                    },
-                                    allOf: [
-                                        quantitativeState
-                                    ]
-                                }
-                            }
-                        }
-                    }
+                    items: { $ref: "#/$defs/character" }
                 }
             }
         }
-    }
+
 };
 
 export const createSchema = {
 	tags:["Schema"],
 	hide: true,
+
+    $defs: {
+        state: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string"
+                },
+                definition: {
+                    type: "string"
+                },
+                order: {
+                    type: "integer",
+                    minimum: 1
+                },
+                states: {
+                    type: "array",
+                    items: {
+                        $ref: "#/$defs/state"
+                    }
+                }
+            },
+            // quantitative conditional
+            if: {
+                properties: {
+                    name: {
+                        const: "quantity"
+                    }
+                }
+            },
+            then: {
+                properties: {
+                    value: {
+                        type: "string"
+                    }
+                },
+                required: ["value"]
+            }
+        },
+
+        character: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string"
+                },
+                definition: {
+                    type: "string"
+                },
+                order: {
+                    type: "integer",
+                    minimum: 1
+                },
+                states: {
+                    type: "array",
+                    items: {
+                        $ref: "#/$defs/state"
+                    }
+                },
+                characters: {
+                    type: "array",
+                    items: {
+                        $ref: "#/$defs/character"
+                    }
+                }
+            }
+        }
+    },
+
     body: {
 		type: 'object',
 		properties: {
