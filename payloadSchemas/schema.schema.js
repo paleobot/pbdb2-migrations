@@ -5,10 +5,21 @@ Validation schemas in JSON Schema format. Note that fastify uses ajv (https://aj
 export const schemaSchema = {
     $schema: "https://json-schema.org/draft/2019-09/schema",
     $id: "https://pbdb2.example.com/schemas/schema.json",
+    /*
+     * character/state unused for migration but will likely be used in api
     $defs: {
         state: {
             type: "object",
             properties: {
+                legacyIDs: {
+                    type: "object",
+                    properties: {
+                        pbotID: {
+                            type: "string",
+                            description: "Legacy ID for states migrated from PBot"
+                        },
+                    }
+                },
                 name: {
                     type: "string"
                 },
@@ -48,6 +59,15 @@ export const schemaSchema = {
         character: {
             type: "object",
             properties: {
+                legacyIDs: {
+                    type: "object",
+                    properties: {
+                        pbotID: {
+                            type: "string",
+                            description: "Legacy ID for characters migrated from PBot"
+                        },
+                    }
+                },
                 name: {
                     type: "string"
                 },
@@ -73,6 +93,7 @@ export const schemaSchema = {
             }
         }
     },
+    */
 
     title: "Schema",
     description: "A schema payload in the PBDB database",
@@ -81,7 +102,7 @@ export const schemaSchema = {
     required: [
         "title",
         "year",
-        "schemaDefinition"
+        //"schemaDefinition"
     ],
     properties: {
         type: 'object',
@@ -165,6 +186,9 @@ export const schemaSchema = {
                             ]
                         }
                     },
+                    /*
+                     * schemaDefinition will not be part of jsonb but will likely be
+                     * used in api
                     schemaDefinition: {
                         //$ref: "https://pbdb2.example.com/schemas/schemaDefinition.json"
                         type: "object",
@@ -175,6 +199,7 @@ export const schemaSchema = {
                             }
                         }
                     }
+                    */
                 }
             }
         }
