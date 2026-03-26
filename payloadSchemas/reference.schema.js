@@ -24,7 +24,7 @@ const journalArticle = 	{
 			},
 		},
 		required: [
-			"journalType", 
+			//"journalType",
 			"journalTitle",
 			"journalVolume"
 		]	
@@ -204,7 +204,7 @@ const referenceProperties = {
 					type: "array"
 					minItems: 1,
 					items: {
-						surname: {type: "string"},
+						familyName: {type: "string"},
 						givenName: {type: "string"}
 					}
 				} required
@@ -231,7 +231,7 @@ const referenceProperties = {
 					type: "array"
 					minItems: 1,
 					items: {
-						surname: {type: "string"},
+						familyName: {type: "string"},
 						givenName: {type: "string"}
 					}
 				} required
@@ -248,7 +248,7 @@ const referenceProperties = {
 					type: "array"
 					minItems: 1,
 					items: {
-						surname: {type: "string"},
+						familyName: {type: "string"},
 						givenName: {type: "string"}
 					}
 				} required
