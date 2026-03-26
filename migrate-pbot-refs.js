@@ -25,9 +25,6 @@ const pg = new Pool({
 const PBOT_GRAPHQL_URL = 'https://pbot.paleobiodb.org/graphql';
 const AUTHORIZER_PERSON_ID = 1106; // Douglas Meredith
 
-// Hardcoded duplicate resolution: Nathan Jud → id=414 (not 911)
-const NATHAN_JUD_PG_ID = 414;
-
 // --- GraphQL fetch ---
 
 const PBOT_QUERY = `{
@@ -89,13 +86,6 @@ async function fetchPbotReferences() {
   }
 
   return json.data.Reference;
-}
-
-// --- ORCID normalization ---
-
-function normalizeOrcid(orcid) {
-  if (!orcid || !orcid.trim()) return null;
-  return orcid.trim().replace(/^https?:\/\/orcid\.org\//, '');
 }
 
 // --- Enterer resolution ---
@@ -225,28 +215,6 @@ async function main() {
   refTypeMap.set('edited book of contributed articles', refTypeMap.get('edited collection'));
   console.log(`  Loaded ${refTypeRows.length} reference types`);
 
-  const { rows: genderRows } = await pg.query(
-    `SELECT id, genders FROM dictionaries.genders`
-  );
-  const genderMap = Object.fromEntries(genderRows.map((r) => [r.genders, r.id]));
-  const anonymousGenderId = genderMap['Anonymous'];
-  if (!anonymousGenderId) throw new Error('Anonymous gender not found');
-  console.log(`  Anonymous gender_id: ${anonymousGenderId}`);
-
-  // Ensure Unknown country exists
-  await pg.query(
-    `INSERT INTO dictionaries.countries (abbreviation, full_name)
-     VALUES ('XX', 'Unknown')
-     ON CONFLICT DO NOTHING`
-  );
-  const { rows: countryRows } = await pg.query(
-    `SELECT id FROM dictionaries.countries WHERE abbreviation = 'XX'`
-  );
-  const unknownCountryId = countryRows[0].id;
-  console.log(`  Unknown country_id: ${unknownCountryId}`);
-
-  const PERSON_ROLE_ID = 6; // "Person" role
-
   // --- 2.1 Fetch PBot data ---
 
   console.log(`  Fetching references from ${PBOT_GRAPHQL_URL}...`);
@@ -259,128 +227,6 @@ async function main() {
   const skippedCount = allRefs.length - pbotOnlyRefs.length;
   console.log(`  Skipped ${skippedCount} references with pbdbid (already migrated from MariaDB)`);
   console.log(`  Processing ${pbotOnlyRefs.length} PBot-only references`);
-
-  // --- 3.1 Collect unique enterer persons ---
-
-  const entererMap = new Map(); // pbotID → Person object
-  for (const ref of pbotOnlyRefs) {
-    const enteredByEntry = resolveEnterer(ref);
-    if (enteredByEntry && enteredByEntry.Person) {
-      const person = enteredByEntry.Person;
-      if (!entererMap.has(person.pbotID)) {
-        entererMap.set(person.pbotID, person);
-      }
-    }
-  }
-  console.log(`  Found ${entererMap.size} unique enterer persons`);
-
-  // --- 3.2 Match enterers to existing PG persons ---
-
-  const pbotIdToPgId = new Map(); // pbotID → PG person id
-  let matchCount = 0;
-  let insertCount = 0;
-  let orcidUpdateCount = 0;
-
-  for (const [pbotID, person] of entererMap) {
-    const given = (person.given || '').trim();
-    const surname = (person.surname || '').trim();
-
-    // Hardcoded Nathan Jud duplicate resolution
-    if (given.toLowerCase() === 'nathan' && surname.toLowerCase() === 'jud') {
-      pbotIdToPgId.set(pbotID, NATHAN_JUD_PG_ID);
-      console.log(`  Matched ${given} ${surname} → PG id=${NATHAN_JUD_PG_ID} (hardcoded)`);
-      matchCount++;
-
-      // --- 3.4 Update ORCID if needed ---
-      const normalizedOrcid = normalizeOrcid(person.orcid);
-      if (normalizedOrcid) {
-        const { rowCount } = await pg.query(
-          `UPDATE persons SET orcid = $1 WHERE id = $2 AND (orcid IS NULL OR orcid = '')`,
-          [normalizedOrcid, NATHAN_JUD_PG_ID]
-        );
-        if (rowCount > 0) {
-          console.log(`    Updated ORCID → ${normalizedOrcid}`);
-          orcidUpdateCount++;
-        }
-      }
-      continue;
-    }
-
-    // Name match
-    const { rows } = await pg.query(
-      `SELECT id, orcid FROM persons WHERE lower(given_name) = lower($1) AND lower(family_name) = lower($2)`,
-      [given, surname]
-    );
-
-    if (rows.length > 0) {
-      const pgId = rows[0].id;
-      pbotIdToPgId.set(pbotID, pgId);
-      console.log(`  Matched ${given} ${surname} → PG id=${pgId}`);
-      matchCount++;
-
-      // --- 3.4 Update ORCID if needed ---
-      const normalizedOrcid = normalizeOrcid(person.orcid);
-      if (normalizedOrcid) {
-        const { rowCount } = await pg.query(
-          `UPDATE persons SET orcid = $1 WHERE id = $2 AND (orcid IS NULL OR orcid = '')`,
-          [normalizedOrcid, pgId]
-        );
-        if (rowCount > 0) {
-          console.log(`    Updated ORCID → ${normalizedOrcid}`);
-          orcidUpdateCount++;
-        }
-      }
-    } else {
-      // --- 3.3 Insert new person ---
-      const normalizedOrcid = normalizeOrcid(person.orcid);
-
-      // Insert with a temporary self-reference for authorizer_person_id
-      // We first insert, then update authorizer_person_id to self
-      const { rows: inserted } = await pg.query(
-        `INSERT INTO persons (given_name, family_name, middle, email, password, orcid,
-                              role_id, authorizer_person_id, gender_id, country_id,
-                              institution, active, total_hours)
-         VALUES ($1, $2, NULL, NULL, NULL, $3,
-                 $4, $5, $6, $7,
-                 NULL, true, NULL)
-         RETURNING id`,
-        [
-          given,                   // $1 given_name
-          surname,                 // $2 family_name
-          normalizedOrcid,         // $3 orcid
-          PERSON_ROLE_ID,          // $4 role_id
-          AUTHORIZER_PERSON_ID,    // $5 authorizer_person_id (use Douglas Meredith temporarily)
-          anonymousGenderId,       // $6 gender_id
-          unknownCountryId,        // $7 country_id
-        ]
-      );
-
-      const newId = inserted[0].id;
-
-      // Update authorizer_person_id to self
-      await pg.query(
-        `UPDATE persons SET authorizer_person_id = $1 WHERE id = $1`,
-        [newId]
-      );
-
-      pbotIdToPgId.set(pbotID, newId);
-      console.log(`  Inserted ${given} ${surname} → PG id=${newId} (orcid=${normalizedOrcid || 'NULL'})`);
-      insertCount++;
-    }
-  }
-
-  // --- 3.5 Reset persons identity sequence ---
-
-  if (insertCount > 0) {
-    await pg.query(
-      `SELECT setval(pg_get_serial_sequence('persons', 'id'), (SELECT MAX(id) FROM persons))`
-    );
-    console.log('  Persons identity sequence reset');
-  }
-
-  console.log(`  Person resolution: ${matchCount} matched, ${insertCount} inserted, ${orcidUpdateCount} ORCIDs updated`);
-
-  // --- 3.6 pbotID → pgPersonId map is built (pbotIdToPgId) ---
 
   // --- 6.3 Ensure permid unique constraint exists ---
 
@@ -405,7 +251,7 @@ async function main() {
   let warningCount = 0;
 
   for (const ref of pbotOnlyRefs) {
-    // 4.1 Resolve enterer
+    // 4.1 Resolve enterer — look up in persons table
     const enteredByEntry = resolveEnterer(ref);
     if (!enteredByEntry || !enteredByEntry.Person) {
       console.warn(`  WARNING: Skipping reference ${ref.pbotID} — no enterer found`);
@@ -413,13 +259,18 @@ async function main() {
       continue;
     }
 
-    const entererPbotId = enteredByEntry.Person.pbotID;
-    const entererPgId = pbotIdToPgId.get(entererPbotId);
-    if (!entererPgId) {
-      console.warn(`  WARNING: Skipping reference ${ref.pbotID} — enterer ${entererPbotId} not resolved to PG id`);
+    const entererGiven = (enteredByEntry.Person.given || '').trim();
+    const entererSurname = (enteredByEntry.Person.surname || '').trim();
+    const { rows: personRows } = await pg.query(
+      `SELECT id FROM persons WHERE lower(given_name) = lower($1) AND lower(family_name) = lower($2)`,
+      [entererGiven, entererSurname]
+    );
+    if (personRows.length === 0) {
+      console.warn(`  WARNING: Skipping reference ${ref.pbotID} — enterer ${entererGiven} ${entererSurname} not found in persons table`);
       warningCount++;
       continue;
     }
+    const entererPgId = personRows[0].id;
 
     // 4.2 Map reference_type_id
     const pubType = ref.publicationType || null;
@@ -487,7 +338,7 @@ async function main() {
 
   const endTime = new Date();
   const elapsed = ((endTime - startTime) / 1000).toFixed(1);
-  console.log(`  Warnings: ${warningCount}`);
+  console.log(`  Upserted: ${upsertCount}, Warnings: ${warningCount}`);
   console.log(`[${endTime.toISOString()}] PBot refs migration complete in ${elapsed}s`);
 }
 
