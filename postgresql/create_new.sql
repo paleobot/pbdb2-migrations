@@ -263,7 +263,6 @@ CREATE TABLE states (
     )
 );
 
-/*
 -- This represents a significant change to authorities from v1.0, where it was
 -- actually a table of taxonomic names and their associated authorities, rather than a table of authorities.
 -- It is now exlusivley a table of authorities, and the taxonomic names themselves are stored in the taxa table.
@@ -347,4 +346,3 @@ CREATE TABLE occurrences {
     succeeded_by_id integer REFERENCES occurrences("id")
     };
 
-*/
