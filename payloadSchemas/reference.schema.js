@@ -184,7 +184,7 @@ const unpublished = {
 	},
 	then: {
 		properties: {
-			description {
+			description: {
 				type: "string"
 			}
 		},
@@ -262,11 +262,11 @@ const referenceProperties = {
 		properties: {
 			oldpbdbID: {
 				type: "string",
-				description: "Legacy ID for collections migrated from old PBDB"
-			}
+				description: "Legacy ID for references migrated from old PBDB"
+			},
 			pbotID: {
 				type: "string",
-				description: "Legacy ID for collections migrated from PBot"
+				description: "Legacy ID for references migrated from PBot"
 			},
 		}
 	},
@@ -275,8 +275,11 @@ const referenceProperties = {
 		type: "array",
 		minItems: 1,
 		items: {
-			familyName: "string",
-			givenName: "string
+			type: "object",
+			properties: {
+				familyName: {type: "string"},
+				givenName: {type: "string"}
+			}
 		}
 	},
 	publicationYear: {
@@ -291,7 +294,7 @@ const referenceProperties = {
 				minimum: 1
 			},
 			last: {
-				type: "integer"",
+				type: "integer",
 				minimum: 1
 			}
 		},
@@ -399,47 +402,44 @@ export const referenceSchema = {
     description: "A reference payload in the PBDB database",
     type: "object",
     properties: {
-		type: 'object',
-		properties: {
-			reference: {
-				type: "object",
-				properties: referenceProperties,
-				//TODO: Would like to catch these here and generate validation error. Unfortunately, fastify also sets removeAdditional by default, which quietly removes them instead. To change this, would have to move away from fastify-cli (https://github.com/fastify/fastify-cli?tab=readme-ov-file#migrating-out-of-fastify-cli-start)
-				//TODO: But wait, there's more. additionalProperties only knows about properties in this direct schema. It does not know about properties in the conditional schemas. This means that if you have property_type "journal article", publicationTitle, publicationVolume, and pub number get removed before the model gets hold of them. This might be rectified in a later version of JSON Schema (https://stackoverflow.com/a/69313287). Look into that. But for now, we can't use additionalProperties and must let the model catch unknown column names.
-				//additionalProperties: false,
-				unevaluatedProperties: false, //new with Draft 2019-09
-				required: [
-					"publicationType", 
-					"title", 
-					"publicationYear",
-				],
-				allOf: [
-					journalArticle,
-					standaloneBook,
-					serialMonograph,
-					articleInEditedCollection,
-					editedCollection,
-					unpublished
-				],
-			},
-			allowDuplicate: {
-				type: "boolean",
-				default: false
-			}
-      	},
-		examples: [{
-			reference: {
-				publicationType: "unpublished", 
-				title: "The reference title", 
-				author1init: "D", 
-				author1last: "Meredith", 
-				publicationYear: "2024",
-				firstPage: "1", 
-				publicationTitle: "A publication title ", 
-				publicationVolume:"5" 
-			}
-		}],
+		reference: {
+			type: "object",
+			properties: referenceProperties,
+			//TODO: Would like to catch these here and generate validation error. Unfortunately, fastify also sets removeAdditional by default, which quietly removes them instead. To change this, would have to move away from fastify-cli (https://github.com/fastify/fastify-cli?tab=readme-ov-file#migrating-out-of-fastify-cli-start)
+			//TODO: But wait, there's more. additionalProperties only knows about properties in this direct schema. It does not know about properties in the conditional schemas. This means that if you have property_type "journal article", publicationTitle, publicationVolume, and pub number get removed before the model gets hold of them. This might be rectified in a later version of JSON Schema (https://stackoverflow.com/a/69313287). Look into that. But for now, we can't use additionalProperties and must let the model catch unknown column names.
+			//additionalProperties: false,
+			unevaluatedProperties: false, //new with Draft 2019-09
+			required: [
+				"publicationType",
+				"title",
+				"publicationYear",
+			],
+			allOf: [
+				journalArticle,
+				standaloneBook,
+				serialMonograph,
+				articleInEditedCollection,
+				editedCollection,
+				unpublished
+			],
+		},
+		allowDuplicate: {
+			type: "boolean",
+			default: false
+		}
 	},
+	examples: [{
+		reference: {
+			publicationType: "unpublished",
+			title: "The reference title",
+			author1init: "D",
+			author1last: "Meredith",
+			publicationYear: "2024",
+			firstPage: "1",
+			publicationTitle: "A publication title ",
+			publicationVolume:"5"
+		}
+	}],
 	response: {
 		201: {
 			description: "Reference created",
