@@ -11,6 +11,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@countrystatecity/countries": "^1.0.5",
     "dotenv": "^17.3.1",
     "mysql2": "^3.17.1",
     "pg": "^8.18.0"

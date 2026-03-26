@@ -1,4 +1,5 @@
 import { mariadb, pg, closeAll } from './db.js';
+import { getCountries } from '@countrystatecity/countries';
 
 /**
  * Derive middle name by comparing the display name against first/last.
@@ -90,17 +91,10 @@ async function main() {
 
   // --- Dictionary lookups ---
 
-  // Insert "Unknown" country if not exists
-  await pg.query(
-    `INSERT INTO dictionaries.countries (abbreviation, full_name)
-     VALUES ('XX', 'Unknown')
-     ON CONFLICT DO NOTHING`
-  );
-  const { rows: countryRows } = await pg.query(
-    `SELECT id FROM dictionaries.countries WHERE abbreviation = 'XX'`
-  );
-  const unknownCountryId = countryRows[0].id;
-  console.log(`  Unknown country id: ${unknownCountryId}`);
+  // Build case-insensitive country name → ISO alpha-2 code map
+  const countries = await getCountries();
+  const countryCodeMap = new Map(countries.map((c) => [c.name.toLowerCase(), c.iso2]));
+  console.log(`  Loaded ${countries.length} countries from @countrystatecity/countries`);
 
   // Load all genders into a name→id map
   const { rows: genderRows } = await pg.query(
@@ -116,13 +110,6 @@ async function main() {
     throw new Error('Anonymous gender not found in dictionaries.genders');
   }
 
-  // Load all countries into a case-insensitive full_name→id map
-  const { rows: allCountryRows } = await pg.query(
-    `SELECT id, full_name FROM dictionaries.countries`
-  );
-  const countryMap = new Map(allCountryRows.map((r) => [r.full_name.toLowerCase(), r.id]));
-  console.log(`  Loaded ${allCountryRows.length} countries`);
-
   // Country normalization map for known variants
   const COUNTRY_NORMALIZE = {
     'us': 'United States',
@@ -130,8 +117,6 @@ async function main() {
     'untied states': 'United States',
     'england': 'United Kingdom',
     'the netherlands': 'Netherlands',
-    'russia': 'Russian Federation',
-    'venezuela': 'Venezuela, Bolivarian Republic of',
   };
 
   // Load roles for verification logging
@@ -172,16 +157,14 @@ async function main() {
       console.warn(`  WARNING: person_no=${id} unexpected gender value '${row.gender}', defaulting to Anonymous`);
     }
 
-    // Map country
-    let countryId = unknownCountryId;
+    // Map country to ISO alpha-2 code
+    let countryCode = null;
     if (row.country && row.country.trim()) {
       const rawCountry = row.country.trim();
       const normalized = COUNTRY_NORMALIZE[rawCountry.toLowerCase()] || rawCountry;
-      const lookupId = countryMap.get(normalized.toLowerCase());
-      if (lookupId) {
-        countryId = lookupId;
-      } else {
-        console.warn(`  WARNING: person_no=${id} unmapped country '${rawCountry}', defaulting to Unknown`);
+      countryCode = countryCodeMap.get(normalized.toLowerCase()) || null;
+      if (!countryCode) {
+        console.warn(`  WARNING: person_no=${id} unmapped country '${rawCountry}'`);
       }
     }
 
@@ -191,7 +174,7 @@ async function main() {
 
     await pg.query(
       `INSERT INTO persons (id, given_name, family_name, middle, email, password, orcid,
-                            role_id, authorizer_person_id, gender_id, country_id,
+                            role_id, authorizer_person_id, gender_id, country_code,
                             institution, active, total_hours)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (id) DO UPDATE SET
@@ -203,7 +186,7 @@ async function main() {
          role_id = EXCLUDED.role_id,
          authorizer_person_id = EXCLUDED.authorizer_person_id,
          gender_id = EXCLUDED.gender_id,
-         country_id = EXCLUDED.country_id,
+         country_code = EXCLUDED.country_code,
          active = EXCLUDED.active`,
       [
         id,                  // $1  id
@@ -216,7 +199,7 @@ async function main() {
         roleId,              // $8  role_id
         id,                  // $9  authorizer_person_id (self-reference)
         genderId,            // $10 gender_id
-        countryId,           // $11 country_id
+        countryCode,         // $11 country_code
         institution,         // $12 institution
         isActive,            // $13 active
         null,                // $14 total_hours
