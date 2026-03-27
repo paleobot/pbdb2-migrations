@@ -170,9 +170,14 @@ function buildReferenceJsonb(ref, refTypeMap) {
     }
   }
 
-  // notes (from description)
+  // notes → comments
+  if (ref.notes && ref.notes.trim()) {
+    jsonb.comments = ref.notes.trim();
+  }
+
+  // description (unpublished references)
   if (ref.description && ref.description.trim()) {
-    jsonb.notes = ref.description.trim();
+    jsonb.description = ref.description.trim();
   }
 
   // language — always unknown for PBot sources
@@ -193,7 +198,7 @@ function buildReferenceJsonb(ref, refTypeMap) {
   }
 
   // pbotID for traceability
-  jsonb.pbotID = ref.pbotID;
+  jsonb.legacyIDs = { pbotID: ref.pbotID };
 
   return jsonb;
 }
@@ -235,10 +240,10 @@ async function main() {
     BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conrelid = '"references"'::regclass
+        WHERE conrelid = 'refs'::regclass
           AND conname = 'references_permid_key'
       ) THEN
-        ALTER TABLE "references" ADD CONSTRAINT references_permid_key UNIQUE (permid);
+        ALTER TABLE refs ADD CONSTRAINT references_permid_key UNIQUE (permid);
       END IF;
     END
     $$;
@@ -259,14 +264,13 @@ async function main() {
       continue;
     }
 
-    const entererGiven = (enteredByEntry.Person.given || '').trim();
-    const entererSurname = (enteredByEntry.Person.surname || '').trim();
+    const entererPbotID = enteredByEntry.Person.pbotID;
     const { rows: personRows } = await pg.query(
-      `SELECT id FROM persons WHERE lower(person->>'givenName') = lower($1) AND lower(person->>'familyName') = lower($2)`,
-      [entererGiven, entererSurname]
+      `SELECT id FROM persons WHERE person->'legacyIDs'->>'pbotID' = $1`,
+      [entererPbotID]
     );
     if (personRows.length === 0) {
-      console.warn(`  WARNING: Skipping reference ${ref.pbotID} — enterer ${entererGiven} ${entererSurname} not found in persons table`);
+      console.warn(`  WARNING: Skipping reference ${ref.pbotID} — enterer pbotID ${entererPbotID} not found in persons table`);
       warningCount++;
       continue;
     }
@@ -290,7 +294,7 @@ async function main() {
     const permid = ref.pbotID;
 
     await pg.query(
-      `INSERT INTO "references" (permid, reference_type_id, authorizer_person_id, enterer_person_id,
+      `INSERT INTO refs (permid, reference_type_id, authorizer_person_id, enterer_person_id,
                                  reference, preceded_by_id, succeeded_by_id, removed)
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, false)
        ON CONFLICT (permid) DO UPDATE SET
@@ -315,14 +319,14 @@ async function main() {
   // --- 5.2 Reset references identity sequence ---
 
   await pg.query(
-    `SELECT setval(pg_get_serial_sequence('"references"', 'id'), (SELECT MAX(id) FROM "references"))`
+    `SELECT setval(pg_get_serial_sequence('refs', 'id'), (SELECT MAX(id) FROM refs))`
   );
   console.log('  References identity sequence reset');
 
   // --- 6.2 Verification ---
 
   const { rows: countResult } = await pg.query(
-    `SELECT COUNT(*)::int AS count FROM "references" WHERE permid = ANY($1)`,
+    `SELECT COUNT(*)::int AS count FROM refs WHERE permid = ANY($1)`,
     [pbotOnlyRefs.map((r) => r.pbotID)]
   );
   const pgCount = countResult[0].count;

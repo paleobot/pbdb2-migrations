@@ -309,7 +309,7 @@ const referenceProperties = {
 		enum: ['Chinese','English','French','German','Italian','Japanese','Portugese','Russian','Spanish','other','unknown'],
 		default: "English"
 	},
-	notes: {type: "string"}
+	comments: {type: "string"}
 }
 
 export const getSchema = {

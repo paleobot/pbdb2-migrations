@@ -202,7 +202,7 @@ function buildJsonb(ref, authors, editors, pubType, pages, pubtitleFields, volNo
   if (pages) jsonb.pages = pages;
   if (ref.doi && ref.doi.trim()) jsonb.doi = ref.doi.trim();
   jsonb.language = language;
-  jsonb.oldpbdbID = String(ref.reference_no);
+  jsonb.legacyIDs = { oldpbdbID: String(ref.reference_no) };
 
   // Type-specific fields
   Object.assign(jsonb, pubtitleFields);
@@ -217,6 +217,10 @@ function buildJsonb(ref, authors, editors, pubType, pages, pubtitleFields, volNo
   }
   if (ref.pubcity && ref.pubcity.trim()) {
     jsonb.publicationCity = ref.pubcity.trim();
+  }
+
+  if (ref.comments && ref.comments.trim()) {
+    jsonb.comments = ref.comments.trim();
   }
 
   return jsonb;
@@ -241,7 +245,7 @@ async function main() {
             author1init, author1last, author2init, author2last, otherauthors,
             pubyr, reftitle, pubtitle, editors, publisher, pubcity,
             pubvol, pubno, firstpage, lastpage,
-            publication_type, language, doi
+            publication_type, language, doi, comments
      FROM refs`
   );
   console.log(`  Read ${refs.length} rows from MariaDB refs`);
@@ -336,7 +340,7 @@ async function main() {
     }
 
     await pg.query(
-      `INSERT INTO "references" (id, permid, reference_type_id, authorizer_person_id, enterer_person_id, reference, preceded_by_id, succeeded_by_id, removed)
+      `INSERT INTO refs (id, permid, reference_type_id, authorizer_person_id, enterer_person_id, reference, preceded_by_id, succeeded_by_id, removed)
        VALUES ${values.join(', ')}
        ON CONFLICT (id) DO UPDATE SET
          reference_type_id = EXCLUDED.reference_type_id,
@@ -359,12 +363,12 @@ async function main() {
 
   // 5.3 Reset identity sequence
   await pg.query(
-    `SELECT setval(pg_get_serial_sequence('"references"', 'id'), (SELECT MAX(id) FROM "references"))`
+    `SELECT setval(pg_get_serial_sequence('refs', 'id'), (SELECT MAX(id) FROM refs))`
   );
   console.log('  Identity sequence reset');
 
   // 6.1 Row count verification
-  const { rows: countResult } = await pg.query(`SELECT COUNT(*)::int AS count FROM "references"`);
+  const { rows: countResult } = await pg.query(`SELECT COUNT(*)::int AS count FROM refs`);
   const pgCount = countResult[0].count;
 
   if (pgCount === refs.length) {
