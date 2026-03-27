@@ -96,19 +96,8 @@ async function main() {
   const countryCodeMap = new Map(countries.map((c) => [c.name.toLowerCase(), c.iso2]));
   console.log(`  Loaded ${countries.length} countries from @countrystatecity/countries`);
 
-  // Load all genders into a name→id map
-  const { rows: genderRows } = await pg.query(
-    `SELECT id, genders FROM dictionaries.genders`
-  );
-  const genderMap = Object.fromEntries(genderRows.map((r) => [r.genders, r.id]));
-  console.log(`  Loaded ${genderRows.length} genders: ${JSON.stringify(genderMap)}`);
-
-  // Gender mapping: source enum → target name
+  // Gender mapping: source enum → JSONB string value
   const GENDER_SOURCE_MAP = { 'F': 'Female', 'M': 'Male' };
-  const anonymousGenderId = genderMap['Anonymous'];
-  if (!anonymousGenderId) {
-    throw new Error('Anonymous gender not found in dictionaries.genders');
-  }
 
   // Country normalization map for known variants
   const COUNTRY_NORMALIZE = {
@@ -150,10 +139,9 @@ async function main() {
     const email = row.email?.trim() || null;
     const institution = row.institution?.trim() || null;
 
-    // Map gender
-    const genderName = GENDER_SOURCE_MAP[row.gender] || null;
-    const genderId = genderName ? genderMap[genderName] : anonymousGenderId;
-    if (row.gender && !genderName) {
+    // Map gender to string value for JSONB
+    const gender = GENDER_SOURCE_MAP[row.gender] || 'Anonymous';
+    if (row.gender && !GENDER_SOURCE_MAP[row.gender]) {
       console.warn(`  WARNING: person_no=${id} unexpected gender value '${row.gender}', defaulting to Anonymous`);
     }
 
@@ -168,41 +156,36 @@ async function main() {
       }
     }
 
+    // Build person JSONB object
+    const personJsonb = {
+      givenName,
+      familyName,
+      gender,
+      legacyIDs: { oldpbdbID: String(id) },
+    };
+    if (middle) personJsonb.middle = middle;
+    if (email) personJsonb.email = email;
+    if (countryCode) personJsonb.countryCode = countryCode;
+    if (institution) personJsonb.institution = institution;
+
     console.log(
       `  person_no=${id}: role SET='${row.role}' is_authorizer=${row.is_authorizer} superuser=${row.superuser} → role_id=${roleId} (${roleMap[roleId]})`
     );
 
     await pg.query(
-      `INSERT INTO persons (id, given_name, family_name, middle, email, password, orcid,
-                            role_id, authorizer_person_id, gender_id, country_code,
-                            institution, active, total_hours)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      `INSERT INTO persons (id, password, role_id, person, authorizer_person_id, active, total_hours)
+       VALUES ($1, NULL, $2, $3, $4, $5, NULL)
        ON CONFLICT (id) DO UPDATE SET
-         given_name = EXCLUDED.given_name,
-         family_name = EXCLUDED.family_name,
-         middle = EXCLUDED.middle,
-         email = EXCLUDED.email,
-         institution = EXCLUDED.institution,
          role_id = EXCLUDED.role_id,
          authorizer_person_id = EXCLUDED.authorizer_person_id,
-         gender_id = EXCLUDED.gender_id,
-         country_code = EXCLUDED.country_code,
+         person = EXCLUDED.person,
          active = EXCLUDED.active`,
       [
         id,                  // $1  id
-        givenName,           // $2  given_name
-        familyName,          // $3  family_name
-        middle,              // $4  middle
-        email,               // $5  email
-        null,                // $6  password
-        null,                // $7  orcid
-        roleId,              // $8  role_id
-        id,                  // $9  authorizer_person_id (self-reference)
-        genderId,            // $10 gender_id
-        countryCode,         // $11 country_code
-        institution,         // $12 institution
-        isActive,            // $13 active
-        null,                // $14 total_hours
+        roleId,              // $2  role_id
+        personJsonb,         // $3  person (JSONB)
+        id,                  // $4  authorizer_person_id (self-reference)
+        isActive,            // $5  active
       ]
     );
     upsertCount++;

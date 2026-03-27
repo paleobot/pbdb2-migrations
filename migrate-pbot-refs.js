@@ -262,7 +262,7 @@ async function main() {
     const entererGiven = (enteredByEntry.Person.given || '').trim();
     const entererSurname = (enteredByEntry.Person.surname || '').trim();
     const { rows: personRows } = await pg.query(
-      `SELECT id FROM persons WHERE lower(given_name) = lower($1) AND lower(family_name) = lower($2)`,
+      `SELECT id FROM persons WHERE lower(person->>'givenName') = lower($1) AND lower(person->>'familyName') = lower($2)`,
       [entererGiven, entererSurname]
     );
     if (personRows.length === 0) {

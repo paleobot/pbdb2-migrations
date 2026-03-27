@@ -74,7 +74,7 @@ async function matchPerson(person, normalizedOrcid) {
   // 1. ORCID match
   if (normalizedOrcid) {
     const { rows } = await pg.query(
-      `SELECT id, email, orcid FROM persons WHERE orcid = $1`,
+      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE person->>'orcid' = $1`,
       [normalizedOrcid]
     );
     if (rows.length > 0) {
@@ -85,7 +85,7 @@ async function matchPerson(person, normalizedOrcid) {
   // 2. Email match (case-insensitive)
   if (person.email && person.email.trim()) {
     const { rows } = await pg.query(
-      `SELECT id, email, orcid FROM persons WHERE lower(email) = lower($1)`,
+      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE lower(person->>'email') = lower($1)`,
       [person.email.trim()]
     );
     if (rows.length > 0) {
@@ -98,7 +98,7 @@ async function matchPerson(person, normalizedOrcid) {
   const surname = (person.surname || '').trim();
   if (given && surname) {
     const { rows } = await pg.query(
-      `SELECT id, email, orcid FROM persons WHERE lower(given_name) = lower($1) AND lower(family_name) = lower($2)`,
+      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE lower(person->>'givenName') = lower($1) AND lower(person->>'familyName') = lower($2)`,
       [given, surname]
     );
     if (rows.length === 1) {
@@ -117,16 +117,6 @@ async function matchPerson(person, normalizedOrcid) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting PBot persons migration...`);
-
-  // --- Load dictionary lookups ---
-
-  const { rows: genderRows } = await pg.query(
-    `SELECT id, genders FROM dictionaries.genders`
-  );
-  const genderMap = Object.fromEntries(genderRows.map((r) => [r.genders, r.id]));
-  const anonymousGenderId = genderMap['Anonymous'];
-  if (!anonymousGenderId) throw new Error('Anonymous gender not found in dictionaries.genders');
-  console.log(`  Anonymous gender_id: ${anonymousGenderId}`);
 
   // --- Fetch PBot persons ---
 
@@ -176,7 +166,7 @@ async function main() {
       // Backfill ORCID
       if (normalizedOrcid && (!pgPerson.orcid || !pgPerson.orcid.trim())) {
         await pg.query(
-          `UPDATE persons SET orcid = $1 WHERE id = $2`,
+          `UPDATE persons SET person = jsonb_set(person, '{orcid}', to_jsonb($1::text)) WHERE id = $2`,
           [normalizedOrcid, pgPerson.id]
         );
         console.log(`    Backfilled ORCID → ${normalizedOrcid}`);
@@ -186,30 +176,40 @@ async function main() {
       // Backfill email (only for ORCID or name matches — email matches already have it)
       if (result.method !== 'email' && (!pgPerson.email || !pgPerson.email.trim())) {
         await pg.query(
-          `UPDATE persons SET email = $1 WHERE id = $2`,
+          `UPDATE persons SET person = jsonb_set(person, '{email}', to_jsonb($1::text)) WHERE id = $2`,
           [email, pgPerson.id]
         );
         console.log(`    Backfilled email → ${email}`);
         counts.emailBackfill++;
       }
+
+      // Backfill legacyIDs.pbotID
+      await pg.query(
+        `UPDATE persons SET person = person || jsonb_build_object('legacyIDs',
+          COALESCE(person->'legacyIDs', '{}'::jsonb) || jsonb_build_object('pbotID', $1::text)
+        ) WHERE id = $2`,
+        [person.pbotID, pgPerson.id]
+      );
+      console.log(`    Backfilled legacyIDs.pbotID → ${person.pbotID}`);
     } else {
-      // No match — insert new person
+      // No match — insert new person with JSONB
+      const personJsonb = {
+        givenName: given,
+        familyName: surname,
+        gender: 'Anonymous',
+        legacyIDs: { pbotID: person.pbotID },
+      };
+      if (email) personJsonb.email = email;
+      if (normalizedOrcid) personJsonb.orcid = normalizedOrcid;
+
       const { rows: inserted } = await pg.query(
-        `INSERT INTO persons (given_name, family_name, middle, email, password, orcid,
-                              role_id, authorizer_person_id, gender_id, country_code,
-                              institution, active, total_hours)
-         VALUES ($1, $2, NULL, $3, NULL, $4,
-                 $5, $6, $7, NULL,
-                 NULL, true, NULL)
+        `INSERT INTO persons (password, role_id, person, authorizer_person_id, active, total_hours)
+         VALUES (NULL, $1, $2, $3, true, NULL)
          RETURNING id`,
         [
-          given,                   // $1 given_name
-          surname,                 // $2 family_name
-          email,                   // $3 email
-          normalizedOrcid,         // $4 orcid
-          PERSON_ROLE_ID,          // $5 role_id
-          AUTHORIZER_PERSON_ID,    // $6 authorizer_person_id
-          anonymousGenderId,       // $7 gender_id
+          PERSON_ROLE_ID,          // $1 role_id
+          personJsonb,             // $2 person (JSONB)
+          AUTHORIZER_PERSON_ID,    // $3 authorizer_person_id
         ]
       );
 
