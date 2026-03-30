@@ -125,6 +125,7 @@ export const schemaSchema = {
                 year: {
                     type: "string",
                     maxLength: 4
+                    //probably want constraints on value
                 },
                 purpose: {
                     type: "string",
