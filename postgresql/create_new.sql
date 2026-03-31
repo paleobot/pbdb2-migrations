@@ -215,6 +215,7 @@ CREATE TABLE characters (
     character jsonb NOT NULL,
     preceded_by_id integer REFERENCES characters("id"),
     succeeded_by_id integer REFERENCES characters("id"),
+    removed boolean,
     CONSTRAINT character_of CHECK (
         (parent_schema_id IS NOT NULL AND parent_character_id IS NULL) OR
         (parent_schema_id IS NULL AND parent_character_id IS NOT NULL)
@@ -235,6 +236,7 @@ CREATE TABLE states (
     quantitative boolean NOT NULL DEFAULT FALSE,
     preceded_by_id integer REFERENCES states("id"),
     succeeded_by_id integer REFERENCES states("id"),
+    removed boolean,
     CONSTRAINT state_of CHECK (
         (parent_character_id IS NOT NULL AND parent_state_id IS NULL) OR
         (parent_character_id IS NULL AND parent_state_id IS NOT NULL)
