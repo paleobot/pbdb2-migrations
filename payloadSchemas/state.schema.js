@@ -35,7 +35,7 @@ export const stateSchema = {
                     type: "string"
                 },
                 order: {
-                    type: "integer"
+                    type: "integer",
                     minimum: 1
                 }
             }
