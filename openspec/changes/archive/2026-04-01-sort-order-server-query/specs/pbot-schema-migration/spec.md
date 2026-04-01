@@ -1,0 +1,1 @@
+<!-- No spec-level requirement changes. This change updates the server query implementation to use the sort_order column instead of the JSONB order field. The underlying requirements for character and state ordering are unchanged. -->

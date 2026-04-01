@@ -13,7 +13,7 @@ target_schema AS (
 char_tree AS (
   SELECT c.id, c.permid, c.character,
          c.parent_schema_id, c.parent_character_id,
-         0 AS depth
+         c.sort_order, 0 AS depth
   FROM characters c
   JOIN target_schema ts ON c.parent_schema_id = ts.id
   WHERE NOT COALESCE(c.removed, false)
@@ -22,7 +22,7 @@ char_tree AS (
 
   SELECT c.id, c.permid, c.character,
          c.parent_schema_id, c.parent_character_id,
-         ct.depth + 1
+         c.sort_order, ct.depth + 1
   FROM characters c
   JOIN char_tree ct ON c.parent_character_id = ct.id
   WHERE NOT COALESCE(c.removed, false)
@@ -31,7 +31,7 @@ char_tree AS (
 state_tree AS (
   SELECT s.id, s.permid, s.state,
          s.parent_character_id, s.parent_state_id,
-         0 AS depth
+         s.sort_order, 0 AS depth
   FROM states s
   JOIN char_tree ct ON s.parent_character_id = ct.id
   WHERE NOT COALESCE(s.removed, false)
@@ -40,7 +40,7 @@ state_tree AS (
 
   SELECT s.id, s.permid, s.state,
          s.parent_character_id, s.parent_state_id,
-         st.depth + 1
+         s.sort_order, st.depth + 1
   FROM states s
   JOIN state_tree st ON s.parent_state_id = st.id
   WHERE NOT COALESCE(s.removed, false)
@@ -79,10 +79,10 @@ SELECT
       'pbotID',            ct.permid,
       'name',              ct.character->>'name',
       'definition',        ct.character->>'definition',
-      'order',             (ct.character->>'order')::int,
+      'sortOrder',         ct.sort_order,
       'parentSchemaId',    ct.parent_schema_id,
       'parentCharacterId', ct.parent_character_id
-    ) ORDER BY ct.depth, (ct.character->>'order')::int NULLS LAST), '[]'::json)
+    ) ORDER BY ct.depth, ct.sort_order NULLS LAST), '[]'::json)
     FROM char_tree ct
   ) AS characters,
 
@@ -92,10 +92,10 @@ SELECT
       'pbotID',            st.permid,
       'name',              st.state->>'name',
       'definition',        st.state->>'definition',
-      'order',             (st.state->>'order')::int,
+      'sortOrder',         st.sort_order,
       'parentCharacterId', st.parent_character_id,
       'parentStateId',     st.parent_state_id
-    ) ORDER BY st.depth, (st.state->>'order')::int NULLS LAST), '[]'::json)
+    ) ORDER BY st.depth, st.sort_order NULLS LAST), '[]'::json)
     FROM state_tree st
   ) AS states
 
@@ -131,7 +131,7 @@ function buildSchemaTree(row) {
     }
   }
 
-  const sortByOrder = (a, b) => (a.order ?? Infinity) - (b.order ?? Infinity);
+  const sortByOrder = (a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
   for (const [, c] of charMap) {
     c.characters.sort(sortByOrder);
     c.states.sort(sortByOrder);
@@ -140,6 +140,10 @@ function buildSchemaTree(row) {
     s.states.sort(sortByOrder);
   }
   topChars.sort(sortByOrder);
+
+  // Strip sortOrder from output — used only for sorting
+  for (const [, c] of charMap) delete c.sortOrder;
+  for (const [, s] of stateMap) delete s.sortOrder;
 
   return {
     pbotID: row.pbotID,
