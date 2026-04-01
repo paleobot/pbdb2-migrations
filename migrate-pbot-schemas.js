@@ -263,11 +263,6 @@ function buildCharacterJsonb(character) {
     definition: character.definition,
   };
 
-  if (character.order != null) {
-    const order = parseInt(character.order, 10);
-    if (!isNaN(order)) jsonb.order = order;
-  }
-
   return jsonb;
 }
 
@@ -279,11 +274,6 @@ function buildStateJsonb(state) {
     name: state.name,
     definition: state.definition,
   };
-
-  if (state.order != null) {
-    const order = parseInt(state.order, 10);
-    if (!isNaN(order)) jsonb.order = order;
-  }
 
   return jsonb;
 }
@@ -448,9 +438,11 @@ async function main() {
 
       const jsonb = buildCharacterJsonb(char);
 
+      const sortOrder = char.order != null ? parseInt(char.order, 10) : null;
+
       const { rows } = await pg.query(
-        `INSERT INTO characters (permid, authorizer_person_id, enterer_person_id, parent_schema_id, parent_character_id, character, preceded_by_id, succeeded_by_id)
-         VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)
+        `INSERT INTO characters (permid, authorizer_person_id, enterer_person_id, parent_schema_id, parent_character_id, sort_order, character, preceded_by_id, succeeded_by_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL)
          RETURNING id`,
         [
           char.pbotID,
@@ -458,6 +450,7 @@ async function main() {
           entererPgId,
           parentSchemaId,
           parentCharacterId,
+          isNaN(sortOrder) ? null : sortOrder,
           JSON.stringify(jsonb),
         ]
       );
@@ -539,9 +532,11 @@ async function main() {
       // Quantitative flag
       const quantitative = (state.name || '').toLowerCase() === 'quantity';
 
+      const sortOrder = state.order != null ? parseInt(state.order, 10) : null;
+
       const { rows } = await pg.query(
-        `INSERT INTO states (permid, authorizer_person_id, enterer_person_id, parent_character_id, parent_state_id, state, quantitative, preceded_by_id, succeeded_by_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL)
+        `INSERT INTO states (permid, authorizer_person_id, enterer_person_id, parent_character_id, parent_state_id, sort_order, state, quantitative, preceded_by_id, succeeded_by_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
          RETURNING id`,
         [
           state.pbotID,
@@ -549,6 +544,7 @@ async function main() {
           entererPgId,
           parentCharacterId,
           parentStateId,
+          isNaN(sortOrder) ? null : sortOrder,
           JSON.stringify(jsonb),
           quantitative,
         ]

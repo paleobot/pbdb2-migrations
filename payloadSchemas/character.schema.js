@@ -34,10 +34,12 @@ export const characterSchema = {
                 definition: {
                     type: "string"
                 },
+                /*
                 order: {
                     type: "integer",
                     minimum: 1
                 }
+                */
             }
         }
     }

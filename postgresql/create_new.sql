@@ -211,7 +211,7 @@ CREATE TABLE characters (
     parent_character_id integer REFERENCES characters("id"), -- optional
     --name text NOT NULL,
     --definition text,
-    --sort_order integer, -- Probably needs to be some constraint expression here that checks whether the order makes sense - i.e., for given parent, cannot be 2 if there is no 1
+    sort_order integer, -- Probably needs to be some constraint expression here that checks whether the order makes sense - i.e., for given parent, cannot be 2 if there is no 1
     character jsonb NOT NULL,
     preceded_by_id integer REFERENCES characters("id"),
     succeeded_by_id integer REFERENCES characters("id"),
@@ -231,7 +231,7 @@ CREATE TABLE states (
     parent_state_id integer REFERENCES states("id"), -- optional
     --name text NOT NULL,
     --definition text,
-    --sort_order integer, -- Probably needs to be some constraint expression here that checks whether the order makes sense - i.e., for given parent, cannot be 2 if there is no 1
+    sort_order integer, -- Probably needs to be some constraint expression here that checks whether the order makes sense - i.e., for given parent, cannot be 2 if there is no 1
     state jsonb NOT NULL,
     quantitative boolean NOT NULL DEFAULT FALSE,
     preceded_by_id integer REFERENCES states("id"),
