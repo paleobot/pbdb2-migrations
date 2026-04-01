@@ -10,18 +10,28 @@ The system SHALL read database connection parameters from a `.env` file using th
 - **THEN** the script exits with a clear error message indicating which variables are missing
 
 ### Requirement: Shared connection module
-The system SHALL provide a `db.js` module that exports connection pools for both databases. The module SHALL export:
-- `mariadb` — a `mysql2/promise` connection pool for the source database
-- `pg` — a `pg.Pool` instance for the target database
-- `closeAll()` — a function that closes both connection pools
+The system SHALL provide database connection pools as separate modules that can be imported independently:
+- `pg-pool.js` — exports a `pg.Pool` instance for the target PostgreSQL database and a `closePg()` function
+- `mariadb-pool.js` — exports a `mysql2/promise` connection pool for the source MariaDB database and a `closeMariadb()` function
+- `db.js` — re-exports `mariadb` from `mariadb-pool.js`, `pg` from `pg-pool.js`, and a `closeAll()` function that closes both pools
 
-#### Scenario: Module imported by a migration script
-- **WHEN** a script runs `const { mariadb, pg, closeAll } = require('./db')`
+Scripts that only need PostgreSQL SHALL import from `pg-pool.js` directly, avoiding any dependency on MariaDB configuration.
+
+#### Scenario: PG-only script imports pg-pool.js
+- **WHEN** a script imports `{ pg, closePg }` from `pg-pool.js` and only `PG_*` env vars are set
+- **THEN** the PostgreSQL pool is available for queries without requiring MariaDB env vars
+
+#### Scenario: Dual-database script imports db.js
+- **WHEN** a script imports `{ mariadb, pg, closeAll }` from `db.js`
 - **THEN** both pools are available for queries and `closeAll()` cleanly shuts down both connections
 
-#### Scenario: Clean shutdown after migration
-- **WHEN** a migration script calls `closeAll()` after completing its work
-- **THEN** all database connections are released and the Node.js process can exit cleanly
+#### Scenario: Missing PG env vars
+- **WHEN** a script imports from `pg-pool.js` and required `PG_*` variables are missing
+- **THEN** the module exits with an error listing the missing variables
+
+#### Scenario: Missing MariaDB env vars
+- **WHEN** a script imports from `mariadb-pool.js` and required `MARIADB_*` variables are missing
+- **THEN** the module exits with an error listing the missing variables
 
 ### Requirement: .env variable schema
 The `.env` file SHALL support the following variables:
@@ -38,6 +48,9 @@ The `.env` file SHALL support the following variables:
 | PG_USER | yes | — |
 | PG_PASSWORD | yes | — |
 | PG_DATABASE | yes | — |
+| PG_CA_CERT | no | — |
+
+When `PG_CA_CERT` is set, the system SHALL read the file at that path and use its contents as the CA certificate for the PostgreSQL SSL connection.
 
 #### Scenario: Default port values
 - **WHEN** `MARIADB_PORT` or `PG_PORT` is not set in `.env`
@@ -46,3 +59,15 @@ The `.env` file SHALL support the following variables:
 #### Scenario: Default MariaDB database name
 - **WHEN** `MARIADB_DATABASE` is not set in `.env`
 - **THEN** the connection module connects to `pbdb_archive`
+
+#### Scenario: PG_CA_CERT not set
+- **WHEN** `PG_CA_CERT` is not set in `.env`
+- **THEN** the PostgreSQL connection pool is created without SSL configuration
+
+#### Scenario: PG_CA_CERT set to a valid certificate path
+- **WHEN** `PG_CA_CERT` is set to a path containing a valid CA certificate file
+- **THEN** the PostgreSQL connection pool is created with `ssl.ca` set to the file contents, enabling encrypted and CA-verified connections
+
+#### Scenario: PG_CA_CERT set to a nonexistent path
+- **WHEN** `PG_CA_CERT` is set but the file does not exist at that path
+- **THEN** the system SHALL fail immediately with an error indicating the file could not be read
