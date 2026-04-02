@@ -8,6 +8,7 @@ target_schema AS (
   FROM schemas s
   WHERE s.permid = $1
     AND NOT COALESCE(s.removed, false)
+    AND s.succeeded_by_id IS NULL
 ),
 
 char_tree AS (
@@ -17,6 +18,7 @@ char_tree AS (
   FROM characters c
   JOIN target_schema ts ON c.parent_schema_id = ts.id
   WHERE NOT COALESCE(c.removed, false)
+    AND c.succeeded_by_id IS NULL
 
   UNION ALL
 
@@ -35,6 +37,7 @@ state_tree AS (
   FROM states s
   JOIN char_tree ct ON s.parent_character_id = ct.id
   WHERE NOT COALESCE(s.removed, false)
+    AND s.succeeded_by_id IS NULL
 
   UNION ALL
 
