@@ -28,6 +28,7 @@ char_tree AS (
   FROM characters c
   JOIN char_tree ct ON c.parent_character_id = ct.id
   WHERE NOT COALESCE(c.removed, false)
+    AND c.succeeded_by_id IS NULL
 ),
 
 state_tree AS (
@@ -47,6 +48,7 @@ state_tree AS (
   FROM states s
   JOIN state_tree st ON s.parent_state_id = st.id
   WHERE NOT COALESCE(s.removed, false)
+    AND s.succeeded_by_id IS NULL
 )
 
 SELECT
