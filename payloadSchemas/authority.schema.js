@@ -26,11 +26,7 @@ export const authoritySchema = {
                     type: "array",
                     minItems: 1,
                     items: {
-                        type: "object",
-                        properties: {
-                            familyName: {type: "string"},
-                            givenName: {type: "string"}
-                        }
+                        type: "string"
                     }
                 },
                 year: {
@@ -50,10 +46,8 @@ export const authoritySchema = {
             },
             then: {
                 required: ["authors"]
-            }
-            else: {
-                not: { required: ["authors"] }
-            }
+            },
+            else: { properties: { authors: false, year: false } }
         }
     }
 }
