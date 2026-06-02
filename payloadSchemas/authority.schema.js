@@ -16,15 +16,18 @@ export const authoritySchema = {
                 legacyIDs: {
                     type: "object",
                     properties: {
-                        oldpbdbID: {
-                            type: "string",
-                            description: "Legacy ID for authorities migrated from old PBDB"
-                        },
+                        oldpbdbIDs: {
+                            type: "array",
+                            items: { type:"string" },
+                            description: "Legacy IDs for authorities migrated from old PBDB"
+                        }
                     }
                 },
-                authors: {
+                citation: {
+                    type: "string"
+                },
+                descriptors: {
                     type: "array",
-                    minItems: 1,
                     items: {
                         type: "string"
                     }
@@ -33,21 +36,14 @@ export const authoritySchema = {
                     type: "string",
                     maxLength: 4
                 },
-                referenceIsAuthority: {
+                publishedInReference: {
                     type: "boolean"
                 }
             },
             unevaluatedProperties: false, //new with Draft 2019-09
             required: [
-                "referenceIsAuthority",
+                "publishedInReference", "citation"
             ],
-            if: {
-                properties: { referenceIsAuthority: { const: false } }
-            },
-            then: {
-                required: ["authors"]
-            },
-            else: { properties: { authors: false, year: false } }
         }
     }
 }
