@@ -94,7 +94,8 @@ const collectionProperties = {
                             type: "string",
                             enum: ["stratigraphy", "fossil"]
                         }
-                    }
+                    },
+                    required: ["age"]
                 }
             },
             intervals: {
@@ -168,9 +169,9 @@ const collectionProperties = {
                 type: "string",
                 enum: [
                     "hand sample",
-                    "small collection (<10x10m)",
-                    "outcrop (<1x1km)",
-                    "local area (<100x100km)",
+                    "small collection",
+                    "outcrop",
+                    "local area",
                     "basin"
                 ],
                 description: "Scale of geographic resolution"
@@ -365,49 +366,52 @@ const collectionProperties = {
                     "tar"
                 ]
             },
+            tectonicSetting: {
+                type: "string",
+                enum: ["rift","passive margin","back-arc basin","cratonic basin","deep ocean basin","forearc basin","foreland basin","intermontane basin","intramontane basin","piggyback basin","pull-apart basin","volcanic basin","impact basin","non-subsiding area"]
+            },
             comments: {
                 type: "string",
                 description: "Notes on environment"
             },
         }
     }
-    preservation: {
-        //Placeholder TBD
+    paleontology: {
+        //This is a placeholder for TBD paleontology object
         type: "object",
         properties: {
-            modes: {
+            preservation: {
+                type: "object",
+                properties: {
+                    modes: {
+                        type: "array",
+                        items: {
+                            type: "string",
+                            enum: [
+                                "body","cast","mold/impression","adpression","trace","concretion","soft parts","recrystallized","permineralized","dissolution traces","charcoalification","coalified","original aragonite","original calcite","original phosphate","original silica","original chitin","original carbon","original sporopollenin","original cellulose","replaced with calcite","replaced with dolomite","replaced with silica","replaced with pyrite","replaced with siderite","replaced with hematite","replaced with limonite","replaced with phosphate","replaced with carbon","replaced with other","amber","anthropogenic","bone collector","coquina","coprolite","midden","shellbed"
+                            ]
+                        },
+                        description: "List of preservation mode IDs"
+                    },
+                    comments: {
+                        type: "string"
+                    }
+                }
+            },
+            sizeClasses: {
                 type: "array",
                 items: {
                     type: "string",
                     enum: [
-                        "body","cast","mold/impression","adpression","trace","concretion","soft parts","recrystallized","permineralized","dissolution traces","charcoalification","coalified","original aragonite","original calcite","original phosphate","original silica","original chitin","original carbon","original sporopollenin","original cellulose","replaced with calcite","replaced with dolomite","replaced with silica","replaced with pyrite","replaced with siderite","replaced with hematite","replaced with limonite","replaced with phosphate","replaced with carbon","replaced with other","amber","anthropogenic","bone collector","coquina","coprolite","midden","shellbed"
+                        "> 10 mm",
+                        "1 - 10 mm",
+                        "< 1 mm"
                     ]
                 },
-                description: "List of preservation mode IDs"
+                description: "Size classes of specimens in collection"
             },
-            comments: {
-                type: "string"
-            }
         }
-    },
-    tectonicSetting: {
-        //Placeholder TBD
-        type: "string",
-        enum: ["rift","passive margin","back-arc basin","cratonic basin","deep ocean basin","forearc basin","foreland basin","intermontane basin","intramontane basin","piggyback basin","pull-apart basin","volcanic basin","impact basin","non-subsiding area"]
-    },
-    sizeClasses: {
-        //Placeholder TBD
-        type: "array",
-        items: {
-            type: "string",
-            enum: [
-                "> 10 mm",
-                "1 - 10 mm",
-                "< 1 mm"
-            ]
-        },
-        description: "Size classes of specimens in collection"
-    },
+    }
 };
 
 //completeCollectionProperties contains fields that are built from relationships in the containing db record. (Note: location.adminx values may fit better here.)
