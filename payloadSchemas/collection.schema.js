@@ -95,7 +95,7 @@ const collectionProperties = {
                             enum: ["stratigraphy", "fossil"]
                         }
                     },
-                    required: ["age"]
+                    required: ["age", "unit", "error", "method", "measurementType"]
                 }
             },
             intervals: {
