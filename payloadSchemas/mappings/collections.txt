@@ -1,74 +1,49 @@
-collection_no				collection.oldpbdbid
-authorizer_no				authorizer_person_id
-enterer_no					enterer_person_id
-collection_type				collection.collectionType (use enum from pbdb)
-collection_name				collection.name
-reference_no				reference_id
+collection.legacyIDs.oldpbdbid						collection_no
+authorizer_person_id								authorizer_no
+enterer_person_id									enterer_no
+collection.name										collection_name
+collection.akaName									collection_aka
+reference_id										reference_no
+//Note: we also need to use pbdb's secondary_refs table to populate the new additional_collection_refs table
 
-country						collection.country (must be a full_name from dictionaries.countries)
-state						collection.state (??)
-county						collection.county
-coordinates 				geom
-latlng_basis				collection.locationBasis (enum based on current pbdb values)
-paleolng 					paleogeom (from paleolat and paleolng)
-paleolat 					(see paleogeom)
-plate						collection.plate (enum based on current pbdb values, or is there another source?)
-gps_datum					collection.gpsDatum (use enum from pbdb)
-altitude_value				collection.altitude.value
-altitude_unit				collection.altitude.unit (use enum from pbdb)
-geogscale					collection.geographicScale (use enum from pbdb)
-geogcomments				collection.geographicComments
+collection.context.collectors						collectors
+collection.context.methods							coll_meth (split csv into array of strings)
+collection.context.dates							collection_dates
+collection.context.comments							collection_comments
 
-formation					collection.stratigraphy.formation
-geological_group			collection.stratigraphy.group
-member						collection.stratigraphy.member
-regionalsection				collection.stratigraphy.regionalSection
-regionalbed					collection.stratigraphy.regionalBed
-regionalbedunit				collection.stratigraphy.regionalBedUnit (use enum from pbdb)
-regionalorder				collection.stratigraphy.regionalOrder (use enum from pbdb)
-localsection				collection.stratigraphy.localSection
-localbed					collection.stratigraphy.localBed
-localbedunit				collection.stratigraphy.localBedUnit (use enum from pbdb)
-localorder					collection.stratigraphy.localOrder (use enum from pbdb)
-stratscale					collection.stratigraphy.stratScale (use enum from pbdb)
-stratcomments				collection.stratigraphy.comments
+collection.location.administrativeAreas.admin0		country	(use iso from closest matching name in dictionaries.admin0)
+collection.location.administrativeAreas.admin1		state (use iso from closest matching name in dictionaries.admin1)
+collection.location.administrativeAreas.admin2		county
+location											(This is a PostGIS geography field using WGS84. It must be calcuated from whatever useful data is available in the old collections table: coordinates, lat, lng, latdeg/min/sec, lngdeg/min/sec, gps_datum, etc. To be honest, this is going to be a bit of a mess.)
+collection.location.coordinates.basis				latlng_basis
+collection.location.coordinates.altitude			altitude_value converted to meters if necessary, depending on altitude_unit (if blank or null flag in output but do not migrate)
+collection.location.scale							geogscale
+collection.location.comments						geogcomments
+collection.location.repository.institution			museum
 
-tectonic_setting			collection.tectonicSetting (use enum from pbdb)
-environment					collection.environment (use enum from pbdb)
+collection.stratigraphy.stratonyms.supergroup		supergroup
+collection.stratigraphy.stratonyms.group			group
+collection.stratigraphy.stratonyms.subgroup			subgroup
+collection.stratigraphy.stratonyms.formation		formation
+collection.stratigraphy.stratonyms.member			member
+collection.stratigraphy.stratonyms.bed				bed
+collection.stratigraphy.scale						stratscale
+collection.stratigraphy.comments					stratcomments
+collection.stratigraphy.measuredSections.section	local_section
+collection.stratigraphy.measuredSections.bed		local_bed
+collection.stratigraphy.measuredSections.unit		local_bed_unit
+collection.stratigraphy.measuredSections.order		local_order
 
-lithdescript				collection.lithology.description
-lithification				collection.lithology.observations[0].lithification (use enum from pbdb)
-lithology1					collection.lithology.observations[0].major (use enum from pbdb)
-minor_lithology				collection.lithology.observations[0].minor (use set from pbdb)
-fossilsfrom1				collection.lithology.observations[0].fossils
-lithadj	(csv)				collection.lithology.observations[0].adjectives (array)
-lithification2				collection.lithology.observations[1].lithification (use enum from pbdb)
-lithology2					collection.lithology.observations[1].major (use enum from pbdb)
-minor_lithology2			collection.lithology.observations[1].minor (use set from pbdb)
-fossilsfrom2				collection.lithology.observations[1].fossils
-lithadj2 (csv)				collection.lithology.observations[1].adjectives (array)
+collection.lithofacies
+/*This is an array of objects as described in the schema. The first object in the array will be built from lithology1, minor_lithology merged with lithadj, fossilsfrom1, lithification. The second object in the array will be built from lithology2, minor_lithology2 merged with lithadj2, fossilsfrom2, lithification2.*/
 
-max_interval_no				collection.maxAge (from pbdb interval_data[max_interval_no].interval_name)
-min_interval_no				collection.minAge (from pbdb interval_data[min_interval_no].interval_name)
+collection.ages.measurements
+/*This is an array of objects as described in the schema. It will be populated by [direct/min/max][_ma/_ma_unit/_ma_error/_ma_method]. measurementType is determined by the prefix.*/
 
-direct_ma					collection.ageMeasurements[0].age
-direct_ma_error				collection.ageMeasurements[0].error
-direct_ma_unit				collection.ageMeasurements[0].unit (use enum from pbdb)
-direct_ma_method			collection.ageMeasurements[0].method (use enum from pbdb)
-max_ma						collection.ageMeasurements[1].age
-max_ma_error				collection.ageMeasurements[1].error
-max_ma_unit					collection.ageMeasurements[1].unit (use enum from pbdb)
-max_ma_method				collection.ageMeasurements[1].method (use enum from pbdb)
-min_ma						collection.ageMeasurements[2].age
-min_ma_error				collection.ageMeasurements[2].error
-min_ma_unit					collection.ageMeasurements[2].unit (use enum from pbdb)
-min_ma_method				collection.ageMeasurements[2].method (use enum from pbdb)
+/*ages.intervals, environment, and paleotology are still TBD and will be added to this migration later.*/
 
-research_group				group_id (fk to id in groups table, determined by name)
-museum						collection.museum
-pres_mode					collection.preservationModes (use set from pbdb)
-collection_comments			collection.comments
-access_level				access_level_id (fk to id in access_levels table, determined by name)
-coll_meth					collection.collectionMethods (use set from pbdb)
-collection_dates			collection.dates (This string has no consistency and can't reliably be parsed)
-collectors					collection.collectors
+
+
+
+
+
