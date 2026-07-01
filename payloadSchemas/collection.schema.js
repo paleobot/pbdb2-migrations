@@ -3,7 +3,7 @@ Validation schemas in JSON Schema format. Note that fastify uses ajv (https://aj
 */
 //TODO: Right now, publication type differentiation and required fields are split off into createSchema. This create/editSchema dichotomy is an artifact of our use of JSON Merge Patch in the upload API.
 /*
- * Note: Some enum values (timescale, lithology, environment, intervals, preservationMos)de
+ * Note: Some enum values (timescale, lithology, environment, intervals, preservationMode)
  * are dynamically loaded from external APIs or the database and are represented as strings.
  * These will require pre-processing of the schema before it can be used for validation.
  * Ultimately, all enums will load from the dictionaries schema in the postgresql db.
@@ -24,88 +24,37 @@ const collectionProperties = {
             oldpbdbID: {
                 type: "string",
                 description: "Legacy ID for collections migrated from old PBDB"
-            }
+            },
             pbotID: {
                 type: "string",
                 description: "Legacy ID for collections migrated from PBot"
             },
         }
     },
-    context :{
-        collectionType: {
-            type: "string",
-            enum: [
-                "archaeologic",
-                "biostratigraphic",
-                "paleoecologic",
-                "taphonomic",
-                "taxonomic",
-                "general faunal/floral"
-            ],
-            description: "Type of collection"
-        },
-        collectors: {
-            type: "string",
-            description: "Names of collectors"
-        },
-        collectionMethods: {
-            type: "array",
-            items: {
-                type: "string",
-                enum: [
-                    "bulk","core","salvage","selective quarrying","surface (float)","surface (in situ)","anthill","chemical","mechanical","peel or thin section","smear slide","acetic","hydrochloric","hydroflouric","peroxide","sieve","field collection","survey of museum collection","private collection","observed (not collected)","repository not specified"
-                ]
-            },
-            description: "Methods used for collection"
-        },
-        dates: {
-            type: "string",
-        }
-        comments: {
-            type: "string",
-            description: "Notes on collecting"
-        },
-    },
-    ages: {
+    context : {
         type: "object",
         properties: {
-            measurements: {
+            collectors: {
+                type: "string",
+                description: "Names of collectors"
+            },
+            collectionMethods: {
                 type: "array",
                 items: {
-                    type: "object",
-                    properties: {
-                        age: {
-                            type: "string"
-                        },
-                        error: {
-                            type: "string"
-                        },
-                        unit: {
-                            type: "string",
-                            enum: [
-                                "Ma","Ka","YBP"
-                            ]
-                        },
-                        method: {
-                            type: "string",
-                            enum: ["Ar/Ar","astronomical","14C","14C (calibrated)","dendrochronology","ESR","fission track","K-Ar","Lu-Hf","paleomagnetic","Rb-Sr","Sr isotope","U/Pb","U/Th","age-depth","AEO","CONOP","graphic correlation","RASC","seriation","UA","other","unknown"]
-                        },
-                        measurementType: {
-                            type: "string",
-                            enum: ["stratigraphy", "fossil"]
-                        }
-                    },
-                    required: ["age", "unit", "error", "method", "measurementType"]
-                }
+                    type: "string",
+                    enum: [
+                        "bulk","core","salvage","selective quarrying","surface (float)","surface (in situ)","anthill","chemical","mechanical","peel or thin section","smear slide","acetic","hydrochloric","hydroflouric","peroxide","sieve","field collection","survey of museum collection","private collection","observed (not collected)","repository not specified"
+                    ]
+                },
+                description: "Methods used for collection"
             },
-            intervals: {
-                type: "string"
-                description: "Placeholder for TBD intervals object"
-            }
+            dates: {
+                type: "string",
+            },
             comments: {
                 type: "string",
-                description: "Notes on age"
-            }
+                description: "Notes on collecting"
+            },
         },
     },
     location: {
@@ -117,19 +66,19 @@ const collectionProperties = {
                     admin0: {
                         type: "string",
                         description: "country"
-                        //Country code (ISO 3166-1 alpha-2). From dictionaries.countries.abbreviation. This requires pre-processing of schema before it can be used
+                        //Country code (ISO 3166-1). From dictionaries.admin0.iso. This requires pre-processing of schema to build enum before it can be used
                     },
                     admin1: {
                         type: "string",
                         description: "state/province"
-                        //State/province code. From dictionaries.states.abbreviation. This requires pre-processing of schema before it can be used
+                        //State/province code. From dictionaries.admin1.iso. This requires pre-processing of schema to build enum before it can be used
                     },
                     admin2: {
                         type: "string",
                         description: "county, etc."
                     }
                 },
-                required: ["country"],
+                required: ["admin0"],
                 if: {
                     properties: {
                         admin0: {
@@ -164,7 +113,7 @@ const collectionProperties = {
                         }
                     }
                 }
-            }
+            },
             scale: {
                 type: "string",
                 enum: [
@@ -192,37 +141,35 @@ const collectionProperties = {
                 }
             }
         },
-        required: ["country", "scale"]
+        //required: ["scale"]
     },
     lithofacies: {
-                type: "array",
-                items: {
-                    type: "object",
-                    properties: {
-                        lithology: {
-                            type: "string",
-                            enum: ["not reported","\"siliciclastic\"","clayston","mudstone","\"shale\"","siltstone","sandstone","gravel","conglomerate","breccia","\"mixed carbonate-siliciclastic\"","marl","lime mudstone","chalk","travertine","wackestone","packstone","grainstone","\"reef rocks\"","floatstone","rudstone","bafflestone","bindstone","framestone","\"limestone\"","dolomite","\"carbonate\"","calcareous ooze","chert","diatomite","silicious ooze","radiolarite","amber","coal","peat","lignite","subbituminous coal","bituminous coal","anthracite","coal ball","tar","evaporite","gypsum","phosphorite","pyrite","ironstone","siderite","phyllite","slate","schist","quartzite","\"volcaniclastic\"","ash","tuff"]
-                        },
-                        adjectives: {
-                            type: "array"
-                            items: {
-                                type: "string",
-                                enum: ["argillaceous","muddy","silty","sandy","conglomeratic","calcareous","cherty/siliceous","carbonaceous","massive","lenticular","tabular","desiccation cracks","current ripples","dunes","hummocky CS","wave ripples","\"cross stratification\"","wavy/flaser/lenticular bedding","planar lamination","tool marks","flute casts","deformed bedding","grading","burrows","bioturbation","paleosol/pedogenic","condensed","firmground","hardground","lag","very fine","fine","medium","coarse","very coarse","bentonitic","concretionary","diatomaceous","dolomitic","ferruginous","glauconitic","gypsiferous","hematitic","micaceous","nodular","pebbly","phosphatic","pyritic","quartzose","rubbly","sideritic","tuffaceous","stromatolitic","volcaniclastic","flat-pebble","intraclastic","oncoidal","ooidal","peloidal","shelly/skeletal","black","brown","gray","green","red","red or brown","white","yellow","blue","thrombolitic"]
-                            }
-                        },
-                        fossils: {
-                            type: "boolean"
-                        },
-                        lithification: {
-                            type: "string",
-                            enum: ["lithified","poorly lithified","unlithified","metamorphosed"]
-                        },
-                    },
-                    required: ["lithology"]
-                }
-            }
+        type: "array",
+        items: {
+            type: "object",
+            properties: {
+                lithology: {
+                    type: "string",
+                    enum: ["not reported","\"siliciclastic\"","claystone","mudstone","\"shale\"","siltstone","sandstone","gravel","conglomerate","breccia","\"mixed carbonate-siliciclastic\"","marl","lime mudstone","chalk","travertine","wackestone","packstone","grainstone","\"reef rocks\"","floatstone","rudstone","bafflestone","bindstone","framestone","\"limestone\"","dolomite","\"carbonate\"","calcareous ooze","chert","diatomite","silicious ooze","radiolarite","amber","coal","peat","lignite","subbituminous coal","bituminous coal","anthracite","coal ball","tar","evaporite","gypsum","phosphorite","pyrite","ironstone","siderite","phyllite","slate","schist","quartzite","\"volcaniclastic\"","ash","tuff"]
+                },
+                adjectives: {
+                    type: "array",
+                    items: {
+                        type: "string",
+                        enum: ["argillaceous","muddy","silty","sandy","conglomeratic","calcareous","cherty/siliceous","carbonaceous","massive","lenticular","tabular","desiccation cracks","current ripples","dunes","hummocky CS","wave ripples","\"cross stratification\"","wavy/flaser/lenticular bedding","planar lamination","tool marks","flute casts","deformed bedding","grading","burrows","bioturbation","paleosol/pedogenic","condensed","firmground","hardground","lag","very fine","fine","medium","coarse","very coarse","bentonitic","concretionary","diatomaceous","dolomitic","ferruginous","glauconitic","gypsiferous","hematitic","micaceous","nodular","pebbly","phosphatic","pyritic","quartzose","rubbly","sideritic","tuffaceous","stromatolitic","volcaniclastic","flat-pebble","intraclastic","oncoidal","ooidal","peloidal","shelly/skeletal","black","brown","gray","green","red","red or brown","white","yellow","blue","thrombolitic"]
+                    }
+                },
+                fossils: {
+                    type: "boolean"
+                },
+                lithification: {
+                    type: "string",
+                    enum: ["lithified","poorly lithified","unlithified","metamorphosed"]
+                },
+            },
+            required: ["lithology"]
         }
-    }
+    },
     stratigraphy: {
         type: "object",
         properties: {
@@ -235,12 +182,12 @@ const collectionProperties = {
                 description: "Notes on stratigraphy"
             },
             stratonyms: {
-                type: "object".
+                type: "object",
                 properties: {
                     supergroup: {
-                        type: "string"
+                        type: "string",
                         description: "Stratigraphic supergroup name"
-                    }
+                    },
                     group: {
                         type: "string",
                         description: "Stratigraphic group name"
@@ -248,7 +195,7 @@ const collectionProperties = {
                     subgroup: {
                         type: "string",
                         description: "Stratigraphic subgroup name"
-                    }
+                    },
                     formation: {
                         type: "string",
                         description: "Stratigraphic formation name"
@@ -262,7 +209,7 @@ const collectionProperties = {
                         description: "Stratigraphic bed name"
                     },
                 }
-            }
+            },
             measuredSections: {
                 type: "object",
                 properties: {
@@ -281,6 +228,49 @@ const collectionProperties = {
                 }
             },
         }
+    },
+    ages: {
+        type: "object",
+        properties: {
+            measurements: {
+                type: "array",
+                items: {
+                    type: "object",
+                    properties: {
+                        age: {
+                            type: "string"
+                        },
+                        error: {
+                            type: "string"
+                        },
+                        unit: {
+                            type: "string",
+                            enum: [
+                                "Ma","Ka","YBP"
+                            ]
+                        },
+                        method: {
+                            type: "string",
+                            enum: ["Ar/Ar","astronomical","14C","14C (calibrated)","dendrochronology","ESR","fission track","K-Ar","Lu-Hf","paleomagnetic","Rb-Sr","Sr isotope","U/Pb","U/Th","age-depth","AEO","CONOP","graphic correlation","RASC","seriation","UA","other","unknown"]
+                        },
+                        measurementType: {
+                            type: "string",
+                            enum: ["direct", "max", "min"]
+                        }
+                    },
+                    required: ["age", "unit", "error", "method", "measurementType"]
+                }
+            },
+            intervals: {
+                //Placeholder for TBD intervals
+                type: "string",
+                description: "Placeholder for TBD intervals object"
+            },
+            comments: {
+                type: "string",
+                description: "Notes on age"
+            }
+        },
     },
     environment: {
         //This is a placeholder for TBD environment object
@@ -375,7 +365,7 @@ const collectionProperties = {
                 description: "Notes on environment"
             },
         }
-    }
+    },
     paleontology: {
         //This is a placeholder for TBD paleontology object
         type: "object",
@@ -439,8 +429,8 @@ completeCollectionProperties.references = {
 }
 
 //latitude and longitude will not be stored in the jsonb. For incoming data, they will be used to populate the containing record's location column (of type geography). For outgoing data, they will be built on-the-fly from that column. All will be in WGS84 DD.
-completeCollectionProperties.location.coordinates.properties = {
-    ...completeCollectionCoordinates.location.coordinates.properties,
+completeCollectionProperties.location.properties.coordinates.properties = {
+    ...completeCollectionProperties.location.properties.coordinates.properties,
     latitude: {
         type: "number",
         minimum: -90,
@@ -454,12 +444,24 @@ completeCollectionProperties.location.coordinates.properties = {
         description: "Longitude coordinate"
     }
 }
-completeCollectionProperties.location.coordinates.required = [
-    ...completeCollectionProperties.location.coordinates.required,
+completeCollectionProperties.location.properties.coordinates.required = [
+    //...completeCollectionProperties.location.properties.coordinates.required,
     "latitude", "longitude"
 ]
 
-completeCollectionProperties.preservationModes.minItems = 1
+completeCollectionProperties.location.required = [
+    "scale"
+]
+
+completeCollectionProperties.location.properties.administrativeAreas.properties.admin0.enum = (() => {
+    //stub. Will query dictionaries.admin0.iso
+    return []
+})();
+
+completeCollectionProperties.location.properties.administrativeAreas.properties.admin1.enum = (() => {
+    //stub. Will query dictionaries.admin1.iso
+    return []
+})();
 
 
 export const collectionSchema = {
@@ -469,30 +471,26 @@ export const collectionSchema = {
     description: "A collection payload in the PBDB database",
     type: "object",
     properties: {
-		type: 'object',
-		properties: {
-			collection: {
-				type: "object",
-				properties: completeCollectionProperties,
-				unevaluatedProperties: false, //new with Draft 2019-09
-                required: [
-                    "name",
-                    "collectionType",
-                    //"timescale",
-                    //"maxinterval",
-                    //"gpsCoordinateUncertainty",
-                    //"country",
-                    "lithology",
-                    //"preservationModes",
-                    "references"
-                ],
-			},
-      	},
-		examples: [{
-			collection: {
-			}
-		}],
+        collection: {
+            type: "object",
+            properties: completeCollectionProperties,
+            unevaluatedProperties: false, //new with Draft 2019-09
+            required: [
+                "name",
+                "context",
+                //"timescale",
+                //"maxinterval",
+                //"gpsCoordinateUncertainty",
+                //"country",
+                //"preservationModes",
+                "references"
+            ],
+        },
 	},
+    examples: [{
+        collection: {
+        }
+    }],
 	response: {
 		201: {
 			description: "Collection created",
@@ -513,6 +511,21 @@ export const collectionSchema = {
 			}
 		}
 	}
+}
+
+export const collectionMigrationSchema = {
+    $schema: "https://json-schema.org/draft/2019-09/schema",
+    $id: "https://pbdb2.example.com/schemas/collection.migration.json",
+    title: "Collection (migration)",
+    type: "object",
+    properties: {
+        collection: {
+            type: "object",
+            properties: collectionProperties,   // ← base, not complete
+            unevaluatedProperties: false,
+            required: ["name"],
+        }
+    }
 }
 
 export default collectionSchema;
