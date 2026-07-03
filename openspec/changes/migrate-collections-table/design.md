@@ -54,18 +54,21 @@ The `coordinate` POINT (44% coverage, imprecise) and DMS fields (redundant) are 
 
 ### D4. Enum hydration before `ajv.compile`
 
-Three enums in the schema are empty stubs and will not compile (`enum: []` is invalid): `administrativeAreas.admin0`, `administrativeAreas.admin1`, and the `if`-condition country list (US/China/Russia/Australia/Canada). The migration hydrates these from `dictionaries.admin0`/`admin1` (ISO codes) at startup, before compiling the migration schema. The IIFE stubs in the schema file can't do this themselves (synchronous, no DB handle), so hydration is the migration's responsibility.
+Four enums in the schema are empty stubs and will not compile (`enum: []` is invalid): `toponym.administrativeArea.admin0`, `toponym.administrativeArea.admin1`, the `if`-condition country list (US/China/Russia/Australia/Canada), and `toponym.maritimeArea` (D11). The migration hydrates these from `dictionaries.admin0`/`admin1` (ISO codes) and `dictionaries.maritime` (`iho_name`) at startup, before compiling the migration schema. The IIFE stubs in the schema file can't do this themselves (synchronous, no DB handle), so hydration is the migration's responsibility.
 
 ### D5. Admin name → ISO resolution: normalize, then alias, then flag-and-skip
 
-Legacy `country`/`state` are free text and do **not** cleanly equal the dictionary names — measuring against `dictionaries.admin0` showed 254 distinct countries with 27 unmatched by naïve exact match, covering ~46K rows. The unmatched split into two kinds: (a) **name variants that should resolve** (e.g. "Russian Federation"→RU with 11,427 rows, "Türkiye"→TR, accented forms like "Curaçao"/"Åland"), and (b) **ocean/marine values that are not administrative areas at all** (see the blocking open question below). So resolution needs real normalization plus an alias map, not exact match:
+This decision covers the **land** branch of `toponym` (`administrativeArea`); the **maritime** branch is D11.
+
+Legacy `country`/`state` are free text and do **not** cleanly equal the dictionary names — measuring against `dictionaries.admin0` showed 254 distinct countries with 27 unmatched by naïve exact match, covering ~46K rows. The unmatched split into two kinds: (a) **name variants that should resolve** (e.g. "Russian Federation"→RU with 11,427 rows, "Türkiye"→TR, accented forms like "Curaçao"/"Åland"), and (b) **ocean/marine values that are not administrative areas at all** (now handled by D11). So resolution needs real normalization plus an alias map, not exact match:
 
 1. **Normalize** both sides with `normalizeName`: casefold + trim, Unicode NFD decompose and strip combining marks (diacritics), collapse internal whitespace/punctuation to a single space. This alone fixes accented/punctuated variants.
 2. **Dictionary match:** `country` → normalized match against admin0 `name`/`iso`/`iso3`; `state` → normalized match against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`.
 3. **Alias map:** for legacy variants that still don't normalize to a dictionary entry, a curated `COUNTRY_ALIASES`/`STATE_ALIASES` (normalized legacy string → ISO code) seeded from the measured unmatched set (Russian Federation→RU, Türkiye→TR, Netherlands→NL, Cape Verde→CV, Timor-Leste→TL, the two Congos, Micronesia, Falklands, Holy See, Palestine, the Virgin Islands, etc.). The map is data-driven and reviewable, and is the extension point when new variants surface.
-4. **Still no match** → flag the row in output and do not migrate it. `admin2` (county) is free text, passed through. The `if/then` rule (admin1 required when admin0 ∈ {US, CN, RU, AU, CA}) applies in the strict API schema; for migration, an unresolved required admin1 in those countries is also a flag-and-skip.
+4. **Maritime fallback:** if `country` resolves to neither a dictionary entry nor a `COUNTRY_ALIASES` code, try the maritime resolver (D11) before giving up.
+5. **Still no match** (not admin, not maritime) → flag the row in output and do not migrate it. `admin2` (county) is free text, passed through. The `if/then` rule (admin1 required when admin0 ∈ {US, CN, RU, AU, CA}) applies in the strict API schema; for migration, an unresolved required admin1 in those countries is also a flag-and-skip.
 
-**Alternative considered:** insert with a null/placeholder country. Rejected for genuine countries — it stores unqueryable, invalid geography and defeats ISO normalization. (The ocean/marine subset is a separate, unresolved case — see Open Questions; it is explicitly *not* resolved by "insert placeholder" either.)
+**Alternative considered:** insert with a null/placeholder country. Rejected for genuine countries — it stores unqueryable, invalid geography and defeats ISO normalization. (The ocean/marine subset is handled properly by D11's `maritimeArea`, not by a placeholder.)
 
 ### D6. Lithofacies: two objects, merged adjectives, boolean fossils
 
@@ -91,6 +94,18 @@ Objects with no lithology are omitted; the array may be empty (schema requires `
 
 Stream from MariaDB, build + validate each payload, resolve FKs, batched transactional bulk insert, `randomUUID()` permid, identity-sequence reset, bucketed sample logging for each skip category. No dedup pass. Person `authorizer_no`/`enterer_no` use the refs/authorities 0-fallback. `install_version_triggers('collections')` is already wired; rows insert as single versions.
 
+### D11. Ocean/marine → `toponym.maritimeArea` (resolves the former blocker)
+
+Legacy `country` for ~32,117 pelagic/deep-sea localities names a body of water — North Pacific (12,343), Indian Ocean (8,503), North Atlantic (5,393), South Pacific (4,159), Southern Ocean (1,354), South Atlantic (360), Arctic Ocean (5). These are **not** administrative areas and are not forced into `admin0`.
+
+Decision: model `collection.location.toponym` as an `anyOf` over `administrativeArea` (land) and `maritimeArea` (open water) — at least one required, both allowed (e.g. a site in territorial waters). `maritimeArea` stores the `iho_name` from the new `dictionaries.maritime` table (7 oceans, sourced from SeaDataNet C16: `id`, `iho_name`, `iho_plus_code`). The schema's `maritimeArea.enum` is the **fourth** DB-driven enum and is hydrated from `dictionaries.maritime.iho_name` before `ajv.compile` (alongside admin0/admin1/the if-condition list).
+
+Resolution: the legacy strings are shorter than the IHO names ("North Pacific" vs "North Pacific Ocean"), so 4 of the 7 don't match verbatim. A curated `MARITIME_ALIASES` (normalized legacy string → `iho_name`), parallel to `COUNTRY_ALIASES`, bridges the gap; the 3 that already match ("Indian Ocean", "Southern Ocean", "Arctic Ocean") pass through normalized matching. `resolveToponym` tries maritime as a fallback after admin resolution fails (see D5 step 4); a value that resolves to neither is a flag-and-skip.
+
+**Alternatives rejected:** (1) skip all ocean rows — loses ~12% of collections that have perfectly good coordinates; (2) migrate them country-less with only a geography point — leaves the toponym empty and unqueryable by water body. Carrying the named water body in a first-class `maritimeArea` keeps them both queryable and honest about not being on land.
+
+**Note on `iho_plus_code`:** the Southern Ocean's code is the non-numeric `'SOC'` (an artifact of SeaDataNet reconciling inconsistent historical IHO vocabularies), unlike the numeric codes for the other six. The column may prove unnecessary and is retained in the dictionary for now; nothing joins on it.
+
 ## Risks / Trade-offs
 
 - **Admin-ISO match quality** → false positives silently corrupt country/state. Mitigation: conservative matching (normalized exact/near-exact against dictionary names), and report both the skip list (no match) and the match counts for review before committing the transaction.
@@ -104,12 +119,12 @@ Stream from MariaDB, build + validate each payload, resolve FKs, batched transac
 
 1. Hand-edit `collection.schema.js` (already largely done): both schema exports compile; `claystone` fixed; migration `required=["name"]`.
 2. Confirm PostGIS extension present; confirm `early_age_id`/`late_age_id` nullable.
-3. At script startup: hydrate the three admin enums from `dictionaries`, then `ajv.compile(collectionMigrationSchema)`.
-4. Dry-run the admin-ISO resolver; review skip/match report.
-5. Stream, transform, validate, bulk-insert `collections`; then insert `additional_collection_refs`; reset identity sequences; print counters (inserted, skipped-orphan-ref, skipped-no-admin-match, altitude-dropped).
+3. At script startup: hydrate the four DB-driven enums (admin0, admin1, if-condition country list, maritime) from `dictionaries`, then `ajv.compile(collectionMigrationSchema)`.
+4. Dry-run the toponym resolver (admin + maritime); review skip/match report.
+5. Stream, transform, validate, bulk-insert `collections`; then insert `additional_collection_refs`; reset identity sequences; print counters (inserted, skipped-orphan-ref, skipped-no-toponym-match, altitude-dropped).
 6. **Rollback:** the insert is transaction-wrapped; on failure it rolls back cleanly. To redo, `TRUNCATE collections, additional_collection_refs` and re-run.
 
 ## Open Questions
 
-- **BLOCKING — ocean/marine collections (~32,117 rows).** Legacy `country` for many pelagic/deep-sea localities is a body of water — North Pacific (12,343), Indian Ocean (8,503), North Atlantic (5,393), South Pacific (4,159), Southern Ocean (1,354), South Atlantic (360), Arctic Ocean (5). These are **not countries and not administrative areas**, so they cannot be shoehorned into `admin0`. They do have valid coordinates. The handling is undecided and the owner is gathering feedback; candidate options: (1) skip them, (2) migrate them country-less with only a geography point (requires the schema/migration to allow a location with no `admin0`), (3) carry the water-body name in a non-admin field. **Implementation is paused on this decision.** Until then, these fall into `resolveAdmin`'s no-match path by default, but that default is not ratified.
-- **Alias-map completeness** — the seed `COUNTRY_ALIASES`/`STATE_ALIASES` cover the measured unmatched set, but new variants (especially at admin1) may surface on a full dry-run; the map is the reviewable extension point rather than dropping rows.
+- **RESOLVED — ocean/marine collections (~32,117 rows).** Now handled by D11: `toponym.maritimeArea` backed by `dictionaries.maritime`, with a `MARITIME_ALIASES` bridge. No longer blocking.
+- **Alias-map completeness** — the seed `COUNTRY_ALIASES`/`STATE_ALIASES`/`MARITIME_ALIASES` cover the measured unmatched set, but new variants (especially at admin1) may surface on a full dry-run; the maps are the reviewable extension point rather than dropping rows.

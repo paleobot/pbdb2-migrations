@@ -7,15 +7,15 @@ The script SHALL stream all rows from the MariaDB `collections` table, ordered b
 - **WHEN** the migration script executes the source query
 - **THEN** all 275,555 rows are streamed from MariaDB ordered by `collection_no ASC`, without buffering the full result set, and a starting row count is logged
 
-### Requirement: Hydrate admin enums before compiling the migration schema
-The script SHALL populate the schema's `admin0`, `admin1`, and `if`-condition country enums from `dictionaries.admin0`/`admin1` ISO values at startup, before compiling the validation schema. An empty `enum: []` SHALL NOT be passed to the validator.
+### Requirement: Hydrate DB-driven enums before compiling the migration schema
+The script SHALL populate the schema's four DB-driven enums — `toponym.administrativeArea.admin0`, `toponym.administrativeArea.admin1`, the `if`-condition country list, and `toponym.maritimeArea` — from `dictionaries.admin0`/`admin1` ISO values and `dictionaries.maritime.iho_name` at startup, before compiling the validation schema. An empty `enum: []` SHALL NOT be passed to the validator.
 
 #### Scenario: Enums hydrated at startup
 - **WHEN** the script starts and loads `collectionMigrationSchema`
-- **THEN** the three admin enums are filled from `dictionaries` and `ajv.compile` succeeds
+- **THEN** the four DB-driven enums are filled from `dictionaries` and `ajv.compile` succeeds
 
 #### Scenario: Compile fails fast on empty enum
-- **WHEN** any admin enum is still empty at compile time
+- **WHEN** any DB-driven enum is still empty at compile time
 - **THEN** compilation fails and the migration aborts before reading source rows
 
 ### Requirement: Validate the stored jsonb against the lenient migration schema
@@ -47,8 +47,8 @@ The script SHALL build `collection.context` from `collectors`, `coll_meth` (→ 
 - **WHEN** a source row has any `collection_type` value
 - **THEN** the built `context` has no `collectionType` key and `collection_type` is not read
 
-### Requirement: Resolve admin0/admin1 from free-text country/state
-The script SHALL resolve `country` → `location.administrativeAreas.admin0` and `state` → `admin1` to ISO codes using a normalize-then-alias pipeline against `dictionaries.admin0`/`admin1`, because legacy values do not equal dictionary names verbatim. Resolution SHALL: (1) normalize both the legacy value and dictionary entries by casefolding, trimming, stripping diacritics (Unicode NFD + combining-mark removal), and collapsing whitespace/punctuation; (2) match `country` against admin0 `name`/`iso`/`iso3`, and `state` against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`; (3) fall back to a curated alias map (normalized legacy string → ISO code) for known variants. County SHALL pass through to `admin2` as free text. On no resolution, the row SHALL be flagged and not migrated.
+### Requirement: Resolve the toponym (admin area or maritime area) from free-text country/state
+The script SHALL resolve `country`/`state` into `location.toponym`, which holds an `administrativeArea` (land), a `maritimeArea` (open water), or both, with at least one required. For land, it SHALL resolve `country` → `toponym.administrativeArea.admin0` and `state` → `admin1` to ISO codes using a normalize-then-alias pipeline against `dictionaries.admin0`/`admin1`, because legacy values do not equal dictionary names verbatim. Resolution SHALL: (1) normalize both the legacy value and dictionary entries by casefolding, trimming, stripping diacritics (Unicode NFD + combining-mark removal), and collapsing whitespace/punctuation; (2) match `country` against admin0 `name`/`iso`/`iso3`, and `state` against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`; (3) fall back to a curated alias map (normalized legacy string → ISO code) for known variants. County SHALL pass through to `admin2` as free text. When `country` resolves to no admin0, the script SHALL attempt maritime resolution (see the maritime requirement) before flagging. On no resolution as either an admin area or a maritime area, the row SHALL be flagged and not migrated.
 
 #### Scenario: Country resolves by normalized name
 - **WHEN** `country = 'United States'` normalizes to a dictionary admin0 `name`
@@ -62,20 +62,24 @@ The script SHALL resolve `country` → `location.administrativeAreas.admin0` and
 - **WHEN** `country = 'Russian Federation'` matches no dictionary name but is present in the country alias map
 - **THEN** `admin0` is set to `RU`
 
-#### Scenario: No admin0 resolution skips the row
-- **WHEN** `country` resolves via neither normalized dictionary match nor the alias map
+#### Scenario: No admin or maritime resolution skips the row
+- **WHEN** `country` resolves via neither normalized admin0 dictionary match, the country alias map, nor maritime resolution
 - **THEN** the collection is flagged in output with its `collection_no` and is not migrated
 
 #### Scenario: Required admin1 unresolved in a listed country skips the row
 - **WHEN** `admin0` is one of the countries requiring `admin1` and `state` resolves to no ISO code
 - **THEN** the collection is flagged and not migrated
 
-### Requirement: Ocean/marine country handling is unresolved (blocking)
-The handling of legacy `country` values that name a body of water rather than an administrative area (e.g. "North Pacific", "Indian Ocean") — approximately 32,117 rows — SHALL NOT be finalized in this change until an owner decision is made. These are not countries and SHALL NOT be forced into `admin0`. Implementation of the full admin path is blocked pending that decision.
+### Requirement: Resolve ocean/marine country values to a maritime area
+The script SHALL resolve legacy `country` values that name a body of water rather than an administrative area (e.g. "North Pacific", "Indian Ocean") — approximately 32,117 rows — into `location.toponym.maritimeArea`, set to the matching `iho_name` from `dictionaries.maritime`. These SHALL NOT be forced into `admin0`. Resolution SHALL: (1) `normalizeName`-match the legacy `country` against `dictionaries.maritime.iho_name`; (2) fall back to a curated `MARITIME_ALIASES` map (normalized legacy string → `iho_name`) for values whose legacy form is shorter than the IHO name (e.g. "North Pacific" → "North Pacific Ocean"). Maritime resolution is attempted only after admin0 resolution fails.
 
-#### Scenario: Ocean value is not treated as a country
-- **WHEN** `country = 'North Pacific'`
-- **THEN** it SHALL NOT be resolved or stored as an `admin0` value; its disposition (skip, migrate country-less, or other) is deferred to the pending decision
+#### Scenario: Ocean value resolves to a maritime area
+- **WHEN** `country = 'Indian Ocean'` matches a `dictionaries.maritime.iho_name`
+- **THEN** `toponym.maritimeArea = 'Indian Ocean'` and no `admin0` is set
+
+#### Scenario: Short ocean name resolves via the maritime alias map
+- **WHEN** `country = 'North Pacific'` (no verbatim `iho_name` match) is present in `MARITIME_ALIASES`
+- **THEN** `toponym.maritimeArea = 'North Pacific Ocean'`
 
 ### Requirement: Build the PostGIS geography from decimal coordinates
 The script SHALL build the `location` geography column from decimal `lat`/`lng` (WGS84 DD, already signed). The legacy `coordinate` POINT and DMS fields SHALL NOT be used. Latitude and longitude SHALL NOT be written to the jsonb.
@@ -100,11 +104,15 @@ The script SHALL set `location.coordinates.basis` from `latlng_basis`, and `loca
 - **THEN** no `altitude` is written and the `collection_no` is flagged in output
 
 ### Requirement: Build location scale, comments, and repository
-The script SHALL set `location.scale` from `geogscale`, `location.comments` from `geogcomments`, and `location.repository.institution` from `museum`, omitting empty/null values.
+The script SHALL set `location.scale` from `geogscale`, `location.comments` from `geogcomments`, and `location.repository.institution` from `museum`, omitting empty/null values — **except** `scale`, which is required: a blank/null `geogscale` SHALL coerce to the explicit enum value `"unspecified"` rather than being omitted.
 
 #### Scenario: Scale and repository populated
 - **WHEN** `geogscale = 'outcrop'` and `museum = 'AMNH'`
 - **THEN** `location.scale = 'outcrop'` and `location.repository.institution = 'AMNH'`
+
+#### Scenario: Blank scale coerces to "unspecified"
+- **WHEN** `geogscale` is blank or null
+- **THEN** `location.scale = 'unspecified'` (the field is present, satisfying the required `scale`)
 
 ### Requirement: Build the stratigraphy object
 The script SHALL build `collection.stratigraphy` with `stratonyms` (`supergroup`, `geological_group` → `group`, `subgroup`, `formation`, `member`, `bed`), `scale` (from `stratscale`), `comments` (from `stratcomments`), and `measuredSections` (`local_section` → `section`, `local_bed` → `bed`, `local_bed_unit` → `unit`, `local_order` → `order`). Empty/null values SHALL be omitted.
@@ -175,7 +183,7 @@ The script SHALL generate a fresh `randomUUID()` `permid` for each inserted coll
 - **THEN** it receives a fresh UUID `permid` and no `preceded_by_id`/`succeeded_by_id`
 
 ### Requirement: Insert within a transaction and report outcomes
-The migration SHALL insert `collections` and `additional_collection_refs` within a transaction (rolling back on failure), reset the identity sequences afterward, and report counters for inserted collections, inserted secondary refs, and each skip/flag category (orphan primary ref, no admin match, dropped altitude, orphan secondary ref).
+The migration SHALL insert `collections` and `additional_collection_refs` within a transaction (rolling back on failure), reset the identity sequences afterward, and report counters for inserted collections, inserted secondary refs, and each skip/flag category (orphan primary ref, no toponym match, dropped altitude, orphan secondary ref).
 
 #### Scenario: Transactional insert with counters
 - **WHEN** the migration completes successfully
