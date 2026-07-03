@@ -84,7 +84,7 @@ INSERT INTO dictionaries.namechange_reasons (reason, description)
         ('nomen oblitum', 'The taxon is nomen oblitum');
 
 
--- Geographic dictionaries: countries (admin0) and first-level subdivisions (admin1).
+-- Geographic dictionaries: oceans (maritime), countries (admin0) and first-level subdivisions (admin1).
 -- ids are meaningful and referenced (admin1.admin0_id -> admin0.id), so kept explicit.
 CREATE TABLE dictionaries.admin0 (
     id integer PRIMARY KEY,
@@ -4220,6 +4220,20 @@ INSERT INTO dictionaries.admin1 (id, geoname_id, iso, name, alternate_name, admi
     (3864, 1105843, 'ZW-09', 'Bulawayo', 'Bulawayo', 250),
     (3865, 1105844, 'ZW-10', 'Harare', 'Harare', 250);
 
+--Maritime values are from SeaDataNet (https://vocab.nerc.ac.uk/collection/C16/current/). Currently limited to values extant in the old pbdb. We may want to expand these.
+CREATE TABLE dictionaries.maritime (
+    id integer PRIMARY KEY,
+    iho_name text,
+    iho_plus_code text
+);
+INSERT INTO dictionaries.maritime (id, iho_name, iho_plus_code) VALUES
+(1, 'North Atlantic Ocean', '23'),
+(2, 'South Atlantic Ocean', '32'),
+(3, 'North Pacific Ocean', '57'),
+(4, 'South Pacific Ocean', '61'),
+(5, 'Indian Ocean', '45'),
+(6, 'Arctic Ocean', '17'),
+(7, 'Southern Ocean', 'SOC');
 
 -- ============================================================
 -- Entity versioning trigger system

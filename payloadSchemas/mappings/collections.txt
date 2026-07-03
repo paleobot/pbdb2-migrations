@@ -11,13 +11,14 @@ collection.context.methods							coll_meth (split csv into array of strings)
 collection.context.dates							collection_dates
 collection.context.comments							collection_comments
 
-collection.location.administrativeAreas.admin0		country	(use iso from closest matching name in dictionaries.admin0)
-collection.location.administrativeAreas.admin1		state (use iso from closest matching name in dictionaries.admin1)
-collection.location.administrativeAreas.admin2		county
+collection.location.toponym.administrativeArea.admin0		country	(use iso from closest matching name in dictionaries.admin0. if not found, see maritime below.)
+collection.location.toponym.administrativeArea.admin1		state (use iso from closest matching name in dictionaries.admin1)
+collection.location.toponym.administrativeArea.admin2		county
+collection.location.toponym.maritimeArea                    country (if not found in dictionaries.admin0, check dictionaries.maritime and enter iho_name here)
 location											(This is a PostGIS geography field using WGS84. It must be calcuated from whatever useful data is available in the old collections table: coordinates, lat, lng, latdeg/min/sec, lngdeg/min/sec, gps_datum, etc. To be honest, this is going to be a bit of a mess.)
 collection.location.coordinates.basis				latlng_basis
 collection.location.coordinates.altitude			altitude_value converted to meters if necessary, depending on altitude_unit (if blank or null flag in output but do not migrate)
-collection.location.scale							geogscale
+collection.location.scale							geogscale ("unspecified" if null or blank)
 collection.location.comments						geogcomments
 collection.location.repository.institution			museum
 
@@ -29,10 +30,10 @@ collection.stratigraphy.stratonyms.member			member
 collection.stratigraphy.stratonyms.bed				bed
 collection.stratigraphy.scale						stratscale
 collection.stratigraphy.comments					stratcomments
-collection.stratigraphy.measuredSections.section	local_section
-collection.stratigraphy.measuredSections.bed		local_bed
-collection.stratigraphy.measuredSections.unit		local_bed_unit
-collection.stratigraphy.measuredSections.order		local_order
+collection.stratigraphy.measuredSections.section	localsection
+collection.stratigraphy.measuredSections.bed		localbed
+collection.stratigraphy.measuredSections.unit		localbedunit
+collection.stratigraphy.measuredSections.order		localorder
 
 collection.lithofacies
 /*This is an array of objects as described in the schema. The first object in the array will be built from lithology1, minor_lithology merged with lithadj, fossilsfrom1, lithification. The second object in the array will be built from lithology2, minor_lithology2 merged with lithadj2, fossilsfrom2, lithification2.*/

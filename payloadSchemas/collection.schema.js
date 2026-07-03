@@ -60,37 +60,52 @@ const collectionProperties = {
     location: {
         type: "object",
         properties: {
-            administrativeAreas: {
+            toponym: {
                 type: "object",
                 properties: {
-                    admin0: {
-                        type: "string",
-                        description: "country"
-                        //Country code (ISO 3166-1). From dictionaries.admin0.iso. This requires pre-processing of schema to build enum before it can be used
+                    administrativeArea: {
+                        type: "object",
+                        properties: {
+                            admin0: {
+                                type: "string",
+                                description: "country"
+                                //Country code (ISO 3166-1). From dictionaries.admin0.iso. This requires pre-processing of schema to build enum before it can be used
+                            },
+                            admin1: {
+                                type: "string",
+                                description: "state/province"
+                                //State/province code. From dictionaries.admin1.iso. This requires pre-processing of schema to build enum before it can be used
+                            },
+                            admin2: {
+                                type: "string",
+                                description: "county, etc."
+                            }
+                        },
+                        required: ["admin0"],
+                        /*if: {
+                            properties: {
+                                admin0: {
+                                    enum: [
+                                        //ISO 3166-1 alpha-2 codes for USA, China, Russia, Australia, or Canada. Requires pre-processing of schema.
+                                    ]
+                                }
+                            }
+                        },
+                        then: {
+                            required: ["admin1"]
+                        }*/
                     },
-                    admin1: {
+                    maritimeArea: {
                         type: "string",
-                        description: "state/province"
-                        //State/province code. From dictionaries.admin1.iso. This requires pre-processing of schema to build enum before it can be used
-                    },
-                    admin2: {
-                        type: "string",
-                        description: "county, etc."
+                        enum: [
+                            /*iho_name from table dictionaries.maritime. Requires preprocessing of schema.*/
+                        ]
                     }
                 },
-                required: ["admin0"],
-                if: {
-                    properties: {
-                        admin0: {
-                            enum: [
-                                /*ISO 3166-1 alpha-2 codes for USA, China, Russia, Australia, or Canada. Requires pre-processing of schema.*/
-                            ]
-                        }
-                    }
-                },
-                then: {
-                    required: ["admin1"]
-                }
+                anyOf: [
+                    {required: ["administrativeArea"]},
+                    {required: ["maritimeArea"]}
+                ]
             },
             coordinates: {
                 type: "object",
@@ -121,7 +136,8 @@ const collectionProperties = {
                     "small collection",
                     "outcrop",
                     "local area",
-                    "basin"
+                    "basin",
+                    "unspecified"
                 ],
                 description: "Scale of geographic resolution"
             },
@@ -141,7 +157,7 @@ const collectionProperties = {
                 }
             }
         },
-        //required: ["scale"]
+        required: ["scale"]
     },
     lithofacies: {
         type: "array",
@@ -258,7 +274,8 @@ const collectionProperties = {
                             enum: ["direct", "max", "min"]
                         }
                     },
-                    required: ["age", "unit", "error", "method", "measurementType"]
+                    //required: ["age", "unit", "error", "method", "measurementType"]
+                    required: ["age", "unit", "measurementType"]
                 }
             },
             intervals: {
@@ -453,12 +470,34 @@ completeCollectionProperties.location.required = [
     "scale"
 ]
 
-completeCollectionProperties.location.properties.administrativeAreas.properties.admin0.enum = (() => {
+completeCollectionProperties.ages.properties.measurements.items.required = [
+    ...completeCollectionProperties.ages.properties.measurements.items.required,
+    "error",
+    "method"
+]
+
+completeCollectionProperties.location.properties.administrativeArea = {
+    ...completeCollectionProperties.location.properties.administrativeArea,
+    if: {
+        properties: {
+            admin0: {
+                enum: [
+                    /*ISO 3166-1 alpha-2 codes for USA, China, Russia, Australia, or Canada. Requires pre-processing of schema.*/
+                ]
+            }
+        }
+    },
+    then: {
+        required: ["admin1"]
+    }
+}
+
+completeCollectionProperties.location.properties.toponym.properties.administrativeArea.properties.admin0.enum = (() => {
     //stub. Will query dictionaries.admin0.iso
     return []
 })();
 
-completeCollectionProperties.location.properties.administrativeAreas.properties.admin1.enum = (() => {
+completeCollectionProperties.location.properties.toponym.properties.administrativeArea.properties.admin1.enum = (() => {
     //stub. Will query dictionaries.admin1.iso
     return []
 })();
