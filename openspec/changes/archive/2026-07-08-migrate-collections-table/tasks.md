@@ -1,4 +1,6 @@
-> **UNBLOCKED — ready to implement.** The former blocker (ocean/marine collections, ~32,117 rows) is resolved: legacy water-body `country` values map to `toponym.maritimeArea` (the `iho_name` from the new `dictionaries.maritime` table), with a `MARITIME_ALIASES` bridge for the "North Pacific"→"North Pacific Ocean" mismatch. See design D11. Schema reshape (`location.toponym` with an `anyOf` over `administrativeArea`/`maritimeArea`, and `required: ["scale"]`) is done and the file loads clean.
+> **COMPLETE — migrated live into localhost `pbdb` on 2026-07-08.** 275,554 collections inserted (243,437 land + 32,117 maritime) + 371,774 additional_collection_refs; counter check ✓ (275,555 read = 275,554 inserted + 1 no-toponym skip); 28,544 admin1-unresolved rows carry the `location.comments` marker; 326 altitudes dropped (blank unit); 44 secondary refs skipped as legacy dangling pointers (none exist in legacy `refs`; primary refs all resolved); runtime 146.3 s. Verified independently: all rows have geography, all single-version heads, distinct permids.
+>
+> The former blocker (ocean/marine collections, ~32,117 rows) was resolved: legacy water-body `country` values map to `toponym.maritimeArea` (the `iho_name` from the new `dictionaries.maritime` table), with a `MARITIME_ALIASES` bridge for the "North Pacific"→"North Pacific Ocean" mismatch. See design D11.
 
 ## 1. Preconditions (schema + DB, hand-edited outside OpenSpec)
 
@@ -55,21 +57,21 @@
 ## 7. Bulk Insert — collections (transaction-wrapped)
 
 - [x] 7.0 `--dry-run`/`DRY_RUN=1` switch — runs the full insert path but `ROLLBACK`s instead of `COMMIT` and skips the identity-sequence reset (setval over empty-table NULL `MAX(id)` errors). Verified clean: 275,554 collections + 371,774 additional_collection_refs, counter check ✓, 0 rows committed, ~47 s. See design D14
-- [ ] 7.1 Acquire one PG client; `BEGIN`
-- [ ] 7.2 Batch-insert staged collections (1000/chunk); build `location` inline as `ST_Transform(ST_SetSRID(ST_MakePoint($lng,$lat),$srid),4326)::geography` (Transform is a no-op when srid=4326); `permid = randomUUID()`; leave `early_age_id`/`late_age_id` NULL
-- [ ] 7.3 Capture each inserted collection's new `id` keyed by `collection_no` (RETURNING id) for the secondary-ref pass
+- [x] 7.1 Acquire one PG client; `BEGIN`
+- [x] 7.2 Batch-insert staged collections (1000/chunk); build `location` inline as `ST_Transform(ST_SetSRID(ST_MakePoint($lng,$lat),$srid),4326)::geography` (Transform is a no-op when srid=4326); `permid = randomUUID()`; leave `early_age_id`/`late_age_id` NULL
+- [x] 7.3 Capture each inserted collection's new `id` keyed by `collection_no` (RETURNING id) for the secondary-ref pass
 
 ## 8. Bulk Insert — additional_collection_refs
 
-- [ ] 8.1 For each migrated collection, look up its `secondary_refs` `reference_no`s; resolve each via the refs map; on orphan → `logOrphanSecondaryRef`, skip that ref only (collection stays)
-- [ ] 8.2 Insert `additional_collection_refs` rows `{ authorizer_person_id, enterer_person_id, collection_id, reference_id }` — audit inherited from the parent collection; no `order` column; batch inserts
-- [ ] 8.3 `COMMIT`; on any error `ROLLBACK`, log with context, release client, `process.exit(1)`
+- [x] 8.1 For each migrated collection, look up its `secondary_refs` `reference_no`s; resolve each via the refs map; on orphan → `logOrphanSecondaryRef`, skip that ref only (collection stays)
+- [x] 8.2 Insert `additional_collection_refs` rows `{ authorizer_person_id, enterer_person_id, collection_id, reference_id }` — audit inherited from the parent collection; no `order` column; batch inserts
+- [x] 8.3 `COMMIT`; on any error `ROLLBACK`, log with context, release client, `process.exit(1)`
 
 ## 9. Finalize + Report
 
-- [ ] 9.1 Reset identity sequences for `collections` and `additional_collection_refs` (`setval(pg_get_serial_sequence(...), MAX(id))`)
-- [ ] 9.2 Print counters: source rows read, collections inserted (with land/maritime toponym split), secondary refs inserted, skipped-orphan-ref, skipped-no-toponym-match, altitude-dropped, orphan-secondary-ref; assert `inserted + skipped == sourceRows`
-- [ ] 9.3 Final `SELECT COUNT(*)` from `collections` and `additional_collection_refs`; log elapsed time
+- [x] 9.1 Reset identity sequences for `collections` and `additional_collection_refs` (`setval(pg_get_serial_sequence(...), MAX(id))`)
+- [x] 9.2 Print counters: source rows read, collections inserted (with land/maritime toponym split), secondary refs inserted, skipped-orphan-ref, skipped-no-toponym-match, altitude-dropped, orphan-secondary-ref; assert `inserted + skipped == sourceRows`
+- [x] 9.3 Final `SELECT COUNT(*)` from `collections` and `additional_collection_refs`; log elapsed time
 
 ## 10. Unit Tests (play/)
 
