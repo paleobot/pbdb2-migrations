@@ -4,6 +4,7 @@
 
 - [x] 1.1 Confirm `payloadSchemas/collection.schema.js` exports both `collectionSchema` (strict) and `collectionMigrationSchema` (lenient, `required: ["name"]`), both compile after empty-enum hydration, and the `claystone` fix is in place
 - [x] 1.2 Confirm `postgresql/create_new.sql` `collections` has `early_age_id`/`late_age_id` nullable and `location geography`; confirm PostGIS extension is installed in the target DB
+- [x] 1.2a Add the `permid` partial index to `install_version_triggers()` in `create_new.sql` (`<table>_permid_head_idx ON <table> (permid) WHERE succeeded_by_id IS NULL`) so every versioned table gets it; create the eight indexes on the existing local DB. Without it the `place_in_lineage()` trigger seq-scans per row → O(n²) insert (53 min → 47 s). See design D13
 - [x] 1.3 Confirm `dictionaries.admin0`/`admin1`/`maritime` are populated (used for both enum hydration and name resolution)
 
 ## 2. Script Setup
@@ -34,9 +35,11 @@
 - [x] 5.6 `buildAltitude({ altitude_value, altitude_unit })` — return `{ value, unit:'meters' }` converting feet→meters; return `{ drop:true }` (flag) when unit blank/null
 - [x] 5.7 `buildCoordinates(src)` — `basis` from `latlng_basis` + altitude (from 5.6); never include latitude/longitude
 - [x] 5.8 `buildLocation(src, toponym, coordinates)` — assemble `toponym` (`administrativeArea` and/or `maritimeArea` from 5.4), `coordinates`, `scale` (`geogscale`, coerced to `"unspecified"` when blank/null — `scale` is required), `comments` (`geogcomments`), `repository.institution` (`museum`); omit empty except the required `scale`
+- [x] 5.8a `buildLocation` unresolved-admin1 marker — when `toponym.unresolvedAdmin1` is set (present-but-unmatched legacy `state`), append `[migration] Unrecognized admin1 name: <raw state>` to `location.comments`, newline-joined after any `geogcomments` (marker last). Preserves the raw string instead of dropping it
 - [x] 5.9 `buildStratigraphy(src)` — `stratonyms` (supergroup/group←geological_group/subgroup/formation/member/bed), `scale`←stratscale, `comments`←stratcomments, `measuredSections` (section/bed/unit/order ← local_*)
 - [x] 5.10 `buildLithofacies(src)` — up to two objects; `adjectives` = `lithadj`/`lithadj2` merged with `minor_lithology`/`minor_lithology2` (split+dedup); `fossils = fossilsfrom{1,2} === 'Y'`; omit objects without a lithology; allow empty array
 - [x] 5.11 `buildAgesMeasurements(src)` — one object per non-empty `direct_ma`/`max_ma`/`min_ma` group (`age`/`error`/`unit`/`method`), `measurementType` from prefix; omit empty groups
+- [x] 5.11a `trimStr` strips NUL bytes (``) — legacy free-text carries embedded NULs that PostgreSQL `jsonb` rejects (`unsupported Unicode escape sequence`), sinking the whole insert. All payload strings flow through `trimStr`. See design D12
 - [x] 5.12 `buildCollectionPayload(src, admin)` — assemble the full `collection` jsonb from 5.1/5.8/5.9/5.10/5.11 + `name`/`akaName`/`legacyIDs.oldpbdbID`; never emit lat/lng, `references`, `ages.intervals`, `environment`, or `paleontology`
 
 ## 6. Stream, Build, Validate
@@ -51,6 +54,7 @@
 
 ## 7. Bulk Insert — collections (transaction-wrapped)
 
+- [x] 7.0 `--dry-run`/`DRY_RUN=1` switch — runs the full insert path but `ROLLBACK`s instead of `COMMIT` and skips the identity-sequence reset (setval over empty-table NULL `MAX(id)` errors). Verified clean: 275,554 collections + 371,774 additional_collection_refs, counter check ✓, 0 rows committed, ~47 s. See design D14
 - [ ] 7.1 Acquire one PG client; `BEGIN`
 - [ ] 7.2 Batch-insert staged collections (1000/chunk); build `location` inline as `ST_Transform(ST_SetSRID(ST_MakePoint($lng,$lat),$srid),4326)::geography` (Transform is a no-op when srid=4326); `permid = randomUUID()`; leave `early_age_id`/`late_age_id` NULL
 - [ ] 7.3 Capture each inserted collection's new `id` keyed by `collection_no` (RETURNING id) for the secondary-ref pass
@@ -69,5 +73,5 @@
 
 ## 10. Unit Tests (play/)
 
-- [x] 10.1 Add `play/` tests for the pure transforms (§5), especially: `coll_meth` split, `normalizeName` (diacritics/punctuation), `resolveToponym` cases — admin exact match, diacritic variant (Curaçao→CW), country alias hit (Russian Federation→RU), maritime exact match (Indian Ocean), maritime alias hit (North Pacific→North Pacific Ocean), and no-match skip — `datumToSrid`, feet→meter altitude + blank-unit drop, blank `geogscale`→`"unspecified"`, merged lithofacies adjectives, `buildAgesMeasurements` prefix→measurementType
+- [x] 10.1 Add `play/` tests for the pure transforms (§5), especially: `coll_meth` split, `normalizeName` (diacritics/punctuation), `resolveToponym` cases — admin exact match, diacritic variant (Curaçao→CW), country alias hit (Russian Federation→RU), maritime exact match (Indian Ocean), maritime alias hit (North Pacific→North Pacific Ocean), and no-match skip — `datumToSrid`, feet→meter altitude + blank-unit drop, blank `geogscale`→`"unspecified"`, unresolved-admin1 `location.comments` marker (with/without prior geogcomment; resolved admin1 → no marker), merged lithofacies adjectives, `buildAgesMeasurements` prefix→measurementType
 - [x] 10.2 Add a validation smoke test: a representative built payload passes `collectionMigrationSchema`; a coordinate-less/reference-less payload also passes

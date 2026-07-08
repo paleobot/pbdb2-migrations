@@ -117,6 +117,22 @@ check('maritime toponym assembled',
   buildLocation({ geogscale: 'basin', museum: 'AMNH' }, { maritimeArea: 'Indian Ocean' }, null),
   { toponym: { maritimeArea: 'Indian Ocean' }, scale: 'basin', repository: { institution: 'AMNH' } });
 
+console.log('\nbuildLocation (unresolved admin1 → comments marker)');
+check('unresolved admin1, no prior comment → marker only',
+  buildLocation({ geogscale: 'outcrop' },
+    { administrativeArea: { admin0: 'DE' }, unresolvedAdmin1: 'Bayern' }, null).comments,
+  '[migration] Unrecognized admin1 name: Bayern');
+check('unresolved admin1 with prior geogcomment → newline-appended, marker last',
+  buildLocation({ geogscale: 'outcrop', geogcomments: 'Outcrop near river.' },
+    { administrativeArea: { admin0: 'DE' }, unresolvedAdmin1: 'Bayern' }, null).comments,
+  'Outcrop near river.\n[migration] Unrecognized admin1 name: Bayern');
+check('resolved admin1 → no marker, geogcomment preserved',
+  buildLocation({ geogscale: 'outcrop', geogcomments: 'Outcrop near river.' },
+    { administrativeArea: { admin0: 'US', admin1: 'US-MT' } }, null).comments,
+  'Outcrop near river.');
+checkTrue('no state, no geogcomment → comments omitted',
+  buildLocation({ geogscale: 'outcrop' }, { administrativeArea: { admin0: 'US' } }, null).comments === undefined);
+
 console.log('\nbuildLithofacies (merged adjectives)');
 check('lithadj + minor_lithology merged, fossils=true',
   buildLithofacies({ lithology1: 'sandstone', lithadj: 'red', minor_lithology: 'silty', fossilsfrom1: 'Y' }),

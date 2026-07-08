@@ -4347,6 +4347,14 @@ BEGIN
          EXECUTE FUNCTION handle_new_version()',
         target_table
     );
+    -- Partial index backing the place_in_lineage() head lookup
+    -- (WHERE permid = $1 AND succeeded_by_id IS NULL). Without it, every insert
+    -- seq-scans the table and bulk loads degrade to O(n^2).
+    EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS %I ON %I (permid) WHERE succeeded_by_id IS NULL',
+        target_table || '_permid_head_idx',
+        target_table
+    );
 END;
 $$ LANGUAGE plpgsql;
 

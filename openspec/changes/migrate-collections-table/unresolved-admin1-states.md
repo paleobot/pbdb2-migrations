@@ -12,11 +12,18 @@ populates `admin1`.
 
 The `admin1` requirement was **relaxed for migration**, so a state that does *not*
 resolve no longer drops the collection — it migrates **country-only**
-(`administrativeArea: { admin0 }`, no `admin1`) and is flagged. The raw state string
-is not carried into the new record (there is no free-text state field; `admin1` must be
-a dictionary ISO code). Nothing is lost at the source: `collection.legacyIDs.oldpbdbID`
-preserves the link, so a later pass can seed `STATE_ALIASES`, and the migration re-run
-(idempotent `TRUNCATE` + reload) will pick them up.
+(`administrativeArea: { admin0 }`, no `admin1`) and is flagged. There is no free-text
+state field (`admin1` must be a dictionary ISO code), so the raw state string is instead
+**preserved in `location.comments`** as a marker line:
+
+```
+[migration] Unrecognized admin1 name: <raw state>
+```
+
+joined to any existing `geogcomments` with a newline (marker last). Nothing is lost:
+the record itself now carries the original string, and `collection.legacyIDs.oldpbdbID`
+preserves the link, so a later pass can seed `STATE_ALIASES` and the migration re-run
+(idempotent `TRUNCATE` + reload) will resolve them into proper `admin1` codes.
 
 ## Why these don't map (it is not a resolver bug)
 

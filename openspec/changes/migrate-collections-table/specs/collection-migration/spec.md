@@ -48,7 +48,7 @@ The script SHALL build `collection.context` from `collectors`, `coll_meth` (→ 
 - **THEN** the built `context` has no `collectionType` key and `collection_type` is not read
 
 ### Requirement: Resolve the toponym (admin area or maritime area) from free-text country/state
-The script SHALL resolve `country`/`state` into `location.toponym`, which holds an `administrativeArea` (land), a `maritimeArea` (open water), or both, with at least one required. For land, it SHALL resolve `country` → `toponym.administrativeArea.admin0` and `state` → `admin1` to ISO codes using a normalize-then-alias pipeline against `dictionaries.admin0`/`admin1`, because legacy values do not equal dictionary names verbatim. Resolution SHALL: (1) normalize both the legacy value and dictionary entries by casefolding, trimming, stripping diacritics (Unicode NFD + combining-mark removal), and collapsing whitespace/punctuation; (2) match `country` against admin0 `name`/`iso`/`iso3`, and `state` against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`; (3) fall back to a curated alias map (normalized legacy string → ISO code) for known variants. County SHALL pass through to `admin2` as free text. When `country` resolves to no admin0, the script SHALL attempt maritime resolution (see the maritime requirement) before flagging. On no resolution as either an admin area or a maritime area, the row SHALL be flagged and not migrated.
+The script SHALL resolve `country`/`state` into `location.toponym`, which holds an `administrativeArea` (land), a `maritimeArea` (open water), or both, with at least one required. For land, it SHALL resolve `country` → `toponym.administrativeArea.admin0` and `state` → `admin1` to ISO codes using a normalize-then-alias pipeline against `dictionaries.admin0`/`admin1`, because legacy values do not equal dictionary names verbatim. Resolution SHALL: (1) normalize both the legacy value and dictionary entries by casefolding, trimming, stripping diacritics (Unicode NFD + combining-mark removal), and collapsing whitespace/punctuation; (2) match `country` against admin0 `name`/`iso`/`iso3`, and `state` against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`; (3) fall back to a curated alias map (normalized legacy string → ISO code) for known variants. County SHALL pass through to `admin2` as free text. `admin1` is NOT required: when `country` resolves but `state` does not resolve to an `admin1` ISO code, the row SHALL migrate country-only (no `admin1`), be counted/flagged in output, and preserve the raw `state` string via a `location.comments` marker (see the location-comments requirement) — it SHALL NOT be dropped. When `country` resolves to no admin0, the script SHALL attempt maritime resolution (see the maritime requirement) before flagging. On no resolution as either an admin area or a maritime area, the row SHALL be flagged and not migrated.
 
 #### Scenario: Country resolves by normalized name
 - **WHEN** `country = 'United States'` normalizes to a dictionary admin0 `name`
@@ -66,9 +66,9 @@ The script SHALL resolve `country`/`state` into `location.toponym`, which holds 
 - **WHEN** `country` resolves via neither normalized admin0 dictionary match, the country alias map, nor maritime resolution
 - **THEN** the collection is flagged in output with its `collection_no` and is not migrated
 
-#### Scenario: Required admin1 unresolved in a listed country skips the row
-- **WHEN** `admin0` is one of the countries requiring `admin1` and `state` resolves to no ISO code
-- **THEN** the collection is flagged and not migrated
+#### Scenario: Unresolved admin1 migrates country-only and preserves the raw string
+- **WHEN** `country` resolves to an `admin0` but `state` resolves to no `admin1` ISO code
+- **THEN** the collection migrates with `administrativeArea = { admin0 }` (no `admin1`), is counted/flagged in output, and the raw `state` string is appended to `location.comments` as `[migration] Unrecognized admin1 name: <state>`
 
 ### Requirement: Resolve ocean/marine country values to a maritime area
 The script SHALL resolve legacy `country` values that name a body of water rather than an administrative area (e.g. "North Pacific", "Indian Ocean") — approximately 32,117 rows — into `location.toponym.maritimeArea`, set to the matching `iho_name` from `dictionaries.maritime`. These SHALL NOT be forced into `admin0`. Resolution SHALL: (1) `normalizeName`-match the legacy `country` against `dictionaries.maritime.iho_name`; (2) fall back to a curated `MARITIME_ALIASES` map (normalized legacy string → `iho_name`) for values whose legacy form is shorter than the IHO name (e.g. "North Pacific" → "North Pacific Ocean"). Maritime resolution is attempted only after admin0 resolution fails.
@@ -104,7 +104,7 @@ The script SHALL set `location.coordinates.basis` from `latlng_basis`, and `loca
 - **THEN** no `altitude` is written and the `collection_no` is flagged in output
 
 ### Requirement: Build location scale, comments, and repository
-The script SHALL set `location.scale` from `geogscale`, `location.comments` from `geogcomments`, and `location.repository.institution` from `museum`, omitting empty/null values — **except** `scale`, which is required: a blank/null `geogscale` SHALL coerce to the explicit enum value `"unspecified"` rather than being omitted.
+The script SHALL set `location.scale` from `geogscale`, `location.comments` from `geogcomments`, and `location.repository.institution` from `museum`, omitting empty/null values — **except** `scale`, which is required: a blank/null `geogscale` SHALL coerce to the explicit enum value `"unspecified"` rather than being omitted. When the legacy `state` was present but did not resolve to an `admin1` ISO code (see the toponym-resolution requirement), the script SHALL append a marker line `[migration] Unrecognized admin1 name: <raw state>` to `location.comments`, joined to any existing `geogcomments` text with a newline (marker last). This preserves the raw legacy state string in the migrated record rather than discarding it.
 
 #### Scenario: Scale and repository populated
 - **WHEN** `geogscale = 'outcrop'` and `museum = 'AMNH'`
@@ -113,6 +113,14 @@ The script SHALL set `location.scale` from `geogscale`, `location.comments` from
 #### Scenario: Blank scale coerces to "unspecified"
 - **WHEN** `geogscale` is blank or null
 - **THEN** `location.scale = 'unspecified'` (the field is present, satisfying the required `scale`)
+
+#### Scenario: Unresolved admin1 appended to comments with no prior comment
+- **WHEN** `state = 'Bayern'` does not resolve to an `admin1` ISO code and `geogcomments` is blank/null
+- **THEN** `location.comments = '[migration] Unrecognized admin1 name: Bayern'`
+
+#### Scenario: Unresolved admin1 appended after an existing geog comment
+- **WHEN** `state = 'Bayern'` does not resolve and `geogcomments = 'Outcrop near river.'`
+- **THEN** `location.comments = 'Outcrop near river.\n[migration] Unrecognized admin1 name: Bayern'`
 
 ### Requirement: Build the stratigraphy object
 The script SHALL build `collection.stratigraphy` with `stratonyms` (`supergroup`, `geological_group` → `group`, `subgroup`, `formation`, `member`, `bed`), `scale` (from `stratscale`), `comments` (from `stratcomments`), and `measuredSections` (`local_section` → `section`, `local_bed` → `bed`, `local_bed_unit` → `unit`, `local_order` → `order`). Empty/null values SHALL be omitted.

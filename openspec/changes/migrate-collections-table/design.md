@@ -66,7 +66,9 @@ Legacy `country`/`state` are free text and do **not** cleanly equal the dictiona
 2. **Dictionary match:** `country` → normalized match against admin0 `name`/`iso`/`iso3`; `state` → normalized match against admin1 `name`/`alternate_name` scoped by the resolved `admin0_id`.
 3. **Alias map:** for legacy variants that still don't normalize to a dictionary entry, a curated `COUNTRY_ALIASES`/`STATE_ALIASES` (normalized legacy string → ISO code) seeded from the measured unmatched set (Russian Federation→RU, Türkiye→TR, Netherlands→NL, Cape Verde→CV, Timor-Leste→TL, the two Congos, Micronesia, Falklands, Holy See, Palestine, the Virgin Islands, etc.). The map is data-driven and reviewable, and is the extension point when new variants surface.
 4. **Maritime fallback:** if `country` resolves to neither a dictionary entry nor a `COUNTRY_ALIASES` code, try the maritime resolver (D11) before giving up.
-5. **Still no match** (not admin, not maritime) → flag the row in output and do not migrate it. `admin2` (county) is free text, passed through. The `if/then` rule (admin1 required when admin0 ∈ {US, CN, RU, AU, CA}) applies in the strict API schema; for migration, an unresolved required admin1 in those countries is also a flag-and-skip.
+5. **Still no match** (not admin, not maritime) → flag the row in output and do not migrate it. `admin2` (county) is free text, passed through.
+
+**Unresolved `admin1` (relaxed):** `admin1` is NOT required for migration (the strict API schema's `if/then` rule — admin1 required when admin0 ∈ {US, CN, RU, AU, CA} — was removed from the migration schema). A `country` that resolves but a `state` that does not migrates **country-only** and is counted/flagged. Rather than discard the unresolved string, the migration appends a marker line `[migration] Unrecognized admin1 name: <raw state>` to `location.comments` (newline-joined after any `geogcomments`, marker last). This keeps the original vernacular/transliterated string in the record (queryable, greppable) pending a later `STATE_ALIASES` curation pass; `oldpbdbID` bridges the idempotent re-run. (Earlier drafts either flag-and-skipped these rows or considered reverse-geocoding the point from lat/lng to recover the state — both dropped in favor of this simpler, lossless-at-record approach.)
 
 **Alternative considered:** insert with a null/placeholder country. Rejected for genuine countries — it stores unqueryable, invalid geography and defeats ISO normalization. (The ocean/marine subset is handled properly by D11's `maritimeArea`, not by a placeholder.)
 
@@ -106,6 +108,18 @@ Resolution: the legacy strings are shorter than the IHO names ("North Pacific" v
 
 **Note on `iho_plus_code`:** the Southern Ocean's code is the non-numeric `'SOC'` (an artifact of SeaDataNet reconciling inconsistent historical IHO vocabularies), unlike the numeric codes for the other six. The column may prove unnecessary and is retained in the dictionary for now; nothing joins on it.
 
+### D12. Strip NUL bytes from all migrated strings
+
+Legacy free-text fields carry embedded NUL characters (``). PostgreSQL `jsonb` cannot store `` — an insert containing one aborts the whole transaction with `unsupported Unicode escape sequence`. `trimStr` (the single choke point every payload string flows through, directly or via `splitCsv`) strips `` before trimming. Discovered by the full-table dry-run (D14); unit tests on clean fixtures never surfaced it.
+
+### D13. `permid` partial index is a precondition (O(n²) → O(n log n))
+
+The `place_in_lineage()` BEFORE-INSERT version trigger runs `SELECT count(*), max(id) FROM <table> WHERE permid = $1 AND succeeded_by_id IS NULL` on every inserted row. With no index on `permid`, each insert sequentially scans the table *as it grows within the transaction* — quadratic. The first full dry-run sat at 53 minutes barely moving; with the index it completes in ~47 seconds. Fix: a partial index `<table>_permid_head_idx ON <table> (permid) WHERE succeeded_by_id IS NULL`, matching the trigger predicate. This was folded into `install_version_triggers()` in `create_new.sql` so **every** versioned table (refs, timescales, intervals, collections, schemas, characters, states, authorities) gets it on fresh install; the eight indexes were also created on the existing local DB. This is a general fix — the same gap slowed the authorities migration — not collections-specific.
+
+### D14. `--dry-run` switch exercises the real insert path with ROLLBACK
+
+`migrate-collections.js` accepts `--dry-run` (or `DRY_RUN=1`): it runs the full stream/build/validate/stage/insert path against the live DB but issues `ROLLBACK` instead of `COMMIT`, and skips the identity-sequence reset (setval over an empty table's NULL `MAX(id)` would error). This gives a true confidence check on the exact code — it is what caught D12 and D13, which staging-only validation could not. The live run is the same command without the flag.
+
 ## Risks / Trade-offs
 
 - **Admin-ISO match quality** → false positives silently corrupt country/state. Mitigation: conservative matching (normalized exact/near-exact against dictionary names), and report both the skip list (no match) and the match counts for review before committing the transaction.
@@ -118,10 +132,10 @@ Resolution: the legacy strings are shorter than the IHO names ("North Pacific" v
 ## Migration Plan
 
 1. Hand-edit `collection.schema.js` (already largely done): both schema exports compile; `claystone` fixed; migration `required=["name"]`.
-2. Confirm PostGIS extension present; confirm `early_age_id`/`late_age_id` nullable.
+2. Confirm PostGIS extension present; confirm `early_age_id`/`late_age_id` nullable; confirm the `permid` partial index exists on `collections` (and other versioned tables) per D13 — without it the insert is O(n²).
 3. At script startup: hydrate the four DB-driven enums (admin0, admin1, if-condition country list, maritime) from `dictionaries`, then `ajv.compile(collectionMigrationSchema)`.
-4. Dry-run the toponym resolver (admin + maritime); review skip/match report.
-5. Stream, transform, validate, bulk-insert `collections`; then insert `additional_collection_refs`; reset identity sequences; print counters (inserted, skipped-orphan-ref, skipped-no-toponym-match, altitude-dropped).
+4. `node migrate-collections.js --dry-run` (D14) — exercises the full insert path with ROLLBACK; review skip/match report and counters. Last clean dry-run: 275,554 collections + 371,774 additional_collection_refs staged/inserted/rolled back in ~47s, counter check ✓.
+5. Stream, transform, validate, bulk-insert `collections`; then insert `additional_collection_refs`; reset identity sequences; print counters (inserted, skipped-orphan-ref, skipped-no-toponym-match, admin1-unresolved, altitude-dropped).
 6. **Rollback:** the insert is transaction-wrapped; on failure it rolls back cleanly. To redo, `TRUNCATE collections, additional_collection_refs` and re-run.
 
 ## Open Questions

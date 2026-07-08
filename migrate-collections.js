@@ -9,7 +9,9 @@ const SOURCE_TABLE = 'collections';
 
 // ---------- Pure helpers ----------
 function trimStr(s) {
-  return s == null ? '' : String(s).trim();
+  // Strip NUL bytes: PostgreSQL jsonb cannot store \u0000, and some legacy
+  // free-text fields carry embedded NULs that would otherwise sink the insert.
+  return s == null ? '' : String(s).replace(/\u0000/g, '').trim();
 }
 
 function splitCsv(s) {
@@ -171,8 +173,17 @@ export function buildLocation(src, toponym, coordinates) {
   if (coordinates) location.coordinates = coordinates;
   // scale is required: coerce blank/null geogscale to "unspecified".
   location.scale = trimStr(src.geogscale) || 'unspecified';
+  // comments = geogcomments, plus a migration marker preserving a present-but-
+  // unmatched legacy state string that could not resolve to an admin1 ISO code
+  // (newline-joined, marker last). Keeps the raw string in the record rather
+  // than dropping it; a later STATE_ALIASES pass can resolve it on re-run.
+  const commentParts = [];
   const comments = trimStr(src.geogcomments);
-  if (comments) location.comments = comments;
+  if (comments) commentParts.push(comments);
+  if (toponym && toponym.unresolvedAdmin1) {
+    commentParts.push(`[migration] Unrecognized admin1 name: ${toponym.unresolvedAdmin1}`);
+  }
+  if (commentParts.length) location.comments = commentParts.join('\n');
   const museum = trimStr(src.museum);
   if (museum) location.repository = { institution: museum };
   return location;
@@ -358,7 +369,8 @@ export function hydrateSchema(dicts) {
 // ---------- Main ----------
 async function main() {
   const startTime = new Date();
-  console.log(`[${startTime.toISOString()}] Starting collections migration...`);
+  const dryRun = process.argv.includes('--dry-run') || process.env.DRY_RUN === '1';
+  console.log(`[${startTime.toISOString()}] Starting collections migration${dryRun ? ' (DRY RUN — will ROLLBACK, no data written)' : ''}...`);
 
   // Pre-load: refs head map (legacy reference_no → new refs.id)
   const { rows: refRows } = await pg.query(`
@@ -619,8 +631,13 @@ async function main() {
     }
     console.log(`  Inserted ${secondaryInserted} additional_collection_refs`);
 
-    await client.query('COMMIT');
-    console.log('  Transaction committed');
+    if (dryRun) {
+      await client.query('ROLLBACK');
+      console.log('  DRY RUN — transaction rolled back (no data written)');
+    } else {
+      await client.query('COMMIT');
+      console.log('  Transaction committed');
+    }
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('  Insert failed, transaction rolled back:', err.message);
@@ -629,9 +646,12 @@ async function main() {
   }
   client.release();
 
-  // Reset identity sequences
-  await pg.query(`SELECT setval(pg_get_serial_sequence('collections','id'), (SELECT MAX(id) FROM collections))`);
-  await pg.query(`SELECT setval(pg_get_serial_sequence('additional_collection_refs','id'), (SELECT MAX(id) FROM additional_collection_refs))`);
+  // Reset identity sequences (skip on dry run — nothing was committed, and
+  // setval over an empty table's NULL MAX(id) would error)
+  if (!dryRun) {
+    await pg.query(`SELECT setval(pg_get_serial_sequence('collections','id'), (SELECT MAX(id) FROM collections))`);
+    await pg.query(`SELECT setval(pg_get_serial_sequence('additional_collection_refs','id'), (SELECT MAX(id) FROM additional_collection_refs))`);
+  }
 
   // Final report
   console.log('');
