@@ -1,4 +1,5 @@
 import { pg, closePg } from './pg-pool.js';
+import { uuidv7 } from './uuidv7.js';
 
 // --- Constants ---
 
@@ -214,6 +215,9 @@ async function main() {
   console.log(`  Processing ${pbotOnlyRefs.length} PBot-only references`);
 
   // --- 6.3 Ensure permid unique constraint exists ---
+  // Backstop only: guarantees permid uniqueness. Logical idempotency (avoiding
+  // duplicate references on re-run) is enforced by the legacyIDs.pbotID lookup
+  // in the upsert below, since permid is now a generated UUIDv7.
 
   await pg.query(`
     DO $$
@@ -270,27 +274,47 @@ async function main() {
     // 4.3 + 4.4 Build JSONB
     const jsonb = buildReferenceJsonb(ref, refTypeMap);
 
-    // 5.1 Upsert
-    const permid = ref.pbotID;
-
-    await pg.query(
-      `INSERT INTO refs (permid, reference_type_id, authorizer_person_id, enterer_person_id,
-                                 reference, preceded_by_id, succeeded_by_id, removed)
-       VALUES ($1, $2, $3, $4, $5, NULL, NULL, false)
-       ON CONFLICT (permid) DO UPDATE SET
-         reference_type_id = EXCLUDED.reference_type_id,
-         authorizer_person_id = EXCLUDED.authorizer_person_id,
-         enterer_person_id = EXCLUDED.enterer_person_id,
-         reference = EXCLUDED.reference,
-         removed = EXCLUDED.removed`,
-      [
-        permid,                  // $1
-        referenceTypeId,         // $2
-        AUTHORIZER_PERSON_ID,    // $3
-        entererPgId,             // $4
-        JSON.stringify(jsonb),   // $5
-      ]
+    // 5.1 Idempotent upsert keyed on legacyIDs.pbotID.
+    // permid is now a generated UUIDv7 (a fresh value each run), so we can no
+    // longer rely on ON CONFLICT (permid). Match on the stable pbotID instead:
+    // update in place when the ref already exists (preserving its id + permid),
+    // otherwise insert a new row with a freshly generated permid.
+    const { rows: existingRows } = await pg.query(
+      `SELECT id FROM refs WHERE reference->'legacyIDs'->>'pbotID' = $1`,
+      [ref.pbotID]
     );
+
+    if (existingRows.length > 0) {
+      await pg.query(
+        `UPDATE refs SET
+           reference_type_id = $2,
+           authorizer_person_id = $3,
+           enterer_person_id = $4,
+           reference = $5,
+           removed = false
+         WHERE id = $1`,
+        [
+          existingRows[0].id,      // $1
+          referenceTypeId,         // $2
+          AUTHORIZER_PERSON_ID,    // $3
+          entererPgId,             // $4
+          JSON.stringify(jsonb),   // $5
+        ]
+      );
+    } else {
+      await pg.query(
+        `INSERT INTO refs (permid, reference_type_id, authorizer_person_id, enterer_person_id,
+                                   reference, preceded_by_id, succeeded_by_id, removed)
+         VALUES ($1, $2, $3, $4, $5, NULL, NULL, false)`,
+        [
+          uuidv7(),                // $1 — generated UUIDv7 permid
+          referenceTypeId,         // $2
+          AUTHORIZER_PERSON_ID,    // $3
+          entererPgId,             // $4
+          JSON.stringify(jsonb),   // $5
+        ]
+      );
+    }
     upsertCount++;
   }
 
@@ -306,7 +330,7 @@ async function main() {
   // --- 6.2 Verification ---
 
   const { rows: countResult } = await pg.query(
-    `SELECT COUNT(*)::int AS count FROM refs WHERE permid = ANY($1)`,
+    `SELECT COUNT(*)::int AS count FROM refs WHERE reference->'legacyIDs'->>'pbotID' = ANY($1)`,
     [pbotOnlyRefs.map((r) => r.pbotID)]
   );
   const pgCount = countResult[0].count;

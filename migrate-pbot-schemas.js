@@ -1,4 +1,5 @@
 import { pg, closePg } from './pg-pool.js';
+import { uuidv7 } from './uuidv7.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
@@ -349,7 +350,7 @@ async function main() {
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, false)
        RETURNING id`,
       [
-        schema.pbotID,
+        uuidv7(), // generated permid; pbotID preserved in schema.legacyIDs.pbotID
         AUTHORIZER_PERSON_ID,
         entererPgId,
         JSON.stringify(jsonb),
@@ -445,7 +446,7 @@ async function main() {
          VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL)
          RETURNING id`,
         [
-          char.pbotID,
+          uuidv7(), // generated permid; pbotID preserved in character.legacyIDs.pbotID
           AUTHORIZER_PERSON_ID,
           entererPgId,
           parentSchemaId,
@@ -539,7 +540,7 @@ async function main() {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
          RETURNING id`,
         [
-          state.pbotID,
+          uuidv7(), // generated permid; pbotID preserved in state.legacyIDs.pbotID
           AUTHORIZER_PERSON_ID,
           entererPgId,
           parentCharacterId,

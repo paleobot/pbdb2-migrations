@@ -1,5 +1,5 @@
 import { mariadb, pg, closeAll } from './db.js';
-import { randomUUID } from 'crypto';
+import { uuidv7 } from './uuidv7.js';
 
 // --- Publication type mapping ---
 // Legacy value → { referenceType (target name), bookType (jsonb field or null) }
@@ -298,7 +298,7 @@ async function main() {
 
     return {
       id: ref.reference_no,
-      permid: randomUUID(),
+      permid: uuidv7(),
       reference_type_id: pubType.referenceTypeId,
       authorizer_person_id: authorizerPersonId,
       enterer_person_id: entererPersonId,

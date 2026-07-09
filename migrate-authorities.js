@@ -1,5 +1,5 @@
 import { mariadb, pg, closeAll } from './db.js';
-import { randomUUID } from 'crypto';
+import { uuidv7 } from './uuidv7.js';
 import Ajv from 'ajv/dist/2019.js';
 import { authoritySchema } from './payloadSchemas/authority.schema.js';
 
@@ -273,7 +273,7 @@ async function main() {
       for (const s of batch) {
         values.push(`($${pIdx}, $${pIdx+1}, $${pIdx+2}, $${pIdx+3}, $${pIdx+4})`);
         params.push(
-          randomUUID(),
+          uuidv7(),
           s.authorizerPersonId,
           s.entererPersonId,
           JSON.stringify(s.payload),

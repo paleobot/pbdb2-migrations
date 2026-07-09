@@ -1,5 +1,5 @@
 import { mariadb, pg, closeAll } from './db.js';
-import { randomUUID } from 'crypto';
+import { uuidv7 } from './uuidv7.js';
 import Ajv from 'ajv/dist/2019.js';
 import { collectionMigrationSchema } from './payloadSchemas/collection.schema.js';
 
@@ -506,7 +506,7 @@ async function main() {
       if (toponym.administrativeArea) insertedLand++; else insertedMaritime++;
 
       staged.push({
-        permid: randomUUID(),
+        permid: uuidv7(),
         authorizerPersonId: authNo,
         entererPersonId: entNo,
         collectionJson: JSON.stringify(payload),
