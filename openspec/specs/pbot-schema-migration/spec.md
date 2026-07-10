@@ -47,12 +47,24 @@ The script SHALL set `authorizer_person_id = 1106` (Douglas Meredith) for all PB
 - **WHEN** any PBot record is inserted into PostgreSQL
 - **THEN** the `authorizer_person_id` column is set to 1106
 
-### Requirement: Use PBot pbotID as permid
-The script SHALL use each entity's PBot `pbotID` as the `permid` column value in PostgreSQL.
+### Requirement: Generate UUIDv7 permid
+The script SHALL generate a fresh UUIDv7 (via the shared UUIDv7 helper) as the `permid` for each PBot Schema, Character, and State. The script SHALL NOT use the entity's `pbotID` as the permid. The PBot `pbotID` SHALL remain in the entity JSONB at `legacyIDs.pbotID`.
 
-#### Scenario: permid assignment
-- **WHEN** a PBot Schema has `pbotID = 'abc-123'`
-- **THEN** the resulting `schemas` row has `permid = 'abc-123'`
+#### Scenario: Schema permid assignment
+- **WHEN** a PBot Schema with `pbotID = 'abc-123'` is inserted
+- **THEN** the resulting `schemas` row has a generated UUIDv7 `permid` (not `abc-123`), and the `schema` JSONB contains `legacyIDs.pbotID = 'abc-123'`
+
+#### Scenario: Character permid assignment
+- **WHEN** a PBot Character with `pbotID = 'char-bbb'` is inserted
+- **THEN** the resulting `characters` row has a generated UUIDv7 `permid`, and the `character` JSONB contains `legacyIDs.pbotID = 'char-bbb'`
+
+#### Scenario: State permid assignment
+- **WHEN** a PBot State with `pbotID = 'state-ccc'` is inserted
+- **THEN** the resulting `states` row has a generated UUIDv7 `permid`, and the `state` JSONB contains `legacyIDs.pbotID = 'state-ccc'`
+
+#### Scenario: Parent resolution unaffected
+- **WHEN** characters and states are inserted level-by-level using parent pbotID-to-id maps
+- **THEN** parent resolution continues to work because it keys on the entity's pbotID (from the fetched PBot data / `legacyIDs.pbotID`), not on `permid`
 
 ### Requirement: Resolve schema references by order
 The script SHALL resolve all references associated with each Schema. References SHALL be sorted by their `order` value ascending. The reference with the lowest order SHALL become the `schemas.reference_id` column value. All remaining references SHALL be inserted as rows in `additional_schema_refs`.

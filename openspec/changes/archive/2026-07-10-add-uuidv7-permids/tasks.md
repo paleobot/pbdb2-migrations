@@ -31,7 +31,7 @@
 
 ## 6. Verify
 
-- [ ] 6.1 Drop the affected tables and re-run the migrations (combined with the bigint rebuild)
-- [ ] 6.2 Verify every in-scope table has zero permids with version nibble ≠ 7 (e.g. `SELECT count(*) ... WHERE (get_byte(uuid_send(permid),6) >> 4) <> 7`)
-- [ ] 6.3 Re-run `migrate-pbot-refs.js` a second time and confirm no duplicate references are created (idempotency holds on `legacyIDs.pbotID`)
-- [ ] 6.4 Confirm cross-entity resolution still works (schemas resolve their refs; character/state parent trees build) after the permid change
+- [x] 6.1 Drop the affected tables and re-run the migrations (combined with the bigint rebuild)
+- [x] 6.2 Verify every in-scope table has zero permids with version nibble ≠ 7 (e.g. `SELECT count(*) ... WHERE (get_byte(uuid_send(permid),6) >> 4) <> 7`)
+- [x] 6.3 Re-run `migrate-pbot-refs.js` a second time and confirm no duplicate references are created (idempotency holds on `legacyIDs.pbotID`)
+- [x] 6.4 Confirm cross-entity resolution still works (schemas resolve their refs; character/state parent trees build) after the permid change

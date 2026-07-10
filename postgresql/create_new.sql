@@ -4433,8 +4433,8 @@ CREATE TABLE collections (
     collection jsonb NOT NULL, -- Collection json -- taken directly from PBot!!!
     location geography, -- make sure PostGIS is installed
     reference_id bigint REFERENCES refs("id") NOT NULL, -- A single refs is considered the "primary".
-    early_age_id integer REFERENCES intervals("id"), --NOT NULL,
-    late_age_id integer REFERENCES intervals("id"), --NOT NULL, -- just repeat early_age if only 1 age given
+    --early_age_id integer REFERENCES intervals("id"), --NOT NULL,
+    --late_age_id integer REFERENCES intervals("id"), --NOT NULL, -- just repeat early_age if only 1 age given
     preceded_by_id bigint REFERENCES collections("id"),
     succeeded_by_id bigint REFERENCES collections("id"),
     removed boolean,
