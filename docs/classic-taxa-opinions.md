@@ -368,6 +368,242 @@ Framing the target, not prescribing it:
 
 ---
 
+## 9. The proposed pbdb2 redesign (issues #16 / #30) and how it meshes
+
+*Refs: `paleobot/pbdb2-dev` issue #16 (real-time vs nightly rebuild) and #30 (the "Solution"
+comment — the **Opinion Inheritance Trigger System**), plus the follow-up analysis and aazaff's
+ranking of alternatives.*
+
+### 9.1 What the Solution proposes
+
+- **Split Classic's one polymorphic `opinions` table into three typed opinion tables:**
+  `name_opinions` (spelling/misspelling/synonymy), `assignment_opinions` (parent taxon), and
+  `rank_opinions` (rank). Each is a plain append-only assertion log.
+- **Make `taxa` an append-only *ledger*.** The current belief for a taxon is its latest row,
+  identified by an invariant `permid` and chained with `preceded_by` / `succeeded_by`. `accepted`
+  flags whether a row is the currently valid name.
+- **An "inheritance trigger" reconciles at write time.** Inserting an opinion that supersedes the
+  current state (per the reliability/pubyr ranking) appends a new `taxa` row. Marking a name
+  unaccepted (e.g. *Myliobatus* ruled a misspelling of *Myliobatis*) fires a trigger that clones the
+  relevant assignment onto the senior name (a new `taxa` row), and reversing that opinion walks the
+  `preceded_by` chain back to the last clean state and appends the reverted row.
+
+Crucially, **pbdb2 already has most of this machinery**: the `entity-versioning-triggers` spec
+implements `permid` + `preceded_by_id`/`succeeded_by_id`, automatic lineage placement on insert, and
+generic FK-swinging via `pg_constraint`. So the Solution is largely *applying the existing versioning
+ledger to taxa* and adding one taxonomy-specific inheritance trigger on top. `permid` replaces
+Classic's `orig_no` / original-combination pointer.
+
+### 9.2 Where it aligns with the §8 recommendations (strong agreement)
+
+| §8 recommendation | Solution |
+|---|---|
+| Split the polymorphic `parent_no` edge | **Done** — `name_` / `assignment_` / `rank_opinions`. The tree query follows only `assignment_opinions`. |
+| Drive updates from change events, not `modified` polling | **Done** — triggers on opinion insert; no 2 s daemon. |
+| Never let reads write | **Done** — the current belief is just the latest row (`succeeded_by IS NULL`); no read-path UPDATE, no `tc_mutex`. |
+| Prefer a write-friendly hierarchy over nested sets | **Done differently** — materializes state per row instead of `lft/rgt` rewrites *or* live recursive CTEs. |
+| Replace `orig_no` with an invariant identity | **Done** — the versioning `permid`. |
+
+It also adds full provenance (append-only → reconstruct the tree at any past instant), which
+Classic's cache never had.
+
+### 9.3 Where it diverges — and the concern
+
+§8 argued for **one canonical, declarative definition of "the winning opinion," with the derived
+tree idempotent and rebuildable from the opinions alone.** The Solution instead makes the `taxa`
+ledger **primary, imperatively materialized state**, reconciled by triggers at write time.
+
+The concern is that this can **reintroduce Classic's "correct-by-ritual" fragility, relocated from a
+nightly rebuild into trigger-land**:
+
+- If an inheritance trigger has a bug, or opinions arrive out of timeline order, the ledger can
+  diverge with **no simple "SELECT that defines truth" to rebuild from.** Classic drifted and needed
+  periodic `rebuildCache` + cleanup scripts; the ledger risks the same failure mode at write time.
+- The self-analysis in #30 flags **diamond inheritance, infinite loops, and write-amplification blast
+  radius** — the *same class of problems* Classic's `moveChildren` + mutex faced. They are moved, not
+  dissolved.
+- **Winner-selection still has to live somewhere.** The trigger must implement the
+  `reliability(basis) → pubyr → recency` ranking to decide "does this opinion supersede?" — i.e.
+  Classic's `getMostRecentClassification`, now in PL/pgSQL, still needing one canonical definition.
+- **The "inheritance" is Classic's junior-synonym borrowing made explicit.** The *Myliobatus →
+  Myliobatis* inheritance is exactly Classic's `use_synonyms` behavior ("a `belongs to` opinion on a
+  junior synonym may classify the senior name"), done eagerly at write time by cloning a row instead
+  of lazily at read time. The hard cases are therefore *already known* from Classic, not hypothetical.
+- **Mixing asserted and derived rows in one table is a smell.** An inherited row corresponds to *no
+  opinion anyone entered about that taxon*. Classic kept `opinions` (asserted) physically separate
+  from `taxa_tree_cache` (derived). Recommend an explicit `derived_from_opinion_id` / asserted-vs-
+  inherited marker so "what did someone actually say" stays separable from "what did the system
+  infer."
+
+### 9.4 Proposed synthesis
+
+The ledger and a canonical declarative derivation are **complementary, not either/or**:
+
+> Define winner-selection as **one canonical function per opinion type** (name / assignment / rank),
+> and have the trigger *call that function* to decide what to materialize. Keep a
+> **recompute-from-opinions** path — even if it is not the hot path — as a rebuild tool, a test
+> oracle, and a divergence check.
+
+This preserves the ledger's real-time + provenance wins **without** its biggest risk (unrebuildable
+drift). It also lines up with aazaff's own read of the alternatives:
+
+- **Option 4 (materialized path), "on top of or parallel to" the ledger** — the nested-set
+  replacement: store each taxon's classification path for O(1) ancestor reads, computed eagerly in
+  the same trigger ("without the deferred aspect").
+- **Option 5 (bi-temporal) — the genuinely unsolved case:** *retroactive opinions*. Entering an old,
+  high-priority reference today means entry order ≠ publication-priority order, so the trigger cannot
+  process linearly — it must walk back and re-materialize. A canonical recompute function turns that
+  into a re-derivation rather than bespoke ledger surgery, which is exactly where linear walk-back
+  gets fragile (diamond inheritance). aazaff's doubt — "not sure opinions can be grouped into
+  temporal intervals of validity" — is the crux to resolve here.
+
+**Net:** the Solution is well-aligned with §8 and stronger than the §8 sketch on opinion-splitting
+and infrastructure reuse. The one substantive push: don't treat the ledger as the *sole* source of
+truth — back it with a single canonical, rebuildable derivation so real-time materialization is an
+optimization over defined truth, not a replacement for it. Otherwise the trigger system inherits
+Classic's deepest failure mode (silent drift needing periodic repair), merely at write time instead
+of nightly.
+
+### 9.5 Making the ledger rebuildable: truth vs. materialization
+
+The synthesis in §9.4 — "back the ledger with a single canonical, rebuildable derivation" — deserves
+a concrete shape. The core move is a hard line between **truth** and **materialization**:
+
+- **Truth** is a pure function of the opinion tables. Given the full set of opinions, there is
+  exactly one correct answer to "what is the accepted name, parent, and rank of concept *P*?" That
+  function reads **only** the opinion tables (+ `refs` for basis/pubyr). It never reads the `taxa`
+  ledger.
+- **Materialization** is the `taxa` ledger — a *stored copy* of that function's output so reads are
+  O(1).
+
+The #30 Solution collapses the two (the ledger *is* the truth, patched incrementally). This synthesis
+keeps them separate and has the incremental path and the rebuild path **call the same function**.
+
+#### 9.5.1 Two levels of identity (read this first)
+
+The word "concept" is the slipperiest thing in the whole problem, so nail down the two distinct
+identities before anything else:
+
+| Identity | What it is | Stored? | Classic analog |
+|---|---|---|---|
+| **Name-lineage** = `permid` | one original name across all its spellings/corrections/rank-changes; what opinions attach to | **stored, stable** | `child_no` (original combination); accepted spelling within it ≈ `spelling_no` |
+| **Concept** = `concept_id` | the set of name-lineages currently considered the same taxon (senior name + junior synonyms + their misspellings) | **derived, unstable** — recomputed every `derive()` | `synonym_no` (accepted spelling of the senior synonym) |
+
+`concept_id` is **not** a stored column and **not** human-assigned. It is an *equivalence-class label*
+— use the permid of the senior-most name — produced by the union-find over the winning synonymy
+opinions. It changes whenever a synonymy opinion changes (rule *Myliobatus* a synonym of *Myliobatis*
+and two permids collapse into one concept; reverse it and they split). This keeps us consistent with
+the #30 decision to reject an Explicit Bridge Table: concepts are **emergent from data lineage**, not
+a persistent curated namespace. `permid` is truth-*input*; `concept_id` is truth-*output*.
+
+#### 9.5.2 Three layers
+
+- **Layer 1 — Assertions (append-only, immutable):** `name_opinions`, `assignment_opinions`,
+  `rank_opinions`, keyed by `permid`. Never updated; a retraction is itself a later opinion.
+- **Layer 2 — The derivation (one canonical function):**
+  ```
+  taxonomy.derive(permids := all) → rows of
+    (permid, accepted_name_id, accepted_name, rank,
+     concept_id, parent_concept_id, lineage_path,
+     winning_name_opinion_id, winning_assignment_opinion_id, winning_rank_opinion_id)
+  ```
+  Pure over Layer 1, a small fixpoint:
+  1. **Concept grouping** — union-find/connected components over the *winning* synonymy & misspelling
+     `name_opinions`; pick the senior representative as `concept_id`. (This does the job Classic's
+     `orig_no` and the ledger's `permid` do for *validity*, but computed, not stored.)
+  2. **Winner per dimension** — one winning opinion per group via `DISTINCT ON`, e.g.
+     ```sql
+     SELECT DISTINCT ON (permid) permid, parent_permid, opinion_id
+     FROM assignment_opinions a JOIN refs r USING (reference_id)
+     ORDER BY permid,
+              reliability_rank(a.evidence) DESC,        -- basis enum → int
+              COALESCE(a.pubyr, r.pubyr) DESC,
+              opinion_id DESC;
+     ```
+     That single ORDER BY *is* Classic's `getMostRecentClassification`, in one place instead of
+     smeared across SQL + Perl.
+  3. **Junior-synonym borrowing** — resolve each concept's assignment by gathering `belongs to`
+     opinions across *all permids in the concept*, not just the senior one. This is #30's "inheritance"
+     (Time Step 4) expressed as a `WHERE permid IN (concept members)`, not a row-cloning trigger.
+  4. **Parent → concept resolution**, plus optional **materialized lineage path** (Option 4) as an
+     `ltree`/array so ancestor reads never recurse.
+- **Layer 3 — The ledger (materialized output):** `taxa`, versioned by the existing
+  `permid` + `preceded_by_id`/`succeeded_by_id` machinery. Append a new version **only when
+  `derive()`'s output for a permid differs from the current head.** Store which opinions won
+  (provenance) and an explicit `derived` / `asserted_opinion_id` marker so inherited state stays
+  distinguishable from directly-entered state.
+
+#### 9.5.3 Two sync paths, one function
+
+```
+opinion INSERT
+  └─ AFTER STATEMENT trigger
+       └─ affected := dependency_closure(inserted opinions)
+       └─ derive(affected)            ← the canonical function
+       └─ append taxa versions where output ≠ current head      (hot path)
+
+rebuild() / migration / recovery
+       └─ derive(all)                 ← the SAME function
+       └─ reload or diff the ledger                             (cold path)
+```
+
+The trigger shrinks to *"compute affected permids → call `derive` → diff → append."* The bespoke
+logic in #30 — the Time Step 6 walk-back, the reversal, diamond handling — **lives nowhere**, because
+you never *undo* a row: you recompute the concept from the full opinion set and append the result.
+
+#### 9.5.4 Why the hard cases dissolve
+
+**Reversal** (#30 Time Step 5/6 — a new opinion says *Myliobatus* is *not* a misspelling of
+*Myliobatis*):
+
+- *#30's ledger:* set `accepted = TRUE` on a new *Myliobatus* row, then a second trigger walks
+  `preceded_by` back through *Myliobatis*'s history to find "the last entry not associated with
+  opinions on *Myliobatus*" and appends the reverted row. Bespoke, and it breaks under diamond
+  inheritance.
+- *Recompute model:* insert the new `name_opinion`; call `derive(Myliobatis, Myliobatus)`. Concept
+  grouping no longer merges the two; each concept's winner is recomputed; *Myliobatis* loses the
+  borrowed *Aetobatidae* assignment because the borrowing rule no longer sees *Myliobatus* as a
+  synonym. A new head is appended. **No walk-back, no diamond special-case** — re-derivation produces
+  the reverted state as a side effect of being correct.
+
+**Retroactive opinions** (aazaff's bi-temporal worry) fall out the same way. Entering an old,
+high-priority reference today: `derive()` ranks by `basis/pubyr`, *not* entry order, so it wins or
+loses on merit and the ledger gets the right new head. No "group opinions into intervals of validity"
+is needed — you don't group, you rank, and re-rank on every recompute. That is the clean bi-temporal
+split: **valid-time** = publication priority (drives `derive`), **transaction-time** = ledger insert
+order (pure audit).
+
+#### 9.5.5 The invariant that makes it robust
+
+Because one function defines truth *and* drives the hot path:
+
+```
+derive(all)  ≡  { current ledger heads }
+```
+
+Run it in CI, post-import, or nightly. If the incremental trigger ever drifts (bug, race, odd import
+order), the check catches it and `rebuild()` repairs it. This is what Classic never had: its rebuild
+*was* its definition, and it disagreed with the daemon and the lazy read-writes, so drift was silent
+and permanent. Here there is **one definition, three ways to apply it, provably equal.**
+
+#### 9.5.6 Honest caveats
+
+- **`dependency_closure` scoping** affects performance, not correctness — a synonymy edge can merge
+  concepts and re-parent children, so the affected set ripples. Over-scoping only costs time; the
+  ultimate fallback is `derive(all)`. Contrast #30, where a trigger scoping bug = wrong data.
+- **`derive()` must be total and deterministic** — define tie-breaks explicitly and handle cycles
+  (A synonym-of B, B synonym-of A) in this one place. One cycle handler instead of Classic's
+  loop-breaking scattered through `moveChildren`/`getSeniorSynonym`.
+- **Write amplification is reduced, not eliminated** — a high-level revision still touches many
+  descendants, but you append only where the derived output *changes*; no-op opinion edits produce no
+  rows, killing much of Classic's churn.
+
+**One-line version:** keep #30's ledger and triggers for the read/audit story, but make the trigger
+body a thin wrapper that calls `derive()` and appends the diff — where `derive()`, a pure function of
+the opinions, is the single definition of truth shared by both the hot path and the rebuild path.
+
+---
+
 ### Appendix: file map
 
 | File | Role |
