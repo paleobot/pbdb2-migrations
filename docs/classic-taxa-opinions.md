@@ -54,10 +54,44 @@ parent P in manner S." The columns that matter:
 | `ref_has_opinion`, `reference_no`, `pubyr`, author fields | provenance, and the year used for recency |
 | `max_interval_no` / `min_interval_no` | optional stratigraphic range stated by the opinion |
 
+**All four id columns are foreign keys into `authorities.taxon_no`.** There is no separate
+"spelling" table — `child_no`, `child_spelling_no`, `parent_no`, and `parent_spelling_no` are every
+one of them an authority row. The `*_no` vs `*_spelling_no` distinction is not a different table but
+a different *role*:
+
+- `*_no` → the authority row that is the **original combination** (canonical identity)
+- `*_spelling_no` → the authority row for the **spelling actually used** in that opinion
+
+They are frequently equal; they diverge only when a recombination, correction, rank change, or
+misspelling is involved.
+
 The `child_no` vs `child_spelling_no` split is the single most important modeling decision in the
 whole system: **an opinion is always filed under the original combination (`child_no`), but records
 the spelling that reference actually used (`child_spelling_no`).** That is what lets the system
 gather "all opinions about this taxon, no matter how it was spelled" with a single indexed lookup.
+
+### 2.2a `parent_no` is a polymorphic pointer, not always "the higher taxon"
+
+A crucial subtlety: **`parent_no` is the target the opinion points the child at, and what that
+target *means* depends on `status`.** It is the containing higher taxon *only* for `belongs to`
+opinions. The `opinions` table overloads one column to encode two structurally different kinds of
+edge:
+
+| `status` | What `parent_no` is | Rank relationship (enforced in `Opinion.pm`) |
+|---|---|---|
+| `belongs to` | the **containing higher taxon** (e.g. child = genus, parent = family) | parent rank **strictly higher** (`:1163`); a species must point at a genus/subgenus (`:1182`) |
+| `subjective/objective synonym of`, `replaced by`, `misspelling of`, `homonym of` | the **senior synonym / replacement / correct spelling** — a *lateral* pointer, not a container | parent rank must be the **same** (`:1170`) |
+| `invalid subgroup of` | the taxon it is an invalid subgroup of | **any** rank |
+| `nomen dubium/nudum/oblitum/vanum` | whatever it is being sunk under | any (just not species-level identity) |
+
+So a single `parent_no` column carries both **vertical** edges (classification / containment, for
+`belongs to`) and **horizontal** edges (this-name-equals-that-name, for the synonymy/spelling
+family). The resolver must read `status` to know which kind of relationship a row asserts. Building
+the *tree* means following only the `belongs to` edges — but you first have to collapse all the
+horizontal edges (synonyms, spellings) to know which node each `belongs to` edge actually connects.
+That overloading is a large part of why the derivation code is as convoluted as it is, and it is an
+open modeling decision for pbdb2: keep one polymorphic opinion edge, or split
+classification-opinions from synonymy/spelling-opinions into distinct relations.
 
 ### 2.3 Controlled vocabularies
 
@@ -325,6 +359,12 @@ Framing the target, not prescribing it:
   so read replicas and transactional consistency become possible.
 - **Let the schema forbid the states Classic repairs at read time** (duplicate originals, orphan
   spellings) with constraints, rather than shipping heuristic cleanup.
+- **Decide whether to keep `parent_no` polymorphic or split the edge types.** Classic's one
+  `parent_no` column means both "is classified under" (vertical, `belongs to`) and "is the same name
+  as / is replaced by" (horizontal, synonymy/spelling). Splitting classification opinions from
+  synonymy/spelling opinions into distinct relations would let the tree query follow one clean edge
+  set and let the schema enforce the rank rules per edge type, instead of the resolver branching on
+  `status` everywhere.
 
 ---
 
