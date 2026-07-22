@@ -487,14 +487,20 @@ identities before anything else:
 | Identity | What it is | Stored? | Classic analog |
 |---|---|---|---|
 | **Name-lineage** = `permid` | one original name across all its spellings/corrections/rank-changes; what opinions attach to | **stored, stable** | `child_no` (original combination); accepted spelling within it ≈ `spelling_no` |
-| **Concept** = `concept_id` | the set of name-lineages currently considered the same taxon (senior name + junior synonyms + their misspellings) | **derived, unstable** — recomputed every `derive()` | `synonym_no` (accepted spelling of the senior synonym) |
+| **Concept** = `concept_permid` | the set of name-lineages currently considered the same taxon (senior name + junior synonyms + their misspellings) | **derived, unstable** — recomputed every `derive()` | `synonym_no` (accepted spelling of the senior synonym) |
 
-`concept_id` is **not** a stored column and **not** human-assigned. It is an *equivalence-class label*
-— use the permid of the senior-most name — produced by the union-find over the winning synonymy
-opinions. It changes whenever a synonymy opinion changes (rule *Myliobatus* a synonym of *Myliobatis*
-and two permids collapse into one concept; reverse it and they split). This keeps us consistent with
-the #30 decision to reject an Explicit Bridge Table: concepts are **emergent from data lineage**, not
-a persistent curated namespace. `permid` is truth-*input*; `concept_id` is truth-*output*.
+`concept_permid` is **not** an asserted (Layer-1) column and **not** human-assigned — it is
+materialized in the `taxa` ledger (Layer 3) as derived output. Its value is a **pointer, not an SQL
+foreign key**: it holds the `permid` of the senior-most name, dereferenced to that succession's head
+(`succeeded_by_id IS NULL`). There is deliberately **no permid registry table** to FK against —
+validity is guaranteed by construction (the trigger writes only permids the opinions reference) and
+re-checked by the `derive(all)` invariant (§9.5.5), consistent with the truth-vs-materialization
+split. As an *equivalence-class label* it is produced by the union-find over the winning synonymy &
+misspelling opinions, using the permid of the senior-most name. It changes whenever a synonymy opinion
+changes (rule *Myliobatus* a synonym of *Myliobatis* and two permids collapse into one concept;
+reverse it and they split). This keeps us consistent with the #30 decision to reject an Explicit
+Bridge Table: concepts are **emergent from data lineage**, not a persistent curated namespace.
+`permid` is truth-*input*; `concept_permid` is truth-*output*.
 
 #### 9.5.2 Three layers
 
@@ -504,18 +510,18 @@ a persistent curated namespace. `permid` is truth-*input*; `concept_id` is truth
   ```
   taxonomy.derive(permids := all) → rows of
     (permid, accepted_name_id, accepted_name, rank,
-     concept_id, parent_concept_id, lineage_path,
+     concept_permid, containing_concept_permid, classification_path,
      winning_name_opinion_id, winning_assignment_opinion_id, winning_rank_opinion_id)
   ```
   Pure over Layer 1, a small fixpoint:
   1. **Concept grouping** — union-find/connected components over the *winning* synonymy & misspelling
-     `name_opinions`; pick the senior representative as `concept_id`. (This does the job Classic's
+     `name_opinions`; pick the senior representative as `concept_permid`. (This does the job Classic's
      `orig_no` and the ledger's `permid` do for *validity*, but computed, not stored.)
   2. **Winner per dimension** — one winning opinion per group via `DISTINCT ON`, e.g.
      ```sql
-     SELECT DISTINCT ON (permid) permid, parent_permid, opinion_id
+     SELECT DISTINCT ON (subject_permid) subject_permid, containing_permid, opinion_id
      FROM assignment_opinions a JOIN refs r USING (reference_id)
-     ORDER BY permid,
+     ORDER BY subject_permid,
               reliability_rank(a.evidence) DESC,        -- basis enum → int
               COALESCE(a.pubyr, r.pubyr) DESC,
               opinion_id DESC;
@@ -525,8 +531,8 @@ a persistent curated namespace. `permid` is truth-*input*; `concept_id` is truth
   3. **Junior-synonym borrowing** — resolve each concept's assignment by gathering `belongs to`
      opinions across *all permids in the concept*, not just the senior one. This is #30's "inheritance"
      (Time Step 4) expressed as a `WHERE permid IN (concept members)`, not a row-cloning trigger.
-  4. **Parent → concept resolution**, plus optional **materialized lineage path** (Option 4) as an
-     `ltree`/array so ancestor reads never recurse.
+  4. **Containing → concept resolution**, plus optional **materialized classification path** (Option 4)
+     as an `ltree`/array so ancestor reads never recurse.
 - **Layer 3 — The ledger (materialized output):** `taxa`, versioned by the existing
   `permid` + `preceded_by_id`/`succeeded_by_id` machinery. Append a new version **only when
   `derive()`'s output for a permid differs from the current head.** Store which opinions won
@@ -601,6 +607,182 @@ and permanent. Here there is **one definition, three ways to apply it, provably 
 **One-line version:** keep #30's ledger and triggers for the read/audit story, but make the trigger
 body a thin wrapper that calls `derive()` and appends the diff — where `derive()`, a pure function of
 the opinions, is the single definition of truth shared by both the hot path and the rebuild path.
+
+### 9.6 Design walkthrough: the API contract, column vocabulary, and `dependency_closure`
+
+*This section records the concrete design discussion behind §9.5 — the read/write API surface, the
+column names, and the one piece §9.5 left as a sketch (`dependency_closure`). The DDL here is a
+**strawman** to make the shapes discussable, not a finalized schema.*
+
+#### 9.6.1 Column vocabulary — three relationships kept apart
+
+The model has three structurally different relationships, and Classic overloaded "parent" / "lineage"
+across all of them. pbdb2 names each for what it *is*:
+
+| Relationship | Connects | Direction | Column(s) | Classic's overloaded term |
+|---|---|---|---|---|
+| **Succession** | versions/spellings of one name | temporal | `preceded_by_id` / `succeeded_by_id` | `preceded_by` |
+| **Concept** (synonymy) | permids judged the same taxon | lateral | `concept_permid`; `senior_permid` in `name_opinions` | `synonym_no` |
+| **Classification** (containment) | a taxon and its containing higher taxon | vertical | `containing_permid` (opinions) → `containing_concept_permid` (ledger); ancestry in `classification_path` | `parent_no` / `belongs to` |
+
+Deliberate choices:
+
+- **`subject_permid`** ("the taxon this opinion is *about*") replaces Classic's `child_no`, dropping the
+  child/parent framing that the split into typed opinion tables makes unnecessary.
+- **`containing_*`** (not "parent") for the classification edge — rank containment is **not**
+  evolutionary ancestry; a family *contains* a genus, it is not its ancestor. "Parent" quietly implies
+  descent, which this edge does not assert.
+- **`senior_permid`** — the standard nomenclatural term for a synonymy/misspelling target, clearer than
+  "parent" for a *lateral* edge.
+- **`classification_path`** (not `lineage_path`) — "lineage" is already spoken for by *name-lineage*
+  (`permid` across spellings); this column is the ancestry path *in the classification tree*, a
+  different thing.
+- Opinions point at bare **permids** (`containing_permid`, `senior_permid`); the ledger points at
+  **concepts** (`containing_concept_permid`). Concept resolution is `derive()`'s job, not the asserter's
+  — an intentional asymmetry between Layer 1 and Layer 3.
+
+#### 9.6.2 Assumed table shapes (strawman)
+
+```sql
+-- Layer 1: append-only assertions. Targets are permids (name-lineages), not concepts.
+assignment_opinions(opinion_id, subject_permid, containing_permid, evidence, pubyr, reference_id)
+name_opinions      (opinion_id, subject_permid, senior_permid, kind, evidence, pubyr, reference_id)
+                   -- kind ∈ synonym / misspelling / replacement …
+rank_opinions      (opinion_id, subject_permid, rank, evidence, pubyr, reference_id)
+
+-- Layer 3: the ledger. One row per (permid, version); head = succeeded_by_id IS NULL.
+-- concept_permid / containing_concept_permid / classification_path are concept-level, so all
+-- members of a concept carry equal values. Each is a pointer to a succession head, not an SQL FK.
+taxa(permid,
+     concept_permid,               -- senior rep of this permid's concept (self, if senior)
+     containing_concept_permid,    -- senior rep of the containing (higher) concept
+     classification_path,          -- ltree of concept_permids, root → node
+     preceded_by_id, succeeded_by_id, …)
+```
+
+#### 9.6.3 The API contract: what writes, what reads
+
+- **POST an opinion** → the write touches **only** the relevant Layer-1 table
+  (`assignment_opinions` / `name_opinions` / `rank_opinions`). Nothing writes `taxa` directly; even a
+  retraction is a later opinion appended, never an update/delete.
+- **The insert fires an `AFTER STATEMENT` trigger** → `dependency_closure` computes the affected
+  permids → `derive()` recomputes them → the trigger appends a new `taxa` version **only where
+  `derive()`'s output differs from the current head.**
+- **GET a taxon** → reads the current `taxa` **head** (`succeeded_by_id IS NULL`). O(1), no ranking
+  recomputation, no read-path writes, no `tc_mutex`. Reads never touch the opinion tables.
+
+```
+POST /opinions ─▶ INSERT into *_opinions            (assertions; the only direct write)
+                    └─ AFTER STATEMENT trigger
+                         └─ affected := dependency_closure(new rows)
+                         └─ derive(affected)         ← canonical pure function (§9.5.2)
+                         └─ append taxa heads where output ≠ current head
+
+GET /taxa/:id  ─▶ SELECT … FROM taxa WHERE permid = :id AND succeeded_by_id IS NULL
+```
+
+#### 9.6.4 `dependency_closure` — the one piece §9.5 left as a sketch
+
+**Contract:** return a **superset** of the permids whose `derive()` output could change. Under-scoping
+= silently stale heads (not allowed); over-scoping = wasted CPU (harmless — the diff step discards
+unchanged permids). The maximal safe answer is always `derive(all)`; the closure just makes the hot
+path cheaper when it can prove the rest is untouched.
+
+**Shape of the ripple** — asymmetric: **lateral** (across a concept) and **downward** (to descendants),
+never **upward**. A containing taxon's derived output doesn't depend on what it contains, so an opinion
+never dirties an ancestor. Starting from the permids the opinion names, expand along:
+
+1. **Concept-lateral** — add every permid in the same concept as each seed. Winner selection *pools
+   opinions across all members of a concept* (junior-synonym borrowing, §9.5.2 step 3), so an opinion
+   on one member can change the concept's winner.
+2. **Downward (tree)** — add all descendant concepts, transitively. If the concept's containing edge
+   changes, every descendant's `classification_path` changes.
+3. **Merge/split (`name_opinions` only)** — a synonymy opinion links `subject_permid` to
+   `senior_permid`, merging (or, reversed, splitting) two concepts. Seed **both** whole concepts, then
+   their descendants.
+
+**Chicken-and-egg:** concept grouping and the tree are themselves `derive()` *outputs*, but the closure
+needs them as *inputs*. Resolve by scoping against the **pre-insert** ledger heads — the state the new
+opinion perturbs. Any imprecision only over-includes, which the contract permits.
+
+Because `classification_path` is materialized (Option 4), "all descendants" is a single `ltree` prefix
+predicate, not a recursive walk:
+
+```sql
+WITH
+-- head-only view of the ledger (current beliefs)
+head AS (
+  SELECT permid, concept_permid, classification_path
+  FROM taxa
+  WHERE succeeded_by_id IS NULL
+),
+
+-- every permid named by the inserted opinions (both sides of each edge)
+seed AS (
+  SELECT subject_permid   AS permid FROM new_assignment_opinions
+  UNION SELECT containing_permid    FROM new_assignment_opinions
+  UNION SELECT subject_permid       FROM new_name_opinions
+  UNION SELECT senior_permid        FROM new_name_opinions   -- both sides = the merge/split case
+  UNION SELECT subject_permid       FROM new_rank_opinions
+),
+
+-- 1. LATERAL: map each seed to its current concept (pre-insert grouping)
+seed_concepts AS (
+  SELECT DISTINCT h.concept_permid, h.classification_path
+  FROM head h
+  JOIN seed s ON s.permid = h.permid
+),
+
+-- 2. concept members: every permid in an affected concept (winner is pooled per concept)
+concept_members AS (
+  SELECT h.permid
+  FROM head h
+  JOIN seed_concepts sc ON h.concept_permid = sc.concept_permid
+),
+
+-- 3. DOWNWARD: every permid whose classification path passes through an affected concept.
+--    ltree: (a <@ b) ⇔ a is a descendant of b. Non-recursive because the path is materialized.
+descendants AS (
+  SELECT h.permid
+  FROM head h
+  JOIN seed_concepts sc ON h.classification_path <@ sc.classification_path
+)
+
+SELECT permid FROM seed            -- singleton fallback: brand-new permids not yet in `taxa`
+UNION
+SELECT permid FROM concept_members
+UNION
+SELECT permid FROM descendants;
+```
+
+Drop the materialized path and step 3 becomes a `WITH RECURSIVE` walk down `containing_concept_permid`
+— which is exactly why Option 4 exists.
+
+#### 9.6.5 Worked example — the *Myliobatus* case
+
+Insert a `name_opinion`: *Myliobatus* is a misspelling / junior synonym of *Myliobatis*
+(`subject_permid = Myliobatus`, `senior_permid = Myliobatis`).
+
+1. **Seed** = `{Myliobatus, Myliobatis}` (both sides of the edge).
+2. **Concept-lateral** — pull in each one's current concept: *Myliobatis* + its existing
+   synonyms/misspellings, and *Myliobatus* + any of its own.
+3. **Merge** — both concepts, since they are about to fuse.
+4. **Downward** — every concept currently classified under either, because if the merged *Myliobatis*
+   concept borrows *Myliobatus*'s `containing = Aetobatidae` assignment, the whole subtree's
+   `classification_path` shifts.
+
+`derive()` runs on just that set, appends new `taxa` heads where output changed, and leaves the rest
+untouched. **Reversal** (a later opinion says *Myliobatus* is *not* a misspelling) needs no walk-back:
+re-run `derive(Myliobatis, Myliobatus)`, concept grouping no longer merges them, and the reverted state
+falls out as a side effect of being correct (§9.5.4).
+
+#### 9.6.6 Status
+
+This is a strawman for discussion, **not committed schema.** Open dependencies before it becomes real:
+the `taxa` ledger DDL (`concept_permid` / `containing_concept_permid` / `classification_path` + the
+`preceded_by_id`/`succeeded_by_id` versioning columns), the `reliability_rank(evidence)` mapping, and
+confirming the strictly downward+lateral propagation invariant that lets `dependency_closure` avoid
+chasing ancestors.
 
 ---
 
