@@ -595,8 +595,12 @@ and permanent. Here there is **one definition, three ways to apply it, provably 
 #### 9.5.6 Honest caveats
 
 - **`dependency_closure` scoping** affects performance, not correctness — a synonymy edge can merge
-  concepts and re-parent children, so the affected set ripples. Over-scoping only costs time; the
-  ultimate fallback is `derive(all)`. Contrast #30, where a trigger scoping bug = wrong data.
+  concepts and re-parent children, so the affected set ripples. Over-scoping is *correctness*-harmless
+  (the diff step discards unchanged permids) and `derive(all)` is always available as the ultimate
+  fallback — but **"correctness-harmless" is not "compute-harmless."** For a heavily-used system the
+  cost of a loose closure and per-opinion re-derivation is real; treat `derive(all)` as a recovery/CI
+  safety net, not a steady-state path, and see **§9.7** for the cost drivers and burst-handling
+  strategy. (Contrast #30, where a trigger scoping bug = wrong *data*, not just wasted time.)
 - **`derive()` must be total and deterministic** — define tie-breaks explicitly and handle cycles
   (A synonym-of B, B synonym-of A) in this one place. One cycle handler instead of Classic's
   loop-breaking scattered through `moveChildren`/`getSeniorSynonym`.
@@ -783,6 +787,105 @@ the `taxa` ledger DDL (`concept_permid` / `containing_concept_permid` / `classif
 `preceded_by_id`/`succeeded_by_id` versioning columns), the `reliability_rank(evidence)` mapping, and
 confirming the strictly downward+lateral propagation invariant that lets `dependency_closure` avoid
 chasing ancestors.
+
+### 9.7 Performance under bursty load
+
+*Prompted by aazaff's concern: "I am worried Claude is being too blasé about the compute consequences
+of over-inclusion. This will be a much more heavily used system than others we have made in the past.
+It won't be unusual, for example, to see 20 opinions updated in rapid succession that synonymize 20
+different species together." The concern is fair, and this section is the correction.*
+
+#### 9.7.1 The framing error to avoid
+
+Earlier drafts said over-inclusion "only costs time." That conflates two different claims:
+
+- **Correctness-harmless** (true): a looser `dependency_closure` never produces wrong data — the diff
+  step discards permids whose `derive()` output didn't change.
+- **Compute-harmless** (false): a loose closure and per-opinion re-derivation cost real CPU, writes,
+  and lock time. Under heavy, bursty use that cost is the binding constraint.
+
+So `derive(all)` is a **recovery/CI safety net, not an acceptable steady-state path**, and closure
+tightness is a performance parameter to engineer, not a detail to wave off.
+
+#### 9.7.2 Where the cost actually lives (it is not uniform)
+
+| # | Cost driver | Notes |
+|---|---|---|
+| 1 | **Per-opinion trigger repetition** | 20 related opinions in 20 statements → 20 closures + 20 `derive()` calls over heavily-overlapping sets. The biggest *avoidable* waste. |
+| 2 | **O(n²) on incremental merges** | If 20 species collapse into one concept, opinion *k* re-derives a *k*-member concept → O(n²). At n=20 it's ~200 member-evals (trivial, sub-ms); the point is the **pattern**, which at a genus revision (hundreds of species), fired repeatedly and concurrently, is where it bites. |
+| 3 | **Descendant blast radius — rank-dependent, partly irreducible** | Species synonymy is cheap (leaves, ~no descendants). *High-rank* reassignment rewrites every descendant's `classification_path` — real cost **even with a minimal closure**. Cost is not per-opinion-uniform; scheduling should be rank-aware. |
+| 4 | **Path-materialization writes** | Stored `classification_path` means a high-node reparent rewrites O(subtree) rows — Classic's `moveChildren` shape, minus the global `lft/rgt` renumber. The lever: materialize the path, or keep adjacency-only and compute ancestors on read (recursive CTE)? A read/write-ratio decision. |
+| 5 | **Lock contention** | "Rapid succession" + concurrency is Classic's `tc_mutex` failure mode. Granularity is everything: per-concept / per-subtree locks, **never** a global one. |
+
+aazaff's 20-species example is cheap in absolute terms but is the correct *illustration of a pattern*
+that scales badly at high rank / high concurrency. That is the real point, and it stands.
+
+#### 9.7.3 Mitigations, in order of leverage
+
+- **A. Coalesce bursts (the direct answer).** Don't fire a full `derive()` per opinion. Stage opinions
+  in a dirty-set/queue and let a short-debounced worker process the backlog with **one** `derive()`
+  over the *union* of affected permids. Collapses 20 triggers → 1, and O(n²) → O(n). **This is safe in
+  a way it never was in Classic**: because truth is a pure function and reads always serve the last
+  committed head, deferring/coalescing materialization cannot corrupt anything — worst case a read is a
+  second stale. This is Classic's daemon-style batching *without* the read-path writes or
+  correctness-by-ritual. The pure-function/ledger split is what *enables* it.
+- **B. Tight closures as the default**, over-inclusion only when tightness can't be proven; `derive(all)`
+  reserved for recovery/CI.
+- **C. Rank-aware scheduling** — cheap leaf ops inline; high-blast-radius (high-rank) ops batched /
+  backgrounded / rate-limited.
+- **D. Revisit path materialization vs. adjacency+recursive-CTE** once the read/write ratio is known.
+- **E. Fine-grained locking** on the concept/subtree, plus append-with-retry on conflict. (Or sidestep
+  it entirely at first with a single-writer worker — see §9.7.4.)
+
+#### 9.7.4 What to settle now vs. defer
+
+The key architectural test is reversible-vs-irreversible: **a mitigation is safe to defer only if
+adding it later is a localized change, not a rewrite.** By that test almost every mitigation is
+"later" — *provided* a few "now" invariants keep the seams in the right place. We do not need to
+*solve* burst performance now; we need to not *preclude* solving it.
+
+**Defer until real behavior is known:**
+
+| Mitigation | Why it defers cleanly |
+|---|---|
+| Burst coalescing / batching | A scheduling swap over `derive()`: replace "sync per-statement" with "enqueue + debounced worker". Touches the trigger + a queue table; nothing in truth. |
+| Tightening the closure | Start generous (even `derive(all)` at low volume), tighten as hot paths appear. Superset contract holds throughout. |
+| Rank-aware throttling | Pure policy on top of the queue. |
+| Parallel workers / fine locking | Start single-writer (one worker draining the queue → no concurrent `derive`, no fine locks). Add parallelism only if the single writer can't keep up. |
+
+**Settle now — the load-bearing invariants that *purchase* the deferability above:**
+
+1. **`derive()` is pure and parameterizable over an arbitrary permid subset** — never baked into
+   imperative trigger logic, never only `derive(all)`. This is what makes closures tightenable and
+   batching insertable. If derivation lives *inside* the trigger (#30 style), every mitigation becomes
+   a core rewrite.
+2. **Truth/materialization separation is real** — the trigger is a thin wrapper; `taxa` is materialized
+   *output*. This seam lets materialization slide sync → async → batched without touching correctness.
+3. **The read-consistency contract permits bounded staleness** — the *only* externally-visible
+   now-decision, because it is a promise to API consumers and expensive to walk back. Even if the first
+   implementation is synchronous, **document reads as allowed-to-lag** so nobody builds on synchronous
+   assumptions. The weak promise costs nothing now and preserves the most freedom; the strong promise
+   ("a GET always reflects the just-committed opinion") is the choice that would later *forbid* batching.
+4. **Adjacency (`containing_concept_permid`) is primary; `classification_path` is an explicitly
+   *derived* materialization**, not primary state. Keep that discipline and the path can be added,
+   reshaped, or dropped later as a cache change. Make it primary/load-bearing and reversing it becomes a
+   migration over every row and every read query (the nested-set trap again).
+
+**Net for aazaff:** build the simplest correct thing first — quite possibly synchronous per-statement
+`derive()` — measure it against the real workload, and add coalescing/throttling when the numbers
+justify. That is not blasé; it defers the *tuning* while committing now only to the four seams that
+keep the tuning cheap. The genuine risk is not "we didn't optimize early" — it is "we let derivation
+leak into the trigger, or made the path primary, and now the optimization is a rewrite." So the
+now-work is small but not zero: **guard invariants 1, 2, and 4 with discipline, and choose the weak
+consistency promise in 3.**
+
+#### 9.7.5 Numbers needed to size this
+
+The right operating point depends on data we don't yet have: typical and p99 **burst size**, the
+**read/write ratio**, **write concurrency** (curators editing at once), and the **latency SLA** — how
+soon must a GET reflect a just-entered opinion? If "a few seconds late" is acceptable, coalescing (A)
+is trivially the answer and most of the concern dissolves; if reads must be synchronously consistent
+with writes, the tradeoffs sharpen. Worth getting these figures from aazaff before tuning.
 
 ---
 
