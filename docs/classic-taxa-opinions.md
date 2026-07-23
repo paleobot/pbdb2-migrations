@@ -505,7 +505,8 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
 #### 9.5.2 Three layers
 
 - **Layer 1 — Assertions (append-only, immutable):** `name_opinions`, `assignment_opinions`,
-  `rank_opinions`, keyed by `permid`. Never updated; a retraction is itself a later opinion.
+  `rank_opinions`. Each row *references* name-lineage `permid`s (`subject_permid` and its targets);
+  it is not itself keyed by one — see §9.5.2.1. Never updated; a retraction is itself a later opinion.
 - **Layer 2 — The derivation (one canonical function):**
   ```
   taxonomy.derive(permids := all) → rows of
@@ -538,6 +539,72 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
   `derive()`'s output for a permid differs from the current head.** Store which opinions won
   (provenance) and an explicit `derived` / `asserted_opinion_id` marker so inherited state stays
   distinguishable from directly-entered state.
+
+#### 9.5.2.1 Why Layer 1 is *not* versioned
+
+Every other entity table in pbdb2 carries the `permid` + `preceded_by_id`/`succeeded_by_id`
+succession machinery, so the natural reflex is to give it to the opinion tables too. **Don't.** The
+asymmetry is deliberate, and the reasoning belongs here rather than being left implicit in
+"append-only, immutable" above.
+
+**The governing principle:**
+
+> Succession chains record **changes of belief**. `taxa` has beliefs; opinions have only
+> **transcription accuracy**.
+
+An opinion is a record of what a publication said. It has no state that can legitimately evolve —
+Smith 1990 said what it said. When a later publication disagrees, that is a *new opinion*, and
+resolving the disagreement is `derive()`'s ranking job (§9.5.2 step 2), not a succession chain's.
+Versioning would encode supersession twice, in two mechanisms that can disagree.
+
+**The decisive argument is temporal.** The design already has exactly two time axes, and §9.5.4
+depends on their being cleanly separated:
+
+| Axis | What it is | Role |
+|---|---|---|
+| **valid-time** | publication priority (`pubyr`, `evidence`) | drives `derive()` |
+| **transaction-time** | ledger insert order | pure audit |
+
+Versioning Layer 1 introduces a **third**: *which revision of the record of that opinion was live
+when*. Everything downstream inherits it — `derive()` needs "heads as of when," `dependency_closure`
+needs it, and the §9.5.5 invariant degrades from `derive(all) ≡ {heads}` to
+`derive(all, as_of) ≡ heads(as_of)`. That is a large, permanent complexity increase buying nothing,
+because the thing being versioned has no beliefs to track.
+
+**A useful tell:** `permid` exists to give a row identity *across versions*. An unversioned table
+has no versions, so its surrogate `id` is already a stable identifier. If a draft schema puts
+`permid` on an opinion table, that is a reliable signal the versioning machinery was applied by
+pattern-matching rather than by design.
+
+**What "immutable" does *not* cover: data-entry correction.** A curator mistypes `pubyr` as 1890
+instead of 1990. That is not a new assertion, and modelling it as one would be a falsehood — the
+database would then hold two contradictory opinions attributed to one paper, and the erroneous one
+might win the ranking. But this case does not need succession either. A correction asserts *"this
+row never should have said that"* — errata, not history of belief. It wants an audit trail, not a
+chain:
+
+```sql
+-- on each Layer 1 table, in place of permid / preceded_by_id / succeeded_by_id
+    modifier_person_id integer REFERENCES persons("id"),
+    created_at  timestamptz NOT NULL DEFAULT NOW(),
+    modified_at timestamptz,
+    removed boolean          -- soft delete: entered in error / duplicate
+```
+
+`derive()` then filters on `WHERE removed IS NOT TRUE` with **no head predicate anywhere**, which
+also keeps `dependency_closure` (§9.6.4) and the migration simpler. If corrections warrant more
+rigour than `modified_at`, a single generic `record_edits(table_name, record_id, changed_at,
+person_id, before jsonb)` audit table serves every Layer 1 table at once — critically, *outside*
+the derivation path, so it never becomes a third temporal axis.
+
+**Summary of where versioning does and does not go:**
+
+| Table | Versioned? | Why |
+|---|---|---|
+| Layer 1 opinion tables | **no** | assertions, not beliefs; corrections are errata (audit columns) |
+| `taxa` (Layer 3 ledger) | **yes** | this *is* the provenance story — reconstruct the tree at any past instant (§9.2) |
+| curatorial annotation (common name, comments, discussion) | **yes** | authored prose; an edit is a genuine change of content |
+| homonym records | no | a lookup of a data-level fact, not an assertion |
 
 #### 9.5.3 Two sync paths, one function
 
@@ -788,6 +855,11 @@ the `taxa` ledger DDL (`concept_permid` / `containing_concept_permid` / `classif
 confirming the strictly downward+lateral propagation invariant that lets `dependency_closure` avoid
 chasing ancestors.
 
+**Superseded in part.** The table shapes sketched in §9.6.2 are replaced by
+`postgresql/taxa-opinions-draft.sql` (see §10), which resolves those open dependencies and adds the
+tables this section did not anticipate — `validity_opinions`, `type_opinions`, `trait_opinions`. The
+§9.6.1 column vocabulary and the §9.6.4 `dependency_closure` treatment stand unchanged.
+
 ### 9.7 Performance under bursty load
 
 *Prompted by aazaff's concern: "I am worried Claude is being too blasé about the compute consequences
@@ -886,6 +958,188 @@ The right operating point depends on data we don't yet have: typical and p99 **b
 soon must a GET reflect a just-entered opinion? If "a few seconds late" is acceptable, coalescing (A)
 is trivially the answer and most of the concern dissolves; if reads must be synchronously consistent
 with writes, the tradeoffs sharpen. Worth getting these figures from aazaff before tuning.
+
+---
+
+## 10. From legacy `authorities` to the new tables
+
+*§9 designs the target. This section does the inventory: which legacy columns land where, what the
+resulting DDL looks like, and how to migrate data that has no opinions behind it. Concrete DDL lives
+in `postgresql/taxa-opinions-draft.sql`; the §9.6.2 strawman is superseded by it, though the §9.6.1
+column vocabulary stands unchanged.*
+
+### 10.1 The forcing function
+
+The authorities migration (complete, 2026-06-02) took only the citation half of Classic's
+`authorities` table: `taxon_no`, `ref_is_authority`, the author fields, `pubyr`, `reference_no`, and
+the person columns. Roughly forty taxon-related columns were deliberately left behind. The question
+is where they go.
+
+The answer is dictated by one property: **`taxa` is derived, so every column in it must be
+reconstructible from Layer 1.** In Classic all of these were plain hand-entered columns on
+`authorities`, which was fine because `authorities` was itself the source of truth. Once `taxa`
+becomes `derive()` output, an unreconstructible column is a landmine: `rebuild()` would blank it, and
+the §9.5.5 invariant would be unverifiable.
+
+So each leftover field falls into exactly one of three categories:
+
+| Category | Character | Destination |
+|---|---|---|
+| **A. Derived** | varies by publication; publications can disagree; needs ranking | an opinion table (Layer 1) |
+| **B. Asserted at the naming act** | invariant, but still published and datable | the `original` name opinion |
+| **C. Not derived at all** | curatorial; no publication behind it | outside the stack (`taxon_annotations`) |
+
+The test for whether something needs its *own* opinion table:
+
+1. Does it belong in `taxa` at all? If no → side table, done.
+2. Can two publications **disagree** about it? If yes → it needs ranking → opinion table.
+3. Does resolving it change **other** taxa? If yes → tree-affecting, `dependency_closure` must chase
+   it. If no → purely local winner-selection, and the closure ignores it.
+
+### 10.2 Category B: the missing naming act
+
+Category B deserves its own note because it is the one genuine *hole* the authorities split opened.
+
+Classic's `authorities` was the birth certificate: it asserted "reference R erected name N at rank K,
+on page P, with type T." We stripped `authorities` down to pure citation, so **nothing in the new
+schema asserts that a name exists.** `taxa.name` had no source, and neither did rank.
+
+The fix needs no new table: make the naming act a `name_opinions` row with
+`reason = 'original'`, carrying `authority_id`, `pages`, and `figures`. This mirrors Classic's own
+`spelling_reason = 'original spelling'` convention, and it has a useful side effect — competing
+claims about what the original combination was become an ordinary ranking contest rather than a
+constraint violation. Classic needed a bad-data branch in `getOriginalCombination` (§4.1) precisely
+because it had no way to represent two candidate originals.
+
+A permid is therefore **minted by an `original` name opinion**, and by nothing else.
+
+### 10.3 Disposition of the leftover columns
+
+| Legacy column(s) | Cat. | Destination |
+|---|---|---|
+| `orig_no` | — | becomes `permid` (name-lineage identity) |
+| `taxon_name` | B/A | `name_opinions.new_name` (`original`, then later reasons) |
+| `taxon_rank` | A | `rank_opinions.rank_id` |
+| `pages`, `figures` | B | `name_opinions` on the `original` row |
+| `type_taxon_no`, `type_specimen`, `museum`, `catalog_number`, `type_body_part`, `part_details`, `type_locality` | A | `type_opinions` |
+| `extant`, `preservation`, `form_taxon` | A | `trait_opinions` (placeholder — see §10.6) |
+| `common_name`, `comments`, `discussion`, `discussed_by` | C | `taxon_annotations` |
+| `first_occurrence`, `last_occurrence` | — | drop: free-text summary, derivable from occurrences |
+| `subgenus_index` | — | drop: search helper derived from the name |
+| `refauth` | — | drop: redundant with `ref_is_authority` |
+| `extant_old`, `preservation_old`, `preservation_less_old` | — | deprecated — but `extant_old` holds **108K values** the anomaly report flags as unverified against `extant`. Check before dropping. |
+| `author1init`, `author2init` | — | already lost: the authorities migration kept family names only, in `descriptors` |
+| `modifier_no`, `updater_no`, `created`, `modified`, `updated`, `upload`, `upload_id` | — | drop: versioning triggers and audit columns cover this |
+
+### 10.4 What `accepted` was doing, and why it is gone
+
+The pre-§9 draft DDL had `taxa.accepted boolean`. Removing it is worth recording, because the column
+was quietly doing **two unrelated jobs**:
+
+| Meaning | Replacement |
+|---|---|
+| "this is the valid name of its concept" (not a junior synonym or misspelling) | **free**: `concept_permid = permid`. No column needed. |
+| "this name is nomenclaturally invalid" (nomen dubium/nudum/vanum/oblitum, invalid subgroup) | `nomenclatural_status_id` — an enum, and one that does *not* imply synonymy |
+
+A nomen dubium is its own concept head *and* invalid; a junior synonym is valid-but-not-head. One
+boolean cannot express both, which is exactly why Classic needed `synonym_no`, `spelling_no`, and
+`status`-branching throughout the resolver to reconstruct the same information.
+
+Two other columns from that draft also go: `has_homonym` (it would make a derived table depend on the
+non-opinion `homonyms` table — use a read-path `LEFT JOIN`), and the opinion tables' `permid` /
+succession columns (§9.5.2.1).
+
+### 10.5 Migrating data that has no opinions
+
+Classic's taxon data has no corresponding `opinions` rows for what were treated as *basal* taxa —
+names that later opinions build on. To migrate into a paradigm where `taxa` is derived, those
+assertions must be **constructed** so `derive()` has something to work from.
+
+Probed against the legacy database:
+
+| Probe | Count |
+|---|---|
+| `authorities` rows (name-as-spelled) | 517,287 |
+| distinct `orig_no` → **permids** | 403,640 |
+| `orig_no = 0` | **0** — clean |
+| orig rows with **no** original-spelling opinion | **13,607** |
+| clusters with **no opinions at all** (true basal) | 10,245 |
+| clusters with no `belongs to` (rootless in the tree) | 17,062 |
+| authorities rows no opinion ever references | 6,361 |
+| clusters where rank varies across spellings | 11,704 |
+
+This reframes the job favourably. 807,951 legacy opinions already carry
+`spelling_reason = 'original spelling'` with `child_no = child_spelling_no`, so Classic *did* record
+most naming acts as opinions. For those we are **relocating an assertion that always existed**, not
+fabricating one. Only ~13.6K names need genuine synthesis.
+
+**Rank is the exception: it is universally missing.** `taxon_rank` exists only in `authorities`;
+there is no rank opinion anywhere in legacy. But it is recoverable, because every opinion names a
+`child_spelling_no` whose authorities row carries a rank. That yields a fan-out decision:
+
+| Approach | Rank opinions | Fidelity |
+|---|---|---|
+| **Fan-out** — one per legacy opinion, rank from its `child_spelling_no` | ~998K | Matches Classic, which takes rank from the *winning spelling's* authorities row |
+| **Lean** — only `spelling_reason = 'rank change'` (21,809) plus one genesis per permid | ~425K | Cleaner semantically, but a later opinion re-using an older spelling would no longer re-assert the older rank, so a 1990 rank change could beat a 2010 usage |
+
+Fan-out is the recommendation: ~1M rows is nothing for Postgres, and fidelity matters more than
+tidiness in a migration whose output you want to diff against `taxa_tree_cache`.
+
+**Three constraints the synthesis must respect:**
+
+1. **Synthesized opinions must rank at the floor.** `derive()` orders `evidence DESC, pubyr DESC` —
+   evidence *first*. A genesis opinion attributed to an 1850 naming reference with inherited high
+   evidence would beat a real 2020 opinion. Give them `reliability = 0` plus an explicit
+   `synthesized` flag, so they win only when nothing else exists — which is their entire purpose.
+2. **`evidence` cannot be a NOT NULL boolean.** 298,470 of 998,565 legacy opinions (30%) have
+   `basis IS NULL` and fall back to the reference's basis. There is no value to invent for them.
+3. **The nomen family needs somewhere to go.** 12,806 opinions (`nomen dubium` 8,208, `nomen nudum`
+   2,533, `invalid subgroup of` 1,420, `nomen vanum` 569, `nomen oblitum` 76) are neither assignments
+   nor name changes, and would be silently dropped without `validity_opinions`.
+
+**Migration order.** Because opinions carry bare permids rather than pointing at `taxa` rows, there
+is no bootstrap problem — the derived table simply comes last:
+
+```
+1. permid := uuidv7() per orig_no cluster                       (403,640)
+2. translate legacy opinions → name / rank / assignment / validity
+3. synthesize genesis opinions for the 13,607 + rootless cases
+4. derive(all) → materialize taxa                    ← the first rebuild()
+5. verify: derive(all) ≡ heads, and diff against taxa_tree_cache
+```
+
+Step 5 is the payoff. The migration *is* the cold path, so it exercises `rebuild()` on day one, and
+Classic's own cache becomes a free independent oracle: every disagreement is either a `derive()` bug
+or a documented Classic pathology.
+
+Two cleanups en route: **81 `orig_no` values** point at a taxon_no that is not its own original, and
+the anomaly report lists a handful of FK orphans (1 `child_no`, 5 `parent_no`, 8
+`parent_spelling_no`, 10 `reference_no`).
+
+### 10.6 Status and open calls
+
+`postgresql/taxa-opinions-draft.sql` is a **draft for discussion, not committed schema** — nothing in
+it has been run. Open questions, in rough order of how much they would change:
+
+1. **`trait_opinions`** is a placeholder. It is the weakest of the three new opinion tables and sits
+   exactly where PBOT's description system takes over; its payload is `jsonb` rather than typed
+   columns for that reason. It may end up being — or being absorbed by — the `descriptions` table
+   that `create_new.sql` references but leaves undefined.
+2. **`type_opinions` granularity.** One row asserts the whole type block, so a later lectotype
+   designation silent about type locality would drop the locality on winning. May need splitting per
+   dimension.
+3. **Rank fan-out** (§10.5) — the one open *migration* decision.
+4. **`nomen oblitum`** appears in `dictionaries.namechange_reasons` but is modelled as a
+   nomenclatural status. Pick one.
+5. **`dictionaries.taxonomy_ranks` is missing `'order'`** and needs an explicit `height`: `derive()`
+   enforces "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once
+   `unranked clade`/`unranked` sit at the end of the list.
+6. **`attribution jsonb`** on the opinion tables duplicates the shape of `authority.schema.js`.
+   Shared schema, or should an opinion point at an `authorities` row instead?
+
+If the surface needs shrinking, `validity_opinions` is the one that must stay — the other two could
+both be deferred into the PBOT description work, at the cost of parking `extant` and the type block
+until then.
 
 ---
 
