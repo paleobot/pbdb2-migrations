@@ -102,12 +102,14 @@ INSERT INTO dictionaries.nomenclatural_statuses (status, targeted) VALUES
 
 
 -- dictionaries.namechange_reasons must cover legacy `spelling_reason` ∪ the
--- synonymy half of legacy `status`. Existing rows: original, misspelling,
--- assignment, reranked, code, junior synonym, nomen oblitum.
+-- synonymy half of legacy `status`. Existing rows (after the create_new.sql
+-- fix): original, misspelling, assignment, reranked, code, junior synonym.
 --
--- NOTE: 'nomen oblitum' is arguably misfiled here — it is a validity status,
--- not a spelling act, and now lives in nomenclatural_statuses above. Flagged
--- for a decision rather than silently removed.
+-- RESOLVED (open call A): 'nomen oblitum' has been removed from
+-- namechange_reasons and lives only in dictionaries.nomenclatural_statuses
+-- above. It is a validity/priority status — the name itself is unaltered — not
+-- a spelling act, so it never belonged among the name-change reasons. The row
+-- was deleted from the create_new.sql seed directly.
 --
 -- merges_concept marks the reasons whose senior_permid target causes two
 -- name-lineages to collapse into one concept during derive()'s union-find.
@@ -486,13 +488,17 @@ CREATE INDEX trait_opinions_subject_idx      ON trait_opinions (subject_permid);
 -- 2. type_opinions: one row per whole type block, or split per dimension so a
 --    lectotype designation cannot silently drop the type locality?
 --
--- 3. namechange_reasons: 'nomen oblitum' is listed as a name-change reason but
---    is modelled here as a nomenclatural status. Pick one.
+-- 3. RESOLVED (open call A): 'nomen oblitum' is a nomenclatural validity/
+--    priority status, not a name-change reason. Removed from
+--    namechange_reasons (create_new.sql); it lives only in
+--    dictionaries.nomenclatural_statuses.
 --
--- 4. Rank fan-out (migration): emit one rank_opinion per legacy opinion
---    (~998K, faithful to Classic, which reads rank from the winning spelling's
---    authorities row) or only for spelling_reason = 'rank change' plus a
---    genesis per permid (~425K, cleaner but divergent)? See §10.5.
+-- 4. RESOLVED (open call B, §10.5): rank fan-out — emit one rank_opinion per
+--    legacy opinion (~998K), rank taken from that opinion's child_spelling_no.
+--    Faithful to Classic (rank comes from the winning spelling's authorities
+--    row) and ~1M rows is trivial for Postgres. The lean ~425K variant is
+--    rejected: it would let a 1990 rank change outrank a 2010 usage that
+--    re-used the older spelling.
 --
 -- 5. attribution jsonb duplicates the shape of authority.schema.js. Worth a
 --    shared schema, or should an opinion point at an authorities row instead?

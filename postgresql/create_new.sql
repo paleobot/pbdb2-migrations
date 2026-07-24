@@ -80,8 +80,11 @@ INSERT INTO dictionaries.namechange_reasons (reason, description)
         ('assignment', 'The assignment of the taxon changed (e.g., new genus for species)'),
         ('reranked', 'The taxon has changed rank (from genus to family, implies re-assignment)'),
         ('code', 'A grammatical or other change to match the zoological code'),
-        ('junior synonym', 'The taxon is a junior synonym of another taxon'),
-        ('nomen oblitum', 'The taxon is nomen oblitum');
+        ('junior synonym', 'The taxon is a junior synonym of another taxon');
+        -- 'nomen oblitum' removed: it is a nomenclatural validity/priority
+        -- status (the name is unaltered), not a name-change reason. It lives in
+        -- dictionaries.nomenclatural_statuses in the taxa/opinions schema.
+        -- See docs/classic-taxa-opinions.md §10.6 (open call A, resolved).
 
 
 -- Geographic dictionaries: oceans (maritime), countries (admin0) and first-level subdivisions (admin1).

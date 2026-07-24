@@ -1082,8 +1082,10 @@ there is no rank opinion anywhere in legacy. But it is recoverable, because ever
 | **Fan-out** — one per legacy opinion, rank from its `child_spelling_no` | ~998K | Matches Classic, which takes rank from the *winning spelling's* authorities row |
 | **Lean** — only `spelling_reason = 'rank change'` (21,809) plus one genesis per permid | ~425K | Cleaner semantically, but a later opinion re-using an older spelling would no longer re-assert the older rank, so a 1990 rank change could beat a 2010 usage |
 
-Fan-out is the recommendation: ~1M rows is nothing for Postgres, and fidelity matters more than
-tidiness in a migration whose output you want to diff against `taxa_tree_cache`.
+**Decision: fan-out** (open call B, resolved). ~1M rows is nothing for Postgres, and fidelity matters
+more than tidiness in a migration whose output you want to diff against `taxa_tree_cache`. The lean
+variant is rejected precisely for the failure mode noted above — a later opinion re-using an older
+spelling would no longer re-assert the older rank, so a 1990 rank change could beat a 2010 usage.
 
 **Three constraints the synthesis must respect:**
 
@@ -1128,9 +1130,13 @@ it has been run. Open questions, in rough order of how much they would change:
 2. **`type_opinions` granularity.** One row asserts the whole type block, so a later lectotype
    designation silent about type locality would drop the locality on winning. May need splitting per
    dimension.
-3. **Rank fan-out** (§10.5) — the one open *migration* decision.
-4. **`nomen oblitum`** appears in `dictionaries.namechange_reasons` but is modelled as a
-   nomenclatural status. Pick one.
+3. ~~**Rank fan-out** (§10.5) — the one open *migration* decision.~~ **DECIDED (open call B):**
+   fan-out — one `rank_opinion` per legacy opinion (~998K), rank from each opinion's
+   `child_spelling_no`. Faithful to Classic; the lean ~425K variant is rejected. See §10.5.
+4. ~~**`nomen oblitum`** appears in `dictionaries.namechange_reasons` but is modelled as a
+   nomenclatural status. Pick one.~~ **DECIDED (open call A):** it is a nomenclatural validity/priority
+   status, not a name-change reason (the name is unaltered). Removed from `namechange_reasons` in
+   `create_new.sql`; it lives only in `dictionaries.nomenclatural_statuses`.
 5. **`dictionaries.taxonomy_ranks` is missing `'order'`** and needs an explicit `height`: `derive()`
    enforces "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once
    `unranked clade`/`unranked` sit at the end of the list.
