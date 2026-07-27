@@ -509,9 +509,11 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
 
 #### 9.5.2 Three layers
 
-- **Layer 1 — Assertions (append-only, immutable):** `name_opinions`, `assignment_opinions`,
-  `rank_opinions`. Each row *references* name-lineage `permid`s (`subject_permid` and its targets);
-  it is not itself keyed by one — see §9.5.2.1. Never updated; a retraction is itself a later opinion.
+- **Layer 1 — Assertions (append-only):** `name_opinions`, `assignment_opinions`,
+  `rank_opinions`. Each row *references* name-lineage `permid`s (`subject_permid` and its targets)
+  and also carries **its own** `permid` identifying the opinion across transcription corrections —
+  versioned, but without the version triggers, see §9.5.2.1. A retraction or a disagreement is a
+  later *opinion*; only a mistyped record becomes a new *version*.
 - **Layer 2 — The derivation (one canonical function):**
   ```
   taxonomy.derive(permids := all) → rows of
@@ -570,71 +572,81 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
   (provenance) and an explicit `derived` / `asserted_opinion_id` marker so inherited state stays
   distinguishable from directly-entered state.
 
-#### 9.5.2.1 Why Layer 1 is *not* versioned
+#### 9.5.2.1 Layer 1 is versioned — but without the version triggers
 
-Every other entity table in pbdb2 carries the `permid` + `preceded_by_id`/`succeeded_by_id`
-succession machinery, so the natural reflex is to give it to the opinion tables too. **Don't.** The
-asymmetry is deliberate, and the reasoning belongs here rather than being left implicit in
-"append-only, immutable" above.
+*Revised 2026-07-27. This section previously argued that Layer 1 should **not** be versioned, and
+handed data-entry corrections to `modifier_person_id` / `modified_at` audit columns. Those columns
+were Classic artifacts and have been removed, which took the old answer with them. The revised
+position: the opinion tables **do** carry `permid` + `preceded_by_id`/`succeeded_by_id`, and
+deliberately **do not** call `install_version_triggers()`.*
 
-**The governing principle:**
+**What the succession chain means here.** Not changes of belief — corrections of transcription. The
+distinction is real and the schema now expresses it, where before it was only a convention:
 
-> Succession chains record **changes of belief**. `taxa` has beliefs; opinions have only
-> **transcription accuracy**.
-
-An opinion is a record of what a publication said. It has no state that can legitimately evolve —
-Smith 1990 said what it said. When a later publication disagrees, that is a *new opinion*, and
-resolving the disagreement is `derive()`'s ranking job (§9.5.2 step 2), not a succession chain's.
-Versioning would encode supersession twice, in two mechanisms that can disagree.
-
-**The decisive argument is temporal.** The design already has exactly two time axes, and §9.5.4
-depends on their being cleanly separated:
-
-| Axis | What it is | Role |
+| The curator... | Records it as | Because |
 |---|---|---|
-| **valid-time** | publication priority (`pubyr`, `evidence`) | drives `derive()` |
-| **transaction-time** | ledger insert order | pure audit |
+| mistyped `pubyr` as 1890 for 1990 | a **new version of the same opinion** (same `permid`) | the record was wrong; Smith 1990 never said 1890 |
+| disagrees with what an opinion concludes | a **new opinion** (new `permid`) | the literature moved; `derive()`'s ranking settles it |
 
-Versioning Layer 1 introduces a **third**: *which revision of the record of that opinion was live
-when*. Everything downstream inherits it — `derive()` needs "heads as of when," `dependency_closure`
-needs it, and the §9.5.5 invariant degrades from `derive(all) ≡ {heads}` to
-`derive(all, as_of) ≡ heads(as_of)`. That is a large, permanent complexity increase buying nothing,
-because the thing being versioned has no beliefs to track.
+That distinction is why versioning does not "encode supersession twice." Supersession between
+*rival* opinions is `derive()`'s ranking job and stays there. The succession chain never competes
+with it, because a superseded version is not visible to `derive()` at all — it filters
+`WHERE removed IS NOT TRUE AND succeeded_by_id IS NULL`.
 
-**A useful tell:** `permid` exists to give a row identity *across versions*. An unversioned table
-has no versions, so its surrogate `id` is already a stable identifier. If a draft schema puts
-`permid` on an opinion table, that is a reliable signal the versioning machinery was applied by
-pattern-matching rather than by design.
+**Why no triggers — the load-bearing part.** `install_version_triggers()` would be actively harmful
+on these six tables, for one specific reason. `handle_new_version()`
+(`postgresql/create_new.sql:4318`) swings inbound foreign keys to the new version, and **every**
+inbound FK to an opinion row is one of `taxa.winning_*_opinion_id`. Those are not assertions — they
+are *derived provenance*, part of `derive()`'s output, and must be whatever `derive()` computed.
+Swinging them would do two bad things:
 
-**What "immutable" does *not* cover: data-entry correction.** A curator mistypes `pubyr` as 1890
-instead of 1990. That is not a new assertion, and modelling it as one would be a falsehood — the
-database would then hold two contradictory opinions attributed to one paper, and the erroneous one
-might win the ranking. But this case does not need succession either. A correction asserts *"this
-row never should have said that"* — errata, not history of belief. It wants an audit trail, not a
-chain:
+1. **Write to the ledger outside `derive()`** — an in-place `UPDATE` of a `taxa` head, rather than
+   the diff-and-append the whole Layer 2/3 split exists to protect.
+2. **Falsify history** — every past `taxa` version would suddenly cite the *corrected* opinion, as
+   though the system had always held the right data. Not swinging is the truthful behaviour: an old
+   ledger version keeps pointing at the opinion row **as it then read**, which is precisely the
+   provenance claim it is making.
 
-```sql
--- on each Layer 1 table, in place of permid / preceded_by_id / succeeded_by_id
-    modifier_person_id integer REFERENCES persons("id"),
-    created_at  timestamptz NOT NULL DEFAULT NOW(),
-    modified_at timestamptz,
-    removed boolean          -- soft delete: entered in error / duplicate
+So FK swinging is not a rule with an exception here; it is a rule about *asserted* references being
+misapplied to a *derived* one. Suppressing it in the trigger machinery would work, but not calling
+the machinery at all is simpler and needs no change to shared code: the write path sets
+`preceded_by_id`/`succeeded_by_id` directly.
+
+**What this buys, beyond corrections.** A correction is an `INSERT` of a new version, so it flows
+through the *existing* `AFTER STATEMENT` trigger — `dependency_closure` → `derive()` → append —
+exactly like a brand-new opinion. There is no separate correction code path to write or test. And
+bulk migration inserts skip `place_in_lineage()` entirely, since every migrated opinion is version 1
+with both pointers `NULL`, avoiding the per-row head lookup that stalled the collections migration.
+
+**The temporal objection, and why it does not bite.** The earlier draft argued that versioning
+Layer 1 adds a third time axis on top of valid-time (`pubyr`) and transaction-time (ledger order),
+degrading the §9.5.5 invariant from `derive(all) ≡ {heads}` to `derive(all, as_of) ≡ heads(as_of)`.
+That was overstated. Because `derive()` reads **only opinion heads**, the invariant stays two-state:
+
+```
+derive(opinion heads)  ≡  { current ledger heads }
 ```
 
-`derive()` then filters on `WHERE removed IS NOT TRUE` with **no head predicate anywhere**, which
-also keeps `dependency_closure` (§9.6.4) and the migration simpler. If corrections warrant more
-rigour than `modified_at`, a single generic `record_edits(table_name, record_id, changed_at,
-person_id, before jsonb)` audit table serves every Layer 1 table at once — critically, *outside*
-the derivation path, so it never becomes a third temporal axis.
+A third axis would only materialize if something required *cross-layer time travel* — reconstructing
+what `derive()` would have produced from the opinion set as it read last Tuesday. Nothing does: the
+`taxa` ledger already records what was believed and when. The cost that is real is narrower — a
+`succeeded_by_id IS NULL` predicate on Layer 1 reads in `derive()` and `dependency_closure`, backed
+by the partial head indexes.
+
+**One consequence for the index discipline.** Because these tables skip
+`install_version_triggers()`, they do not get its automatic `permid` head index. The draft DDL
+hand-creates all six. This is the one place in the schema where hand-creating that index is correct
+rather than a mistake, and it is not optional — it is the same lookup whose absence degraded the
+collections migration to O(n²).
 
 **Summary of where versioning does and does not go:**
 
-| Table | Versioned? | Why |
-|---|---|---|
-| Layer 1 opinion tables | **no** | assertions, not beliefs; corrections are errata (audit columns) |
-| `taxa` (Layer 3 ledger) | **yes** | this *is* the provenance story — reconstruct the tree at any past instant (§9.2) |
-| curatorial annotation (common name, comments, discussion) | **yes** | authored prose; an edit is a genuine change of content |
-| homonym records | no | a lookup of a data-level fact, not an assertion |
+| Table | Versioned? | Triggers? | Why |
+|---|---|---|---|
+| Layer 1 opinion tables | **yes** | **no** | chain records transcription corrections; FK swinging would corrupt derived provenance |
+| `taxa` (Layer 3 ledger) | **yes** | yes | this *is* the provenance story — reconstruct the tree at any past instant (§9.2) |
+| curatorial annotation (common name, comments, discussion) | **yes** | yes | authored prose; an edit is a genuine change of content |
+| homonym records | no | — | a lookup of a data-level fact, not an assertion |
 
 #### 9.5.3 Two sync paths, one function
 
@@ -801,6 +813,14 @@ never dirties an ancestor. Starting from the permids the opinion names, expand a
 3. **Merge/split (`name_opinions` only)** — a synonymy opinion links `subject_permid` to
    `senior_permid`, merging (or, reversed, splitting) two concepts. Seed **both** whole concepts, then
    their descendants.
+4. **The superseded version, when the insert is a correction** (added 2026-07-27, with Layer 1
+   versioning — §9.5.2.1). A correction arrives as a new *version*, so the closure seeds from the
+   permids the **new** row names. But if the correction changed which permids the opinion names — a
+   curator filed it under the wrong taxon and fixed `subject_permid` from A to B — then B *gains* an
+   opinion and is seeded, while **A silently loses one and is not**. A is left with a stale head,
+   which the closure contract forbids. So when `preceded_by_id IS NOT NULL`, seed the superseded
+   row's permids as well as the new one's. This costs nothing in the common case, where the two sets
+   are identical and the union collapses.
 
 **Chicken-and-egg:** concept grouping and the tree are themselves `derive()` *outputs*, but the closure
 needs them as *inputs*. Resolve by scoping against the **pre-insert** ledger heads — the state the new
@@ -825,6 +845,9 @@ seed AS (
   UNION SELECT subject_permid       FROM new_name_opinions
   UNION SELECT senior_permid        FROM new_name_opinions   -- both sides = the merge/split case
   UNION SELECT subject_permid       FROM new_rank_opinions
+  -- ...plus the same columns from the rows the inserts SUPERSEDE, joined via
+  -- new_*.preceded_by_id, so a correction that moved subject_permid off some
+  -- taxon still re-derives the taxon it was moved off. See ripple rule 4.
 ),
 
 -- 1. LATERAL: map each seed to its current concept (pre-insert grouping)
@@ -1076,9 +1099,13 @@ A nomen dubium is its own concept head *and* invalid; a junior synonym is valid-
 boolean cannot express both, which is exactly why Classic needed `synonym_no`, `spelling_no`, and
 `status`-branching throughout the resolver to reconstruct the same information.
 
-Two other columns from that draft also go: `has_homonym` (it would make a derived table depend on the
-non-opinion `homonyms` table — use a read-path `LEFT JOIN`), and the opinion tables' `permid` /
-succession columns (§9.5.2.1).
+One other column from that draft also goes: `has_homonym`, which would make a derived table depend on
+the non-opinion `homonyms` table — use a read-path `LEFT JOIN` instead.
+
+The opinion tables' `permid` / succession columns were also dropped at one point, and have since been
+**restored** — they record transcription corrections, and the tables run without the version triggers
+(§9.5.2.1). What did go, as Classic artifacts, are `modifier_person_id` and `modified_at`: the
+succession chain now carries that history, and carries it better.
 
 ### 10.5 Migrating data that has no opinions
 
