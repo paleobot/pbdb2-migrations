@@ -175,6 +175,11 @@ basis when the opinion has none, with a special-cased reference (6930) pinned to
 is: **most authoritative basis, then most recent year, then latest data entry.** The top row's
 `parent_no`/`status` become the taxon's classification.
 
+> **pbdb2 does not carry this enum forward.** `basis` collapses to a single boolean `evidence`
+> (`stated with evidence` → true, everything else → false), which is what `create_new.sql` always
+> specified. The graded ordering described here is Classic's, not the target design — see §9.5.2
+> step 2 for the pbdb2 ranking and §10.5 for the migration mapping.
+
 Subtleties baked in:
 
 - **Junior-synonym borrowing** (`use_synonyms`): a `belongs to` opinion on a junior synonym of
@@ -471,7 +476,7 @@ a concrete shape. The core move is a hard line between **truth** and **materiali
 
 - **Truth** is a pure function of the opinion tables. Given the full set of opinions, there is
   exactly one correct answer to "what is the accepted name, parent, and rank of concept *P*?" That
-  function reads **only** the opinion tables (+ `refs` for basis/pubyr). It never reads the `taxa`
+  function reads **only** the opinion tables (+ `refs` for pubyr). It never reads the `taxa`
   ledger.
 - **Materialization** is the `taxa` ledger — a *stored copy* of that function's output so reads are
   O(1).
@@ -523,12 +528,37 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
      SELECT DISTINCT ON (subject_permid) subject_permid, containing_permid, opinion_id
      FROM assignment_opinions a JOIN refs r USING (reference_id)
      ORDER BY subject_permid,
-              reliability_rank(a.evidence) DESC,        -- basis enum → int
+              a.synthesized ASC,                 -- real opinions outrank synthesized ones
+              a.evidence DESC,                   -- stated with evidence, true before false
               COALESCE(a.pubyr, r.pubyr) DESC,
               opinion_id DESC;
      ```
      That single ORDER BY *is* Classic's `getMostRecentClassification`, in one place instead of
      smeared across SQL + Perl.
+
+     **`evidence` is a boolean, not a graded enum.** This is a deliberate pbdb2 simplification of
+     Classic's 5-value `basis` (§4.2), and it is what `create_new.sql` always specified
+     (`evidence boolean NOT NULL`): **`stated with evidence` → `true`, everything else — `stated
+     without evidence`, `implied`, `second hand`, and `NULL` — → `false`.** Three consequences
+     worth stating once, here, since they propagate:
+
+     - **No `reliability_rank()` mapping and no evidence dictionary table.** The first sort key is
+       the column itself. Classic's special-cased reference 6930 (pinned to reliability 0) simply
+       becomes `false` and needs no home.
+     - **No read-time fallback to the reference.** Classic falls back to `refs.basis` when an
+       opinion's basis is NULL; pbdb2's `refs` has **no basis field at all**, so there is nothing
+       to fall back to. The fallback is resolved once, at migration time, into a `NOT NULL`
+       boolean (§10.5). This also removes evidence from the list of reasons `derive()` must join
+       `refs`.
+     - **`synthesized` becomes the first sort key.** A boolean leaves no room *below* `false` for
+       the migration floor, so the floor moves to its own column rather than being smuggled in as
+       a reliability level — which is the better factoring regardless: "is this a real published
+       statement?" and "how good is its evidence?" are independent questions (§10.5, constraint 1).
+
+     The cost is real and accepted: the `implied` / `second hand` / `stated without evidence`
+     distinction is **not recoverable** in pbdb2. With three of the four levels collapsed, `pubyr`
+     does correspondingly more of the ranking work.
+
   3. **Junior-synonym borrowing** — resolve each concept's assignment by gathering `belongs to`
      opinions across *all permids in the concept*, not just the senior one. This is #30's "inheritance"
      (Time Step 4) expressed as a `WHERE permid IN (concept members)`, not a row-cloning trigger.
@@ -851,9 +881,10 @@ falls out as a side effect of being correct (§9.5.4).
 
 This is a strawman for discussion, **not committed schema.** Open dependencies before it becomes real:
 the `taxa` ledger DDL (`concept_permid` / `containing_concept_permid` / `classification_path` + the
-`preceded_by_id`/`succeeded_by_id` versioning columns), the `reliability_rank(evidence)` mapping, and
-confirming the strictly downward+lateral propagation invariant that lets `dependency_closure` avoid
-chasing ancestors.
+`preceded_by_id`/`succeeded_by_id` versioning columns) and confirming the strictly downward+lateral
+propagation invariant that lets `dependency_closure` avoid chasing ancestors. (The third item listed
+here originally — a `reliability_rank(evidence)` mapping — is moot: `evidence` is a boolean, so the
+first sort key is the column itself. See §9.5.2 step 2.)
 
 **Superseded in part.** The table shapes sketched in §9.6.2 are replaced by
 `postgresql/taxa-opinions-draft.sql` (see §10), which resolves those open dependencies and adds the
@@ -1089,12 +1120,31 @@ spelling would no longer re-assert the older rank, so a 1990 rank change could b
 
 **Three constraints the synthesis must respect:**
 
-1. **Synthesized opinions must rank at the floor.** `derive()` orders `evidence DESC, pubyr DESC` —
-   evidence *first*. A genesis opinion attributed to an 1850 naming reference with inherited high
-   evidence would beat a real 2020 opinion. Give them `reliability = 0` plus an explicit
-   `synthesized` flag, so they win only when nothing else exists — which is their entire purpose.
-2. **`evidence` cannot be a NOT NULL boolean.** 298,470 of 998,565 legacy opinions (30%) have
-   `basis IS NULL` and fall back to the reference's basis. There is no value to invent for them.
+1. **Synthesized opinions must rank at the floor.** `derive()` sorts on evidence *before* pubyr, so
+   a genesis opinion attributed to an 1850 naming reference, if it inherited `evidence = true`,
+   would beat a real 2020 opinion that was merely implied. Because `evidence` is a boolean there is
+   no room *below* `false` to park them, so the floor is the `synthesized` flag itself, promoted to
+   the **first** sort key (`synthesized ASC`). Synthesized opinions then win only when nothing real
+   exists — which is their entire purpose — regardless of what evidence value they carry.
+2. **The 30% with `basis IS NULL` are resolved at migration time.** 298,470 of 998,565 legacy
+   opinions have no basis of their own and fall back to the reference's. pbdb2 cannot defer that
+   fallback the way Classic does: the new `refs` table has **no basis field**, so there is nothing
+   to fall back *to* at read time. The migration therefore resolves it once — take the opinion's
+   `basis` if present, else the legacy reference's — and writes the result as
+   `evidence = (resolved basis = 'stated with evidence')`, `NOT NULL`. NULL resolves to `false`.
+
+   The tradeoff this freezes: a later correction to a legacy reference's basis will not retroactively
+   change the opinions that inherited it. That is a consequence of collapsing to a boolean and is
+   accepted; the graded distinction it would have propagated does not exist in pbdb2 anyway.
+
+   **Mapping table (all six opinion tables):**
+
+   | Legacy `opinions.basis` | pbdb2 `evidence` |
+   |---|---|
+   | `stated with evidence` | `true` |
+   | `stated without evidence`, `implied`, `second hand` | `false` |
+   | `NULL` → legacy reference's basis, then as above | `true` / `false` |
+   | synthesized (no legacy row) | `false`, and `synthesized = true` |
 3. **The nomen family needs somewhere to go.** 12,806 opinions (`nomen dubium` 8,208, `nomen nudum`
    2,533, `invalid subgroup of` 1,420, `nomen vanum` 569, `nomen oblitum` 76) are neither assignments
    nor name changes, and would be silently dropped without `validity_opinions`.
@@ -1140,8 +1190,43 @@ it has been run. Open questions, in rough order of how much they would change:
 5. **`dictionaries.taxonomy_ranks` is missing `'order'`** and needs an explicit `height`: `derive()`
    enforces "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once
    `unranked clade`/`unranked` sit at the end of the list.
-6. **`attribution jsonb`** on the opinion tables duplicates the shape of `authority.schema.js`.
-   Shared schema, or should an opinion point at an `authorities` row instead?
+6. **`attribution jsonb`** on the opinion tables ~~duplicates the shape of `authority.schema.js`.
+   Shared schema, or should an opinion point at an `authorities` row instead?~~ **RESOLVED.**
+
+   **Both `attribution` and `pubyr` stay** (decision, 2026-07-27). `create_new.sql`'s opinion tables
+   carry neither, holding only `evidence` and `reference_id`; this draft's addition of both is
+   confirmed, and the "`reference_id` is sufficient for citation, drop them" direction is **rejected,
+   not deferred**. A reference tells you where PBDB read the statement; for the second-hand case it
+   does not tell you whose statement it was or when it was made, and both are needed.
+
+   On the schema question: `authority.schema.js` describes an *authority record* — it carries
+   `legacyIDs.oldpbdbIDs` and `publishedInReference`, both meaningless on an opinion, and sets
+   `unevaluatedProperties: false`, so it cannot be borrowed without them. `attribution` now has its
+   own **authors-only** schema (`payloadSchemas/opinionAttribution.schema.js`), and the duplicated
+   `year` field is gone.
+
+   The governing rule, worth stating because it generalizes: **every input to `derive()` is a typed,
+   constrained, indexable column; everything else is payload.** `subject_permid`, `reason_id`,
+   `evidence`, `synthesized`, `pubyr`, and `reference_id` are read by winner selection, so they are
+   columns. `attribution`, `pages`, and `figures` are read by nobody, so they can be `jsonb`. Putting
+   the year in both places stored one fact twice with nothing enforcing agreement; routing a sort key
+   through a `jsonb` path would also have turned the canonical `ORDER BY` (§9.5.2 step 2) into
+   `COALESCE((attribution->>'year')::int, r.pubyr)`, degraded the index to an expression index, and
+   moved validation outside the database.
+
+   `pubyr` is consequently **`integer`, not `text`** — text ordering matches numeric ordering only
+   while every value is exactly 4 digits, which is fragile for a ranking key. Verified safe: all
+   128,722 populated legacy values are 4-digit numerics, zero non-conforming.
+
+   **`derive()` ranks on `pubyr`** (decision, 2026-07-27). It is a `derive()` **input**, not payload,
+   so a second-hand opinion competes at the year it was *stated* rather than the year it was
+   reported — Classic's behaviour, and what §9.5.2 step 2 already encodes. This is also what
+   justifies the `integer` retype above: it is a sort key, so it gets a typed column.
+
+   The `COALESCE` in that key is load-bearing rather than incidental. `pubyr` is populated **only**
+   for the second-hand case — 869,843 of 998,565 legacy opinions leave it empty — so the sort key is
+   `COALESCE(pubyr, reference publication year)`: `pubyr` takes precedence *where present*, and the
+   reference's year dates the other 87%. Ranking on `pubyr` alone would leave most opinions undated.
 
 If the surface needs shrinking, `validity_opinions` is the one that must stay — the other two could
 both be deferred into the PBOT description work, at the cost of parking `extant` and the type block
