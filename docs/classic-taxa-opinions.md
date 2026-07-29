@@ -486,6 +486,11 @@ keeps them separate and has the incremental path and the rebuild path **call the
 
 #### 9.5.1 Two levels of identity (read this first)
 
+> **Superseded by §9.8 (the identity inversion).** This subsection sets `permid` = the *name-lineage*
+> (original combination). The committed model instead sets `permid` = a *name-as-spelled* and derives
+> the name-lineage. Read this for the reasoning about the two identity levels; read §9.8 for what is
+> actually built.
+
 The word "concept" is the slipperiest thing in the whole problem, so nail down the two distinct
 identities before anything else:
 
@@ -508,6 +513,11 @@ Bridge Table: concepts are **emergent from data lineage**, not a persistent cura
 `permid` is truth-*input*; `concept_permid` is truth-*output*.
 
 #### 9.5.2 Three layers
+
+> **Revised by §9.8.** The three-layer split (assertions → derive() → ledger) stands unchanged and is
+> the heart of the design. Two specifics below are superseded: `rank_opinions` no longer exists (rank
+> rides the minting `name_opinions` row), and the winner `ORDER BY` in step 2 drops its `synthesized`
+> first key. `permid` throughout should be read as the name-as-spelled, with the name-lineage derived.
 
 - **Layer 1 — Assertions (append-only):** `name_opinions`, `assignment_opinions`,
   `rank_opinions`. Each row *references* name-lineage `permid`s (`subject_permid` and its targets)
@@ -635,7 +645,8 @@ by the partial head indexes.
 
 **One consequence for the index discipline.** Because these tables skip
 `install_version_triggers()`, they do not get its automatic `permid` head index. The draft DDL
-hand-creates all six. This is the one place in the schema where hand-creating that index is correct
+hand-creates all five (post-inversion: `name` / `assignment` / `validity` / `type` / `trait`; there is
+no `rank_opinions` — §9.8). This is the one place in the schema where hand-creating that index is correct
 rather than a mistake, and it is not optional — it is the same lookup whose absence degraded the
 collections migration to O(n²).
 
@@ -728,6 +739,11 @@ column names, and the one piece §9.5 left as a sketch (`dependency_closure`). T
 **strawman** to make the shapes discussable, not a finalized schema.*
 
 #### 9.6.1 Column vocabulary — three relationships kept apart
+
+> **Extended by §9.8.** The three-relationship vocabulary (succession / concept / classification)
+> stands. Under the inversion, `senior_permid` generalizes to `target_permid` (concept target for
+> synonymy edges, form-of target for lineage edges), `subject_permid` denotes a spelling rather than a
+> lineage, and a fourth *derived* grouping — the name-lineage (`original_permid`) — joins the concept.
 
 The model has three structurally different relationships, and Classic overloaded "parent" / "lineage"
 across all of them. pbdb2 names each for what it *is*:
@@ -1015,6 +1031,160 @@ with writes, the tradeoffs sharpen. Worth getting these figures from aazaff befo
 
 ---
 
+## 9.8 The identity inversion — `permid` = name-as-spelled (the committed model)
+
+*Decided in session, 2026-07-29. §9.5.1 chose `permid` = the **original combination** (a name-lineage
+spanning all its spellings), with rank split into its own `rank_opinions` contest. That choice made
+rank and spelling two independent rankings that could disagree, and — because every spelling of a
+lineage inherits the same naming year — gave the rank contest nothing to rank on. This section
+**inverts** the identity to dissolve that problem, and supersedes the parts of §9.5.1, §9.5.2, and
+§9.6 that assume `permid` = lineage. It is the current target design; the earlier sections are kept
+for the reasoning that led here.*
+
+### 9.8.1 One stored identity, two derived groupings
+
+`permid` now means a **name-as-spelled** — Classic's `taxon_no`, one per legacy `authorities` row
+(~517K). The migration **ignores `orig_no` entirely**; the name-lineage and the concept are both
+*derived*.
+
+| Level | Meaning | Classic | Stored? |
+|---|---|---|---|
+| **name-as-spelled** = `permid` | one spelling, one rank | `taxon_no` | **stored, stable** |
+| **name-lineage** | spellings/rank-forms of one name | `orig_no` | **derived** (union-find over `lineage`-class edges); root = `original_permid` |
+| **concept** | names judged the same taxon | `synonym_no` | **derived** (union-find over `concept`-class edges) |
+
+The load-bearing consequence: **`name` and `rank` are immutable attributes of a `permid`.**
+*Acervoschwagerina* is genus forever; *Paraschwagerina (Acervoschwagerina)* is subgenus forever. A
+respelling or rank change does not mutate a permid — it introduces a **different** permid. Re-derivation
+never touches name/rank; it only moves the *pointers* (accepted spelling, concept, containment).
+
+### 9.8.2 `name_opinions` are typed edges; rank rides the permid
+
+A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `reason_id` whose
+`edge_class` selects the union-find it feeds:
+
+- **`lineage`** (`correction`, `reranked`, `recombination`, `assignment`/reassignment, `misspelling`) —
+  subject is a spelling/rank *form of* target; groups the name-lineage.
+- **`concept`** (`subjective synonym`, `objective synonym`, `replaced by`, `junior synonym`) — subject's
+  name is the same *taxon* as target's; groups the concept.
+- **`original`** is the root: it mints a permid, has no target, `edge_class` NULL.
+
+A permid is **minted** by the row that first introduces it as subject (`original`, or a `lineage`
+reason for a spelling introduced as a form of an earlier one). That minting row carries the permid's
+immutable identity — `new_name`, **`rank_id`**, and the naming-act provenance (`authority_id`, `pages`,
+`figures`). This is exactly where correction 1 lands: `authorities.taxon_rank` is the definitive rank of
+*that* name, inherited with the row's `reference_id` / `attribution` / `pubyr`.
+
+Two things therefore **leave the design**:
+
+- **`rank_opinions` and the ~998K rank fan-out (old open call B): gone.** Rank is not a contest; it is
+  an attribute. The accepted rank is the rank of the accepted spelling — precisely how Classic reads it
+  off the winning spelling's `authorities` row.
+- **`synthesized`: gone** from every table (correction 2). An authorities-sourced opinion is a *real*
+  opinion carrying the row's real reference/pubyr and `evidence = false`, so it sits near the bottom of
+  the ranking by construction and wins only when nothing else exists — which is the whole job of a
+  genesis assertion. The floor flag was solving a problem that only existed while these opinions were
+  imagined as fakes.
+
+### 9.8.3 The ledger: one row per permid, the identity triad
+
+`taxa` is one row per permid, so it is **1:1 with `taxa_tree_cache`** (also keyed per `taxon_no`) and the
+§10.5 step-5 validation becomes a row-for-row diff. Each row carries the derived triad, every member of
+a grouping sharing equal values:
+
+| Ledger column | Meaning | self-equality test | Classic |
+|---|---|---|---|
+| `original_permid` | stable name-lineage root | `= permid` ⇔ this is the original spelling | `orig_no` |
+| `accepted_spelling_permid` | accepted spelling of this lineage | `= permid` ⇔ this is the accepted spelling | `spelling_no` |
+| `concept_permid` | accepted spelling of the senior synonym | `= permid` ⇔ this is the concept's accepted name | `synonym_no` |
+
+Those three equalities do the whole job of the old `accepted` boolean (§10.4) with no extra column.
+`name`/`rank_id` are denormalized from the minting opinion for read convenience and never change.
+
+**Why version a materialized table, and what swings.** The current heads are a rebuildable cache (the
+§9.5.5 invariant `derive(all) ≡ {heads}`); the version *chain* is not — it is the append-only,
+transaction-time record of what was believed, when, and which opinions won. That is what keeps
+`derive()` a present-tense function (no cross-layer "re-derive as-of" time travel, §9.5.2.1) and is the
+concrete mechanism behind §9.2's "reconstruct the tree at any past instant"; a from-scratch `rebuild()`
+reproduces only the current heads, so the chain is genuine operational history, not derived redundancy.
+Appending a version **swings no keys**: every cross-reference in the subsystem is a `permid` pointer
+resolved to the current head, *not* an FK to `taxa.id` — the only FKs to `taxa.id` are `taxa`'s own
+succession pointers, which are extended, not swung. So `handle_new_version()`'s FK-swing is inert here,
+which is exactly the payoff of pointing at `permid` rather than row `id` (contrast the superseded
+`taxon_id`-FK block, which would have had to repoint every opinion on every belief change). Full
+rationale is in the DDL comment at `install_version_triggers('taxa')`.
+
+### 9.8.4 `derive()` — two union-finds, ordered, two scopes
+
+```
+derive(permids):
+  1. LINEAGE union-find  over lineage-class name edges → lineages; root = original_permid
+  2. CONCEPT  union-find over concept-class name edges → concepts; pick SENIOR lineage per concept
+  3. ACCEPTED SPELLING per lineage = subject of the lineage's top-ranked opinion
+        (excluding never_accepted misspellings), by
+           ORDER BY evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC
+     → accepted rank rides along (= that permid's rank_id)          ← no rank contest
+  4. concept_permid := accepted_spelling_permid of the concept's SENIOR lineage
+  5. CLASSIFICATION: winning assignment, pooled across the WHOLE concept → containing_concept_permid;
+     then classification_path
+```
+
+Two subtleties are load-bearing and easy to get wrong in a single-pass implementation:
+
+- **Ordering (step 2 before step 3).** The accepted name of a concept must be a spelling of the
+  **senior** lineage, so seniority is decided first and step 3's ranking is **scoped to the senior
+  lineage**. Ranking *all* spellings in a concept together would let a junior synonym's spelling win the
+  name whenever its opinions happened to be newest — which is exactly the name that was just ruled
+  invalid. (This is Classic's `getSeniorSynonym` then `getMostRecentSpelling`, §4.4.)
+- **Opposite scopes for name vs. placement.** The accepted-spelling pass pools within the **senior
+  lineage only**; the classification pass pools across the **whole concept** — junior-synonym borrowing
+  (§9.5.2 step 3): a `belongs to` opinion filed under the junior name may set the concept's parent when
+  it is the most recent reliable placement. Carry Classic's `use_synonyms` constraints: **equal rank
+  only, species excluded** (a species must be allocated to its current genus directly, §4.2). "Pool the
+  concept" is right for *where does it sit*, wrong for *what is its name*.
+
+### 9.8.5 Occurrence synergy (why `original_permid` is materialized)
+
+An occurrence is identified to a *spelling*, so it binds to a `permid` 1:1 (Classic `taxon_no`, a direct
+migration map — no cache round-trip). The two derived grouping pointers then answer the queries that
+matter:
+
+- "all occurrences of this **name**, whichever spelling the identifier used" → `GROUP BY original_permid`
+- "all occurrences of this **taxon**, synonyms included" → `GROUP BY concept_permid`
+
+`original_permid` is a `derive()` output like the others (in the clean case just the `original` root, so
+it effectively never moves; in the two-competing-originals case it is ranked, not a constraint
+violation). Materializing it is nearly free and gives occurrences a stable *as-identified → name →
+taxon* ladder.
+
+### 9.8.6 Migration deltas
+
+- **One permid per legacy `authorities` row** (~517K); mint a `name_opinions` row carrying its
+  `new_name` + `rank_id` + naming-act provenance, with the row's real `reference_id` / `attribution` /
+  `pubyr` and `evidence = false`. The minting reason comes from the `spelling_reason` of the opinion
+  that introduced the spelling (or `original`); the lineage edge's `target_permid` is that opinion's
+  `child_no`.
+- **`belongs to` opinions → `assignment_opinions`**, `subject_permid` = the `child_spelling_no`'s permid,
+  `containing_permid` = the `parent_spelling_no`'s permid.
+- **Synonymy `status` → `concept`-class `name_opinions`**; the nomen family → `validity_opinions`.
+- **No `orig_no` clustering pass.** The lineage is rebuilt from the edges, which **heals** the 81 bad
+  `orig_no` rows and turns the FK orphans / "two candidate originals" into ordinary competing opinions
+  rather than data-integrity errors.
+- `type` / `trait` opinions and `taxon_annotations` as in §10.3, minus `synthesized`.
+
+### 9.8.7 What this supersedes
+
+- **§9.5.1** — `permid` is no longer the name-lineage; it is the name-as-spelled. `concept_permid` is
+  unchanged (still derived); the name-lineage joins it as a second derived grouping (`original_permid`).
+- **§9.5.2 step 2** — the winner `ORDER BY` loses its `synthesized` first key; rank is no longer one of
+  the ranked dimensions.
+- **§9.6.1 / §9.6.2** — `senior_permid` generalizes to `target_permid` (it is the concept target for
+  synonymy edges and the form-of target for lineage edges); `subject_permid` now denotes a spelling, not
+  a lineage. The three-relationship vocabulary (succession / concept / classification) stands, with
+  name-lineage added as a fourth, derived, grouping.
+
+---
+
 ## 10. From legacy `authorities` to the new tables
 
 *§9 designs the target. This section does the inventory: which legacy columns land where, what the
@@ -1065,15 +1235,20 @@ claims about what the original combination was become an ordinary ranking contes
 constraint violation. Classic needed a bad-data branch in `getOriginalCombination` (§4.1) precisely
 because it had no way to represent two candidate originals.
 
-A permid is therefore **minted by an `original` name opinion**, and by nothing else.
+A permid is therefore **minted by a `name_opinions` row** — `reason = 'original'` for a lineage's root
+spelling, or (under the inversion, §9.8) a `lineage`-class reason for a later spelling introduced as a
+form of an earlier one, e.g. *Acervoschwagerina* minted by a `reranked` edge onto
+*Paraschwagerina (Acervoschwagerina)*. Either way the minting row carries the permid's immutable
+`new_name` + `rank_id` + naming provenance, and nothing else creates a taxon.
 
 ### 10.3 Disposition of the leftover columns
 
 | Legacy column(s) | Cat. | Destination |
 |---|---|---|
-| `orig_no` | — | becomes `permid` (name-lineage identity) |
-| `taxon_name` | B/A | `name_opinions.new_name` (`original`, then later reasons) |
-| `taxon_rank` | A | `rank_opinions.rank_id` |
+| `taxon_no` | — | becomes `permid` (name-as-spelled identity — the inversion, §9.8) |
+| `orig_no` | — | **ignored** by the migration; the name-lineage is derived and surfaced as `taxa.original_permid` (§9.8) |
+| `taxon_name` | B/A | `name_opinions.new_name` on the minting row (`original`, then later spelling reasons) |
+| `taxon_rank` | B | `name_opinions.rank_id` on the **minting** row — an immutable attribute of the permid, not a `rank_opinions` contest (§9.8). No `rank_opinions` table. |
 | `pages`, `figures` | B | `name_opinions` on the `original` row |
 | `type_taxon_no`, `type_specimen`, `museum`, `catalog_number`, `type_body_part`, `part_details`, `type_locality` | A | `type_opinions` |
 | `extant`, `preservation`, `form_taxon` | A | `trait_opinions` (placeholder — see §10.6) |
@@ -1109,6 +1284,14 @@ succession chain now carries that history, and carries it better.
 
 ### 10.5 Migrating data that has no opinions
 
+> **Reframed by §9.8 (correction 2).** The premise below — that assertions must be *synthesized* for
+> data with no opinions behind it — is retired. An `authorities` record **is** an opinion: each legacy
+> row becomes a real minting `name_opinions` row carrying the row's own `reference_id` / `attribution` /
+> `pubyr` and `evidence = false`. Nothing is fabricated and nothing is floored; there is no
+> `synthesized` column. The probe counts below still hold and still frame the work; "synthesize" now
+> reads "translate the `authorities` row into its minting opinion." Constraint 1 is deleted (see below);
+> the rank fan-out is superseded by rank riding the permid (§9.8).
+
 Classic's taxon data has no corresponding `opinions` rows for what were treated as *basal* taxa —
 names that later opinions build on. To migrate into a paradigm where `taxa` is derived, those
 assertions must be **constructed** so `derive()` has something to work from.
@@ -1131,29 +1314,18 @@ This reframes the job favourably. 807,951 legacy opinions already carry
 most naming acts as opinions. For those we are **relocating an assertion that always existed**, not
 fabricating one. Only ~13.6K names need genuine synthesis.
 
-**Rank is the exception: it is universally missing.** `taxon_rank` exists only in `authorities`;
-there is no rank opinion anywhere in legacy. But it is recoverable, because every opinion names a
-`child_spelling_no` whose authorities row carries a rank. That yields a fan-out decision:
+**Rank is no longer a fan-out question — it rides the permid (§9.8).** Under the inversion each legacy
+`authorities` row *is* a name-as-spelled, so its `taxon_rank` becomes the immutable `rank_id` on that
+permid's minting `name_opinions` row. There is no `rank_opinions` table and no ~998K fan-out (old open
+call B): the accepted rank is simply the rank of the accepted spelling, which is exactly how Classic
+reads it off the winning spelling's `authorities` row. The recency that decides *which* rank is current
+lives entirely in the spelling contest (which spelling wins), not in a rank ranking — so the failure
+mode the old fan-out guarded against (a 1990 rank change beating a 2010 re-use of an older spelling)
+cannot arise: the 2010 opinion picks the older spelling, and that spelling's rank comes with it.
 
-| Approach | Rank opinions | Fidelity |
-|---|---|---|
-| **Fan-out** — one per legacy opinion, rank from its `child_spelling_no` | ~998K | Matches Classic, which takes rank from the *winning spelling's* authorities row |
-| **Lean** — only `spelling_reason = 'rank change'` (21,809) plus one genesis per permid | ~425K | Cleaner semantically, but a later opinion re-using an older spelling would no longer re-assert the older rank, so a 1990 rank change could beat a 2010 usage |
+**Two constraints the translation must respect:**
 
-**Decision: fan-out** (open call B, resolved). ~1M rows is nothing for Postgres, and fidelity matters
-more than tidiness in a migration whose output you want to diff against `taxa_tree_cache`. The lean
-variant is rejected precisely for the failure mode noted above — a later opinion re-using an older
-spelling would no longer re-assert the older rank, so a 1990 rank change could beat a 2010 usage.
-
-**Three constraints the synthesis must respect:**
-
-1. **Synthesized opinions must rank at the floor.** `derive()` sorts on evidence *before* pubyr, so
-   a genesis opinion attributed to an 1850 naming reference, if it inherited `evidence = true`,
-   would beat a real 2020 opinion that was merely implied. Because `evidence` is a boolean there is
-   no room *below* `false` to park them, so the floor is the `synthesized` flag itself, promoted to
-   the **first** sort key (`synthesized ASC`). Synthesized opinions then win only when nothing real
-   exists — which is their entire purpose — regardless of what evidence value they carry.
-2. **The 30% with `basis IS NULL` are resolved at migration time.** 298,470 of 998,565 legacy
+1. **The 30% with `basis IS NULL` are resolved at migration time.** 298,470 of 998,565 legacy
    opinions have no basis of their own and fall back to the reference's. pbdb2 cannot defer that
    fallback the way Classic does: the new `refs` table has **no basis field**, so there is nothing
    to fall back *to* at read time. The migration therefore resolves it once — take the opinion's
@@ -1164,15 +1336,15 @@ spelling would no longer re-assert the older rank, so a 1990 rank change could b
    change the opinions that inherited it. That is a consequence of collapsing to a boolean and is
    accepted; the graded distinction it would have propagated does not exist in pbdb2 anyway.
 
-   **Mapping table (all six opinion tables):**
+   **Mapping table (all five opinion tables):**
 
    | Legacy `opinions.basis` | pbdb2 `evidence` |
    |---|---|
    | `stated with evidence` | `true` |
    | `stated without evidence`, `implied`, `second hand` | `false` |
    | `NULL` → legacy reference's basis, then as above | `true` / `false` |
-   | synthesized (no legacy row) | `false`, and `synthesized = true` |
-3. **The nomen family needs somewhere to go.** 12,806 opinions (`nomen dubium` 8,208, `nomen nudum`
+   | authorities-sourced (minting opinion, no legacy `opinions` row) | `false` (authorities has no basis) |
+2. **The nomen family needs somewhere to go.** 12,806 opinions (`nomen dubium` 8,208, `nomen nudum`
    2,533, `invalid subgroup of` 1,420, `nomen vanum` 569, `nomen oblitum` 76) are neither assignments
    nor name changes, and would be silently dropped without `validity_opinions`.
 
@@ -1180,11 +1352,13 @@ spelling would no longer re-assert the older rank, so a 1990 rank change could b
 is no bootstrap problem — the derived table simply comes last:
 
 ```
-1. permid := uuidv7() per orig_no cluster                       (403,640)
-2. translate legacy opinions → name / rank / assignment / validity
-3. synthesize genesis opinions for the 13,607 + rootless cases
+1. permid := uuidv7() per authorities row (name-as-spelled)     (~517,287)
+2. mint one name_opinions row per authorities row: new_name + rank_id + naming
+   provenance; reason + target_permid from the introducing opinion's spelling_reason
+   (or 'original'). orig_no is IGNORED.
+3. translate legacy opinions → assignment / concept-class name edges / validity
 4. derive(all) → materialize taxa                    ← the first rebuild()
-5. verify: derive(all) ≡ heads, and diff against taxa_tree_cache
+5. verify: derive(all) ≡ heads, and diff against taxa_tree_cache (now 1:1, per taxon_no)
 ```
 
 Step 5 is the payoff. The migration *is* the cold path, so it exercises `rebuild()` on day one, and
@@ -1195,30 +1369,79 @@ Two cleanups en route: **81 `orig_no` values** point at a taxon_no that is not i
 the anomaly report lists a handful of FK orphans (1 `child_no`, 5 `parent_no`, 8
 `parent_spelling_no`, 10 `reference_no`).
 
-### 10.6 Status and open calls
+### 10.6 Status and the open-items register
 
 `postgresql/taxa-opinions-draft.sql` is a **draft for discussion, not committed schema** — nothing in
-it has been run. Open questions, in rough order of how much they would change:
+it has been run. This register is the current inventory of what is left (updated 2026-07-29): open
+decisions, then unbuilt implementation, then cleanup, then the decided items kept for the record. The
+two biggest real risks are **B1** (`derive()` is the whole ballgame and is unwritten) and **B2** (the
+closure rewrite); everything in A/C is a small decision or a tidy-up.
 
-1. **`trait_opinions`** is a placeholder. It is the weakest of the three new opinion tables and sits
-   exactly where PBOT's description system takes over; its payload is `jsonb` rather than typed
-   columns for that reason. It may end up being — or being absorbed by — the `descriptions` table
-   that `create_new.sql` references but leaves undefined.
-2. **`type_opinions` granularity.** One row asserts the whole type block, so a later lectotype
-   designation silent about type locality would drop the locality on winning. May need splitting per
-   dimension.
-3. ~~**Rank fan-out** (§10.5) — the one open *migration* decision.~~ **DECIDED (open call B):**
-   fan-out — one `rank_opinion` per legacy opinion (~998K), rank from each opinion's
-   `child_spelling_no`. Faithful to Classic; the lean ~425K variant is rejected. See §10.5.
-4. ~~**`nomen oblitum`** appears in `dictionaries.namechange_reasons` but is modelled as a
-   nomenclatural status. Pick one.~~ **DECIDED (open call A):** it is a nomenclatural validity/priority
-   status, not a name-change reason (the name is unaltered). Removed from `namechange_reasons` in
-   `create_new.sql`; it lives only in `dictionaries.nomenclatural_statuses`.
-5. **`dictionaries.taxonomy_ranks` is missing `'order'`** and needs an explicit `height`: `derive()`
-   enforces "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once
-   `unranked clade`/`unranked` sit at the end of the list.
-6. **`attribution jsonb`** on the opinion tables ~~duplicates the shape of `authority.schema.js`.
-   Shared schema, or should an opinion point at an `authorities` row instead?~~ **RESOLVED.**
+#### A. Open design decisions (need a human call)
+
+- **A1 — Where the non-`CHECK` invariants are enforced.** Several cross-column rules can't be plain
+  `CHECK`s because they need a dictionary lookup: the `name_opinions` minting shape (minting rows carry
+  `new_name`/`rank_id`/authority provenance, concept-class edges leave them NULL; `original` ⇒
+  `target_permid` NULL, else NOT NULL) and `validity_opinions.target_permid` required iff the status is
+  `targeted`. Decide once, together: write-path + a `derive(all)` assertion, or a generated
+  `is_minting` column. (DDL open q7.)
+- **A2 — Is `misspelling` a `lineage` or `concept` edge?** The draft classifies it `lineage` +
+  `never_accepted` (a bad spelling of the same name); Classic files `misspelling of` in the *synonymy*
+  status family. This picks which union-find it feeds — confirm.
+- **A3 — `namechange_reasons` dictionary cleanup.** The seed has overlapping tokens (`junior synonym`
+  vs `subjective`/`objective synonym`; `assignment` vs `recombination`/reassignment). The draft's
+  `edge_class`/`never_accepted` `UPDATE` assumes a specific token set; reconcile the overlaps and square
+  them with what `create_new.sql` actually seeds.
+- **A4 — `trait_opinions` fate.** A placeholder and the weakest of the new opinion tables, sitting
+  exactly where PBOT's description system takes over; its payload is `jsonb` for that reason. May be —
+  or be absorbed by — the `descriptions` table `create_new.sql` references but leaves undefined.
+- **A5 — `type_opinions` granularity.** One row asserts the whole type block, so a later lectotype
+  designation silent about type locality would drop the locality on winning. May need splitting per
+  dimension.
+- **A6 — Is §9.2's point-in-time reconstruction a real requirement?** It is the sole justification for
+  versioning `taxa` (§9.8.3). If PBDB never needs historical belief queries or per-version provenance,
+  `taxa` becomes a plain rebuildable cache and the versioning comes out. A product call, not a schema
+  one.
+
+#### B. Implementation not yet written (design settled)
+
+- **B1 — `derive()` itself.** Layer 2 has no code. The two union-finds, the ordered ranking, and the
+  §9.5.6 obligations — **totality, determinism, and cycle handling** (A synonym-of B, B synonym-of A) —
+  all live in this one function and none of it exists yet. The largest remaining piece.
+- **B2 — `dependency_closure` rewrite for the inversion.** The §9.6.4 query still uses `senior_permid`
+  and has no **lineage-lateral pass**, but under the inversion a name edge merges permids at two levels,
+  so the closure must seed the affected *lineage* as well as the concept. §9.6.6's claim that the §9.6.4
+  treatment "stands unchanged" is now stale and should be corrected alongside.
+- **B3 — Fold the draft into `create_new.sql`.** Supersede the old `taxa`/`*_opinions` block (the one
+  with `taxon_id`/`parent_taxon_id → taxa("id")` FKs — the keys that *would* swing, §9.8.3). The
+  `taxonomy_ranks`/`namechange_reasons` `ALTER`s assume specific existing seed rows.
+- **B4 — Migration-script logic.** Derive each permid's minting `reason` + `target_permid` from the
+  legacy opinion that introduced the spelling; handle the ~13.6K names with no original-spelling opinion
+  and the rootless clusters. The concrete work behind §10.5 steps 2–3.
+
+#### C. Minor / cleanup
+
+- **C1 — `rank_id` NOT NULL?** On `taxa` and on minting `name_opinions` rows rank is always knowable
+  (`unranked` is itself a rank value), so these could tighten from nullable to NOT NULL.
+- **C2 — `taxa` could use a trimmed trigger.** The swing half of `handle_new_version()` is inert here
+  (§9.8.3), so only `place_in_lineage()` does work — an optional simplification, not a correctness bug.
+- **C3 — `homonyms.homonym_group_id`** has no generating sequence/parent defined.
+
+#### D. Decided & closed (kept for the record)
+
+- **D1 — Rank fan-out (old open call B): SUPERSEDED by the inversion (§9.8).** Rank is not migrated as
+  opinions at all — it is an immutable attribute of a name-as-spelled, carried by `name_opinions.rank_id`
+  on the minting row. No `rank_opinions` table, no fan-out; the accepted rank is the rank of the accepted
+  spelling.
+- **D2 — `nomen oblitum` (open call A): DECIDED.** A nomenclatural validity/priority status, not a
+  name-change reason (the name is unaltered). Removed from `namechange_reasons` in `create_new.sql`;
+  lives only in `dictionaries.nomenclatural_statuses`.
+- **D3 — `taxonomy_ranks` `'order'` + explicit `height`: resolved in the draft.** `derive()` enforces
+  "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once `unranked
+  clade`/`unranked` sit at the end of the list. Applied when folding into `create_new.sql` (B3).
+
+- **D4 — `attribution` and `pubyr` stay: RESOLVED.** (Was: does `attribution` duplicate the shape of
+  `authority.schema.js`, and should an opinion point at an `authorities` row instead?)
 
    **Both `attribution` and `pubyr` stay** (decision, 2026-07-27). `create_new.sql`'s opinion tables
    carry neither, holding only `evidence` and `reference_id`; this draft's addition of both is
@@ -1234,7 +1457,7 @@ it has been run. Open questions, in rough order of how much they would change:
 
    The governing rule, worth stating because it generalizes: **every input to `derive()` is a typed,
    constrained, indexable column; everything else is payload.** `subject_permid`, `reason_id`,
-   `evidence`, `synthesized`, `pubyr`, and `reference_id` are read by winner selection, so they are
+   `evidence`, `pubyr`, and `reference_id` are read by winner selection, so they are
    columns. `attribution`, `pages`, and `figures` are read by nobody, so they can be `jsonb`. Putting
    the year in both places stored one fact twice with nothing enforcing agreement; routing a sort key
    through a `jsonb` path would also have turned the canonical `ORDER BY` (§9.5.2 step 2) into
