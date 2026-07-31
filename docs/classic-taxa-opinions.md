@@ -927,8 +927,9 @@ first sort key is the column itself. See §9.5.2 step 2.)
 
 **Superseded in part.** The table shapes sketched in §9.6.2 are replaced by
 `postgresql/taxa-opinions-draft.sql` (see §10), which resolves those open dependencies and adds the
-tables this section did not anticipate — `validity_opinions`, `type_opinions`, `trait_opinions`. The
-§9.6.1 column vocabulary and the §9.6.4 `dependency_closure` treatment stand unchanged.
+tables this section did not anticipate — `validity_opinions` (the type/trait opinion tables the earlier
+drafts added are now deferred, §10.6 D6). The §9.6.1 column vocabulary and the §9.6.4
+`dependency_closure` treatment stand unchanged.
 
 ### 9.7 Performance under bursty load
 
@@ -1065,9 +1066,12 @@ A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `
 
 - **`lineage`** (`correction`, `reranked`, `recombination`, `assignment`/reassignment, `misspelling`) —
   subject is a spelling/rank *form of* target; groups the name-lineage.
-- **`concept`** (`subjective synonym`, `objective synonym`, `replaced by`, `junior synonym`) — subject's
-  name is the same *taxon* as target's; groups the concept.
-- **`original`** is the root: it mints a permid, has no target, `edge_class` NULL.
+- **`concept`** (`junior synonym`, `replaced by`) — subject's
+  name is the same *taxon* as target's; groups the concept. (The subjective/objective synonym split is
+  carried by `name_opinions.objective`, not by separate reason tokens — D7.)
+- **`root`** (`original` only) mints a permid, has no target. (Modelled as an explicit non-NULL
+  `edge_class` value rather than NULL, so the A1 composite FK that pins `edge_class` onto each opinion row
+  can enforce it — D9.)
 
 A permid is **minted** by the row that first introduces it as subject (`original`, or a `lineage`
 reason for a spelling introduced as a form of an earlier one). That minting row carries the permid's
@@ -1250,8 +1254,8 @@ form of an earlier one, e.g. *Acervoschwagerina* minted by a `reranked` edge ont
 | `taxon_name` | B/A | `name_opinions.new_name` on the minting row (`original`, then later spelling reasons) |
 | `taxon_rank` | B | `name_opinions.rank_id` on the **minting** row — an immutable attribute of the permid, not a `rank_opinions` contest (§9.8). No `rank_opinions` table. |
 | `pages`, `figures` | B | `name_opinions` on the `original` row |
-| `type_taxon_no`, `type_specimen`, `museum`, `catalog_number`, `type_body_part`, `part_details`, `type_locality` | A | `type_opinions` |
-| `extant`, `preservation`, `form_taxon` | A | `trait_opinions` (placeholder — see §10.6) |
+| `type_taxon_no`, `type_specimen`, `museum`, `catalog_number`, `type_body_part`, `part_details`, `type_locality` | A | **deferred** — type block parked until the PBOT description work; not migrated in this pass (§10.6 D6) |
+| `extant`, `preservation`, `form_taxon` | A | **deferred** — trait fields parked until the PBOT description work; not migrated in this pass (§10.6 D6) |
 | `common_name`, `comments`, `discussion`, `discussed_by` | C | `taxon_annotations` |
 | `first_occurrence`, `last_occurrence` | — | drop: free-text summary, derivable from occurrences |
 | `subgenus_index` | — | drop: search helper derived from the name |
@@ -1336,7 +1340,7 @@ cannot arise: the 2010 opinion picks the older spelling, and that spelling's ran
    change the opinions that inherited it. That is a consequence of collapsing to a boolean and is
    accepted; the graded distinction it would have propagated does not exist in pbdb2 anyway.
 
-   **Mapping table (all five opinion tables):**
+   **Mapping table (all three opinion tables):**
 
    | Legacy `opinions.basis` | pbdb2 `evidence` |
    |---|---|
@@ -1372,36 +1376,15 @@ the anomaly report lists a handful of FK orphans (1 `child_no`, 5 `parent_no`, 8
 ### 10.6 Status and the open-items register
 
 `postgresql/taxa-opinions-draft.sql` is a **draft for discussion, not committed schema** — nothing in
-it has been run. This register is the current inventory of what is left (updated 2026-07-29): open
-decisions, then unbuilt implementation, then cleanup, then the decided items kept for the record. The
-two biggest real risks are **B1** (`derive()` is the whole ballgame and is unwritten) and **B2** (the
-closure rewrite); everything in A/C is a small decision or a tidy-up.
+it has been run. This register is the current inventory of what is left (updated 2026-07-31): open
+decisions, then unbuilt implementation, then cleanup, then the decided items kept for the record. **All
+A-items (A1–A6) are now decided** (D-register below); what remains is implementation (B) and cleanup
+(C). The two biggest real risks are **B1** (`derive()` is the whole ballgame and is unwritten) and
+**B2** (the closure rewrite).
 
 #### A. Open design decisions (need a human call)
 
-- **A1 — Where the non-`CHECK` invariants are enforced.** Several cross-column rules can't be plain
-  `CHECK`s because they need a dictionary lookup: the `name_opinions` minting shape (minting rows carry
-  `new_name`/`rank_id`/authority provenance, concept-class edges leave them NULL; `original` ⇒
-  `target_permid` NULL, else NOT NULL) and `validity_opinions.target_permid` required iff the status is
-  `targeted`. Decide once, together: write-path + a `derive(all)` assertion, or a generated
-  `is_minting` column. (DDL open q7.)
-- **A2 — Is `misspelling` a `lineage` or `concept` edge?** The draft classifies it `lineage` +
-  `never_accepted` (a bad spelling of the same name); Classic files `misspelling of` in the *synonymy*
-  status family. This picks which union-find it feeds — confirm.
-- **A3 — `namechange_reasons` dictionary cleanup.** The seed has overlapping tokens (`junior synonym`
-  vs `subjective`/`objective synonym`; `assignment` vs `recombination`/reassignment). The draft's
-  `edge_class`/`never_accepted` `UPDATE` assumes a specific token set; reconcile the overlaps and square
-  them with what `create_new.sql` actually seeds.
-- **A4 — `trait_opinions` fate.** A placeholder and the weakest of the new opinion tables, sitting
-  exactly where PBOT's description system takes over; its payload is `jsonb` for that reason. May be —
-  or be absorbed by — the `descriptions` table `create_new.sql` references but leaves undefined.
-- **A5 — `type_opinions` granularity.** One row asserts the whole type block, so a later lectotype
-  designation silent about type locality would drop the locality on winning. May need splitting per
-  dimension.
-- **A6 — Is §9.2's point-in-time reconstruction a real requirement?** It is the sole justification for
-  versioning `taxa` (§9.8.3). If PBDB never needs historical belief queries or per-version provenance,
-  `taxa` becomes a plain rebuildable cache and the versioning comes out. A product call, not a schema
-  one.
+*(none open — A1–A6 all decided; see D-register.)*
 
 #### B. Implementation not yet written (design settled)
 
@@ -1421,11 +1404,18 @@ closure rewrite); everything in A/C is a small decision or a tidy-up.
 
 #### C. Minor / cleanup
 
-- **C1 — `rank_id` NOT NULL?** On `taxa` and on minting `name_opinions` rows rank is always knowable
-  (`unranked` is itself a rank value), so these could tighten from nullable to NOT NULL.
-- **C2 — `taxa` could use a trimmed trigger.** The swing half of `handle_new_version()` is inert here
-  (§9.8.3), so only `place_in_lineage()` does work — an optional simplification, not a correctness bug.
-- **C3 — `homonyms.homonym_group_id`** has no generating sequence/parent defined.
+- **C2 — `taxa` trimmed trigger: DEFERRED, do not act now (2026-07-31).** The swing half of
+  `handle_new_version()` is inert here (§9.8.3 — nothing FKs to `taxa("id")`), so every `taxa` append
+  spends a `pg_constraint` catalog scan finding zero FKs to swing, and `taxa` is the hottest write path
+  (a high-rank reclassification appends one version per descendant — §9.7). A trimmed `taxa`-only trigger
+  could keep the `succeeded_by_id` close-out and drop the swing. **Left in place deliberately:** (1) it
+  would diverge from the shared `install_version_triggers()` helper every other versioned table uses; and
+  (2) the full trigger is correct for *any* FK topology, whereas a trimmed one is correct only while the
+  "no inbound FK to `taxa("id")`" invariant holds — if a future table adds such an FK, the trimmed trigger
+  would *silently* fail to swing it (a correctness bug at a distance). **Revisit only if §9.7 profiling
+  flags the empty swing on the critical path**; if trimmed then, pair it with a guard that fails loudly
+  should an inbound FK to `taxa("id")` ever appear. Noted at the `install_version_triggers('taxa')` call
+  site in the draft.
 
 #### D. Decided & closed (kept for the record)
 
@@ -1436,6 +1426,84 @@ closure rewrite); everything in A/C is a small decision or a tidy-up.
 - **D2 — `nomen oblitum` (open call A): DECIDED.** A nomenclatural validity/priority status, not a
   name-change reason (the name is unaltered). Removed from `namechange_reasons` in `create_new.sql`;
   lives only in `dictionaries.nomenclatural_statuses`.
+- **D11 — `rank_id` NOT NULL (was C1): DECIDED (2026-07-31).** Two locations, now split. **`taxa.rank_id`
+  tightened to `NOT NULL`** — every permid is denormalized from its minting `name_opinion`, which always
+  carries a rank (`'unranked'` is itself a rank value), so it is true by construction; it also serves as
+  a tripwire, making `derive()` fail loudly if it ever tries to materialize a permid with no minting
+  opinion (a dangling permid) rather than emitting a rankless taxon. **`name_opinions.rank_id` — no
+  change**, subsumed by D9: the shape `CHECK` already enforces `rank_id` *conditionally* (non-NULL on
+  minting `root`/`lineage` rows, NULL on `concept` edges), which is strictly better than a blanket column
+  `NOT NULL` — and the column *must* stay nullable because concept edges require it NULL. (This premise
+  is load-bearing for D9: the B4 migration must resolve any legacy `authorities.taxon_rank` of NULL to
+  `'unranked'` before inserting a minting row.) Applied in the draft.
+
+- **D10 — `homonyms.homonym_group_id` is an app-minted uuidv7 (was C3): DECIDED (2026-07-31).** The
+  group id is a *logical grouping identity*, so it follows the `permid` family (app-minted uuidv7 + the
+  version `CHECK`), not the `bigint … IDENTITY` row-id family. This self-allocates — a writer mints one
+  uuid and stamps it on all N member rows in a single `INSERT`, with no sequence, no `MAX()+1` race, and
+  collision-free by construction (which was the actual C3 problem). **No `homonym_groups` parent table:**
+  a group *is* its membership rows, and a minted uuid can't be fat-fingered, so the FK a `bigint` would
+  have needed buys little; if group-level attributes or hard existence integrity ever matter, add
+  `homonym_groups(id uuid PRIMARY KEY …)` keyed by the *same* uuid, with no migration of existing group
+  ids. Applied in the draft.
+
+- **D9 — Non-`CHECK` invariants enforced by "Way 2" (was A1): DECIDED (2026-07-31).** The
+  `name_opinions` minting shape and `validity_opinions`' "target required iff `targeted`" rule are now
+  plain same-row `CHECK`s. The enabling move: **denormalize the governing dictionary discriminant onto
+  the opinion row** (`name_opinions.edge_class`, `validity_opinions.targeted`) and **FK-pin it to a
+  composite unique key** on the dictionary (`(id, edge_class)`, `(id, targeted)`), so the on-row copy is
+  provably equal to the dictionary's value — a hand-written `psql` insert, a bulk-migration row, or a
+  restore cannot supply a mismatched pair. Chosen over the write-path + `derive(all)`-assertion option
+  because the `CHECK` guards **every** writer at the storage layer and **blocks `edge_class` drift** (the
+  dictionary `UPDATE` becomes a referenced-key change that `NO ACTION` refuses while opinions reference
+  the old pair), while keeping the dictionary as the single source of truth for `edge_class`. Cost: one
+  redundant, FK-guarded column per opinion table, and `edge_class` had to become **NOT NULL** — so
+  `original` gets an explicit `'root'` value instead of NULL (a NULLable composite-FK column can't be
+  enforced: MATCH SIMPLE skips NULL rows, MATCH FULL rejects the legit `original` row). **Residual:** the
+  "`objective` non-NULL iff reason = `junior synonym`" sub-rule needs reason-token granularity (`concept`
+  covers both `junior synonym` and `replaced by`), so it stays on the write path + a `derive(all)`
+  assertion unless the reason token is pinned too. Applied in the draft.
+
+- **D8 — Point-in-time reconstruction is a real requirement (was A6): DECIDED (2026-07-31).**
+  Historical belief queries and per-version provenance are useful and PBDB wants them, so **`taxa` stays
+  versioned** — `install_version_triggers('taxa')` and the version chain remain as the draft has them.
+  This confirms the §9.8.3 justification rather than retiring it: the superseded `taxa` versions are the
+  append-only archive of *what was believed, when, and which opinions won*, and materializing that here
+  keeps `derive()` a present-tense function (§9.5.2.1). The "if that requirement is ever dropped, `taxa`
+  could become a plain rebuildable cache" escape hatch is now closed by decision.
+
+- **D7 — `namechange_reasons` dictionary reconciled (was A3): DECIDED (2026-07-31).** Eight final
+  tokens, each mapping 1:1 to a legacy vocabulary value. Three calls settled the overlaps:
+  (1) **`assignment` and `recombination` both kept** — they are two distinct legacy `spelling_reason`
+  values (`reassignment` vs `recombination`), so they stay separate. (2) **`code` dropped** — it had no
+  legacy source (legacy routes all code/grammar spelling changes through `spelling_reason: correction`),
+  so it was a pbdb2 invention redundant with `correction`; drop it from the `create_new.sql` seed as part
+  of the B3 fold. (3) **`subjective synonym` / `objective synonym` dropped** — the split is carried by
+  `name_opinions.objective` (boolean), not by dictionary tokens; legacy status `subjective synonym of` /
+  `objective synonym of` both migrate to reason `junior synonym` with `objective = false` / `true`. Final
+  set: `original`, `misspelling`, `reranked`, `recombination`, `assignment`, `correction` (lineage);
+  `junior synonym`, `replaced by` (concept). Applied in the draft; `create_new.sql` seed edit deferred to
+  B3.
+
+- **D6 — `type_opinions` + `trait_opinions` DROPPED (was A4/A5): DECIDED (2026-07-31).** Both
+  attribute-opinion tables are removed from the draft schema and the migration spec. The legacy type
+  block (`type_taxon_no`, `type_specimen`, `museum`, `catalog_number`, `type_body_part`, `part_details`,
+  `type_locality`) and the trait fields (`extant`, `preservation`, `form_taxon`) are **deferred**: they
+  will be integrated into pbdb2 later, once PBOT's description system settles where they belong. Nothing
+  in the taxa/opinions core (the two union-finds, `dependency_closure`, `derive()`) depends on them —
+  they were winner-selection-only and invisible to the closure — so parking them costs the derivation
+  nothing. This leaves **three** opinion tables: `name_opinions`, `assignment_opinions`,
+  `validity_opinions`. Of the three, `validity_opinions` is the one that had to stay (the nomen family
+  has nowhere else to go, §10.5).
+
+- **D5 — `misspelling` is a `lineage` edge (was A2): DECIDED.** Kept as the draft has it —
+  `edge_class = 'lineage'` + `never_accepted = true`. A misspelling is a bad rendering of *the same
+  name*, so it belongs in the name-lineage union-find (it collapses into the same lineage) and is folded
+  in for lookup but is never eligible to be the accepted spelling. Classic files `misspelling of` under
+  its *synonymy* status family, but that is an artifact of Classic's flat status enum, not a claim that a
+  misspelling names a different concept; feeding it the concept union-find would wrongly make a typo look
+  like a synonymy judgement. No DDL change — line 174 of the draft already encodes this.
+
 - **D3 — `taxonomy_ranks` `'order'` + explicit `height`: resolved in the draft.** `derive()` enforces
   "containing rank strictly higher" (§2.2a), and id order stops being a valid proxy once `unranked
   clade`/`unranked` sit at the end of the list. Applied when folding into `create_new.sql` (B3).
@@ -1478,9 +1546,9 @@ closure rewrite); everything in A/C is a small decision or a tidy-up.
    `COALESCE(pubyr, reference publication year)`: `pubyr` takes precedence *where present*, and the
    reference's year dates the other 87%. Ranking on `pubyr` alone would leave most opinions undated.
 
-If the surface needs shrinking, `validity_opinions` is the one that must stay — the other two could
-both be deferred into the PBOT description work, at the cost of parking `extant` and the type block
-until then.
+That surface-shrinking call has now been made (D6): `type_opinions` and `trait_opinions` are deferred
+into the PBOT description work, parking `extant` and the type block until then, and `validity_opinions`
+stays. Three opinion tables remain.
 
 ---
 
