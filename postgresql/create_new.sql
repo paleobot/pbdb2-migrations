@@ -4791,16 +4791,21 @@ CREATE TABLE validity_opinions (
 
 
 -- ============================================================================
--- LAYER 2 — THE DERIVATION (no DDL; implemented by change B1)
+-- LAYER 2 — THE DERIVATION
 -- ----------------------------------------------------------------------------
--- taxonomy.derive(permids) is a pure function over Layer 1 and the single
--- definition of truth (§9.5.2, §9.8): two union-finds (lineage over 'lineage'
--- edges → name-lineages ≈ orig_no; concept over 'concept' edges → concepts ≈
--- synonym_no), an ordered ranking for the accepted spelling per lineage, and the
--- winning assignment pooled across the whole concept. Called by both the hot path
--- (B2 statement trigger over dependency_closure) and the cold path (rebuild() /
--- migration / CI), which makes the invariant derive(all) ≡ {current ledger heads}
--- checkable. This gap between Layer 1 and Layer 3 is intentional.
+-- derive_taxa(permids) is a pure function over Layer 1 and the single definition
+-- of truth (§9.5.2, §9.8): two union-finds (lineage over 'lineage' edges →
+-- name-lineages ≈ orig_no; concept over 'concept' edges → concepts ≈ synonym_no),
+-- an ordered ranking for the accepted spelling per lineage, and the winning
+-- assignment pooled across the whole concept. Called by both the hot path (B2
+-- statement trigger over dependency_closure) and the cold path (rebuild_taxa() /
+-- migration / CI), which makes the invariant derive_taxa(all) ≡ {current ledger
+-- heads} checkable (assert_taxa_invariant()).
+--
+-- The functions are DEFINED after the Layer 1 indexes below (they reference the
+-- taxa ledger and every opinion table). See the "LAYER 2 — THE DERIVATION
+-- (derive_taxa / rebuild_taxa / assert_taxa_invariant)" block near the end of
+-- the taxa/opinions section. This gap between Layer 1 and Layer 3 is intentional.
 -- ============================================================================
 
 
@@ -4965,6 +4970,342 @@ CREATE INDEX validity_opinions_subject_idx      ON validity_opinions (subject_pe
 CREATE INDEX name_opinions_permid_head_idx       ON name_opinions (permid)       WHERE succeeded_by_id IS NULL;
 CREATE INDEX assignment_opinions_permid_head_idx ON assignment_opinions (permid) WHERE succeeded_by_id IS NULL;
 CREATE INDEX validity_opinions_permid_head_idx   ON validity_opinions (permid)   WHERE succeeded_by_id IS NULL;
+
+-- ============================================================================
+-- LAYER 2 — THE DERIVATION  (derive_taxa / rebuild_taxa / assert_taxa_invariant)
+-- ----------------------------------------------------------------------------
+-- Pure derivation of the taxa ledger from the Layer 1 opinion tables.
+-- In public with descriptive names (no dedicated schema), matching the
+-- versioning-function convention. See docs/classic-taxa-opinions.md §9.5.2 /
+-- §9.8.4 and openspec/changes/taxa-opinion-derivation/design.md.
+--
+-- classification_path is an ltree of concept permids with hyphens replaced by
+-- underscores (ltree labels forbid '-').
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION derive_taxa(seed uuid[] DEFAULT NULL)
+RETURNS TABLE (
+    permid uuid,
+    name text,
+    rank_id integer,
+    authority_id bigint,
+    original_permid uuid,
+    accepted_spelling_permid uuid,
+    concept_permid uuid,
+    containing_concept_permid uuid,
+    classification_path ltree,
+    nomenclatural_status_id integer,
+    winning_name_opinion_id bigint,
+    winning_assignment_opinion_id bigint,
+    winning_validity_opinion_id bigint
+) LANGUAGE plpgsql AS $fn$
+#variable_conflict use_column
+BEGIN
+    -- ---- head-only opinion snapshots + minting rows -----------------------
+    DROP TABLE IF EXISTS _dt_mint;
+    CREATE TEMP TABLE _dt_mint AS
+    SELECT n.subject_permid AS permid, n.id AS opinion_id, n.new_name, n.rank_id,
+           n.authority_id, n.reason_id, n.edge_class, n.evidence,
+           COALESCE(n.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+           nr.never_accepted
+    FROM name_opinions n
+    JOIN dictionaries.namechange_reasons nr ON nr.id = n.reason_id
+    LEFT JOIN refs r ON r.id = n.reference_id
+    WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
+      AND n.edge_class IN ('root','lineage');
+
+    -- ---- lineage union-find (connected components over lineage edges) ------
+    DROP TABLE IF EXISTS _dt_lin;
+    CREATE TEMP TABLE _dt_lin AS
+    WITH RECURSIVE
+    lin_undir AS (
+        SELECT subject_permid AS a, target_permid AS b
+        FROM name_opinions
+        WHERE removed IS NOT TRUE AND succeeded_by_id IS NULL AND edge_class='lineage'
+        UNION
+        SELECT target_permid, subject_permid
+        FROM name_opinions
+        WHERE removed IS NOT TRUE AND succeeded_by_id IS NULL AND edge_class='lineage'
+    ),
+    reach(src, node) AS (
+        SELECT permid, permid FROM _dt_mint
+        UNION
+        SELECT r.src, u.b FROM reach r JOIN lin_undir u ON u.a = r.node
+    )
+    SELECT src AS permid, min(node::text)::uuid AS lin_rep FROM reach GROUP BY src;
+
+    -- original_permid per lineage: the 'root' member (canonical if >1)
+    DROP TABLE IF EXISTS _dt_linmeta;
+    CREATE TEMP TABLE _dt_linmeta AS
+    WITH roots AS (
+        SELECT l.lin_rep,
+               (array_agg(m.permid ORDER BY m.yr NULLS LAST, m.permid))[1] AS original_permid
+        FROM _dt_lin l JOIN _dt_mint m ON m.permid = l.permid AND m.edge_class='root'
+        GROUP BY l.lin_rep
+    ),
+    spelling AS (
+        SELECT l.lin_rep, m.permid, m.rank_id,
+               row_number() OVER (PARTITION BY l.lin_rep
+                   ORDER BY m.evidence DESC, m.yr DESC NULLS LAST, m.opinion_id DESC) AS rn,
+               m.evidence AS acc_ev, m.yr AS acc_yr, m.opinion_id AS acc_id
+        FROM _dt_lin l JOIN _dt_mint m ON m.permid = l.permid
+        WHERE m.never_accepted = false
+    )
+    SELECT s.lin_rep,
+           COALESCE(r.original_permid, s.permid) AS original_permid,
+           s.permid AS accepted_spelling_permid,
+           s.rank_id AS accepted_rank_id,
+           s.acc_ev, s.acc_yr, s.acc_id,
+           (SELECT COALESCE(m2.yr, 999999) FROM _dt_mint m2
+             WHERE m2.permid = COALESCE(r.original_permid, s.permid)) AS original_yr
+    FROM spelling s LEFT JOIN roots r ON r.lin_rep = s.lin_rep
+    WHERE s.rn = 1;
+
+    -- ---- concept union-find (components over concept edges, lineage-level) -
+    DROP TABLE IF EXISTS _dt_con;
+    CREATE TEMP TABLE _dt_con AS
+    WITH RECURSIVE
+    con_edge AS (
+        SELECT ls.lin_rep AS jr, lt.lin_rep AS sr
+        FROM name_opinions n
+        JOIN _dt_lin ls ON ls.permid = n.subject_permid
+        JOIN _dt_lin lt ON lt.permid = n.target_permid
+        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class='concept'
+    ),
+    con_undir AS (
+        SELECT jr AS a, sr AS b FROM con_edge UNION SELECT sr, jr FROM con_edge
+    ),
+    reach(src, node) AS (
+        SELECT DISTINCT lin_rep, lin_rep FROM _dt_lin
+        UNION
+        SELECT r.src, u.b FROM reach r JOIN con_undir u ON u.a = r.node
+    )
+    SELECT src AS lin_rep, min(node::text)::uuid AS con_rep FROM reach GROUP BY src;
+
+    -- senior lineage per concept + concept_permid/rank
+    DROP TABLE IF EXISTS _dt_conmeta;
+    CREATE TEMP TABLE _dt_conmeta AS
+    WITH con_sources AS (
+        SELECT DISTINCT ls.lin_rep AS jr
+        FROM name_opinions n
+        JOIN _dt_lin ls ON ls.permid = n.subject_permid
+        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class='concept'
+    ),
+    ranked AS (
+        SELECT c.con_rep, c.lin_rep,
+               row_number() OVER (PARTITION BY c.con_rep ORDER BY
+                   (cs.jr IS NULL) DESC,                 -- non-source (never junior) first
+                   lm.acc_ev DESC, lm.acc_yr DESC NULLS LAST, lm.acc_id DESC,
+                   lm.original_yr ASC,
+                   lm.original_permid ASC) AS rn
+        FROM _dt_con c
+        JOIN _dt_linmeta lm ON lm.lin_rep = c.lin_rep
+        LEFT JOIN con_sources cs ON cs.jr = c.lin_rep
+    )
+    SELECT r.con_rep, r.lin_rep AS senior_lin,
+           lm.accepted_spelling_permid AS concept_permid,
+           lm.accepted_rank_id AS concept_rank_id,
+           tr.taxonomy_rank AS concept_rank_name
+    FROM ranked r
+    JOIN _dt_linmeta lm ON lm.lin_rep = r.lin_rep
+    JOIN dictionaries.taxonomy_ranks tr ON tr.id = lm.accepted_rank_id
+    WHERE r.rn = 1;
+
+    -- ---- classification: winning assignment pooled across the concept ------
+    DROP TABLE IF EXISTS _dt_assign;
+    CREATE TEMP TABLE _dt_assign AS
+    WITH cand AS (
+        SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
+               a.evidence,
+               COALESCE(a.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr
+        FROM assignment_opinions a
+        JOIN _dt_lin sl ON sl.permid = a.subject_permid
+        JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
+        JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
+        JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
+        LEFT JOIN refs r ON r.id = a.reference_id
+        WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
+          AND ( sl.lin_rep = cm.senior_lin
+                OR (cm.concept_rank_name <> 'species'
+                    AND lm.accepted_rank_id = cm.concept_rank_id) )
+    ),
+    win AS (
+        SELECT con_rep, opinion_id, containing_permid,
+               row_number() OVER (PARTITION BY con_rep
+                   ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+        FROM cand
+    )
+    SELECT w.con_rep, w.opinion_id AS winning_assignment_opinion_id,
+           cc.con_rep AS containing_con_rep
+    FROM win w
+    LEFT JOIN _dt_lin cl ON cl.permid = w.containing_permid
+    LEFT JOIN _dt_con cc ON cc.lin_rep = cl.lin_rep
+    WHERE w.rn = 1;
+
+    -- ---- per-concept node (concept_permid, containing_concept_permid) ------
+    DROP TABLE IF EXISTS _dt_node;
+    CREATE TEMP TABLE _dt_node AS
+    SELECT cm.con_rep, cm.concept_permid, cm.concept_rank_id,
+           ccm.concept_permid AS containing_concept_permid,
+           a.winning_assignment_opinion_id
+    FROM _dt_conmeta cm
+    LEFT JOIN _dt_assign a ON a.con_rep = cm.con_rep
+    LEFT JOIN _dt_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
+
+    -- ---- containment cycle guard (raises) ---------------------------------
+    IF EXISTS (
+        WITH RECURSIVE walk AS (
+            SELECT con_rep, containing_concept_permid, 1 AS depth
+            FROM _dt_node WHERE containing_concept_permid IS NOT NULL
+            UNION ALL
+            SELECT w.con_rep, n.containing_concept_permid, w.depth + 1
+            FROM walk w
+            JOIN _dt_node cn ON cn.concept_permid = w.containing_concept_permid
+            JOIN _dt_node n  ON n.con_rep = cn.con_rep
+            WHERE w.depth < 10000
+              AND n.containing_concept_permid IS NOT NULL
+        )
+        SELECT 1 FROM walk w JOIN _dt_node self ON self.con_rep = w.con_rep
+        WHERE w.containing_concept_permid = self.concept_permid
+    ) THEN
+        RAISE EXCEPTION 'derive_taxa: classification containment cycle detected';
+    END IF;
+
+    -- ---- classification_path (root -> node) -------------------------------
+    DROP TABLE IF EXISTS _dt_path;
+    CREATE TEMP TABLE _dt_path AS
+    WITH RECURSIVE p AS (
+        SELECT con_rep, concept_permid, containing_concept_permid,
+               text2ltree(replace(concept_permid::text,'-','_')) AS classification_path
+        FROM _dt_node WHERE containing_concept_permid IS NULL
+        UNION ALL
+        SELECT cn.con_rep, cn.concept_permid, cn.containing_concept_permid,
+               pp.classification_path || replace(cn.concept_permid::text,'-','_')
+        FROM _dt_node cn
+        JOIN _dt_node parent ON parent.concept_permid = cn.containing_concept_permid
+        JOIN p pp ON pp.con_rep = parent.con_rep
+    )
+    SELECT con_rep, classification_path FROM p;
+
+    -- ---- validity per permid ----------------------------------------------
+    DROP TABLE IF EXISTS _dt_valid;
+    CREATE TEMP TABLE _dt_valid AS
+    WITH cand AS (
+        SELECT v.subject_permid AS permid, v.status_id, v.id AS opinion_id,
+               v.evidence,
+               COALESCE(v.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+               row_number() OVER (PARTITION BY v.subject_permid
+                   ORDER BY v.evidence DESC,
+                            COALESCE(v.pubyr, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                            v.id DESC) AS rn
+        FROM validity_opinions v
+        LEFT JOIN refs r ON r.id = v.reference_id
+        WHERE v.removed IS NOT TRUE AND v.succeeded_by_id IS NULL
+    )
+    SELECT permid, status_id AS nomenclatural_status_id, opinion_id AS winning_validity_opinion_id
+    FROM cand WHERE rn = 1;
+
+    -- ---- assemble one row per minted permid -------------------------------
+    RETURN QUERY
+    SELECT
+        m.permid,
+        m.new_name,
+        m.rank_id,
+        m.authority_id,
+        lm.original_permid,
+        lm.accepted_spelling_permid,
+        cm.concept_permid,
+        nd.containing_concept_permid,
+        pth.classification_path,
+        vv.nomenclatural_status_id,
+        m.opinion_id AS winning_name_opinion_id,
+        nd.winning_assignment_opinion_id,
+        vv.winning_validity_opinion_id
+    FROM _dt_mint m
+    JOIN _dt_lin      l   ON l.permid = m.permid
+    JOIN _dt_linmeta  lm  ON lm.lin_rep = l.lin_rep
+    JOIN _dt_con      c   ON c.lin_rep = l.lin_rep
+    JOIN _dt_conmeta  cm  ON cm.con_rep = c.con_rep
+    JOIN _dt_node     nd  ON nd.con_rep = c.con_rep
+    LEFT JOIN _dt_path pth ON pth.con_rep = c.con_rep
+    LEFT JOIN _dt_valid vv ON vv.permid = m.permid
+    WHERE seed IS NULL OR m.permid = ANY(seed);
+END;
+$fn$;
+
+
+-- ============================================================================
+-- rebuild_taxa() — cold path: derive(all) → diff → append new ledger heads
+-- ============================================================================
+CREATE OR REPLACE FUNCTION rebuild_taxa()
+RETURNS integer LANGUAGE plpgsql AS $fn$
+DECLARE
+    changed integer := 0;
+BEGIN
+    -- close out heads whose derived output changed or vanished, then insert new
+    WITH d AS (SELECT * FROM derive_taxa(NULL)),
+    heads AS (SELECT * FROM taxa WHERE succeeded_by_id IS NULL),
+    -- rows that differ (or are new)
+    diff AS (
+        SELECT d.* FROM d
+        LEFT JOIN heads h ON h.permid = d.permid
+        WHERE h.permid IS NULL
+           OR h.name IS DISTINCT FROM d.name
+           OR h.rank_id IS DISTINCT FROM d.rank_id
+           OR h.original_permid IS DISTINCT FROM d.original_permid
+           OR h.accepted_spelling_permid IS DISTINCT FROM d.accepted_spelling_permid
+           OR h.concept_permid IS DISTINCT FROM d.concept_permid
+           OR h.containing_concept_permid IS DISTINCT FROM d.containing_concept_permid
+           OR h.classification_path IS DISTINCT FROM d.classification_path
+           OR h.nomenclatural_status_id IS DISTINCT FROM d.nomenclatural_status_id
+           OR h.winning_name_opinion_id IS DISTINCT FROM d.winning_name_opinion_id
+           OR h.winning_assignment_opinion_id IS DISTINCT FROM d.winning_assignment_opinion_id
+           OR h.winning_validity_opinion_id IS DISTINCT FROM d.winning_validity_opinion_id
+    )
+    INSERT INTO taxa (permid, name, rank_id, authority_id, original_permid,
+        accepted_spelling_permid, concept_permid, containing_concept_permid,
+        classification_path, nomenclatural_status_id, winning_name_opinion_id,
+        winning_assignment_opinion_id, winning_validity_opinion_id)
+    SELECT permid, name, rank_id, authority_id, original_permid,
+        accepted_spelling_permid, concept_permid, containing_concept_permid,
+        classification_path, nomenclatural_status_id, winning_name_opinion_id,
+        winning_assignment_opinion_id, winning_validity_opinion_id
+    FROM diff;
+    GET DIAGNOSTICS changed = ROW_COUNT;
+    RETURN changed;
+END;
+$fn$;
+
+
+-- ============================================================================
+-- assert_taxa_invariant() — derive(all) ≡ current ledger heads
+-- ============================================================================
+CREATE OR REPLACE FUNCTION assert_taxa_invariant()
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE
+    bad integer;
+BEGIN
+    WITH d AS (SELECT * FROM derive_taxa(NULL)),
+    heads AS (SELECT * FROM taxa WHERE succeeded_by_id IS NULL),
+    mism AS (
+        SELECT COALESCE(d.permid, h.permid) AS permid FROM d
+        FULL JOIN heads h ON h.permid = d.permid
+        WHERE d.permid IS NULL OR h.permid IS NULL
+           OR h.name IS DISTINCT FROM d.name
+           OR h.rank_id IS DISTINCT FROM d.rank_id
+           OR h.original_permid IS DISTINCT FROM d.original_permid
+           OR h.accepted_spelling_permid IS DISTINCT FROM d.accepted_spelling_permid
+           OR h.concept_permid IS DISTINCT FROM d.concept_permid
+           OR h.containing_concept_permid IS DISTINCT FROM d.containing_concept_permid
+           OR h.classification_path IS DISTINCT FROM d.classification_path
+           OR h.nomenclatural_status_id IS DISTINCT FROM d.nomenclatural_status_id
+    )
+    SELECT count(*) INTO bad FROM mism;
+    IF bad > 0 THEN
+        RAISE EXCEPTION 'assert_taxa_invariant: % permid(s) diverge between derive_taxa(all) and ledger heads', bad;
+    END IF;
+END;
+$fn$;
 
 -- STUBBED OUT pending the occurrences reform (a future change). This placeholder
 -- predates the taxa/opinions identity inversion and is inconsistent with it in two
