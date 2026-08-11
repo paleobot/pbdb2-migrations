@@ -1,0 +1,671 @@
+taxon_no,orig_no,taxon_name,taxon_rank,orig_name,orig_rank,reference_no,in_529,inferred_reason
+41335,96678,Otariidae,tribe,Otariina,tribe,24556,no,spelling variant (correction/misspelling)
+44439,45935,Barbouromeryx parvus,species,Dromomeryx parvus,species,6222,yes,recombination
+44781,46032,Calomys arizonae,species,Eligmodontia arizonae,species,30191,yes,recombination
+44859,52684,Canis littoralis,species,Vulpes littoralis,species,6221,yes,recombination
+45071,47156,Choeropotamus americanus,species,Hyopotamus americanus,species,2711,yes,recombination
+45324,48284,Cosoryx loxocerus,species,Merycodus loxocerus,species,1566,yes,recombination
+45325,48287,Cosoryx nevadensis,species,Merycodus nevadensis,species,57363,yes,recombination
+45602,51005,Desmatoclaenus spiekeri,species,Protogonodon spiekeri,species,3485,yes,recombination
+46591,46374,Genetochoerus dickinsonensis,species,Eucrotaphus dickinsonensis,species,56847,yes,recombination
+46711,48678,Goniacodon gaudrianus,species,Mioclaenus gaudrianus,species,7016,yes,recombination
+46860,43767,Hemicyon johnhenryi,species,Aelurodon johnhenryi,species,6559,yes,recombination
+47228,51024,Hypohippus pachyops,species,Protohippus pachyops,species,53742,yes,recombination
+47538,50364,Leptauchenia brevifacies,species,Pithecistes brevifacies,species,37584,no,recombination
+47543,46762,Leptauchenia eiselyi,species,Hadroleptauchenia eiseleyi,species,3069,yes,unclear (multiple changes)
+47552,51171,Leptauchenia orellaensis,species,Pseudocyclopidius orellaensis,species,3069,yes,recombination
+48199,51030,Merychippus profectus,species,Protohippus profectus,species,2702,yes,recombination
+48719,44059,Miohippus exoletum,species,Anchitherium exoletum,species,2712,yes,recombination
+48734,44069,Miohippus westoni,species,Anchitherium westoni,species,56837,yes,recombination
+48744,50630,Miolabis sternbergi,species,Poebrotherium sternbergii,species,53289,yes,unclear (multiple changes)
+49315,46847,Omomys gracilis,species,Hemiacodon gracilis,species,57294,yes,recombination
+49326,46261,Onager complicatus,species,Equus complicatus,species,1627,yes,recombination
+49400,50021,Oreodontoides marshi,species,Paroreodon marshi,species,3410,yes,recombination
+49488,49386,Otionohyus bullatus,species,Oreodon bullatus,species,12636,yes,recombination
+49489,46227,Otionohyus cedrensis,species,Eporeodon cedrensis,species,24920,yes,recombination
+49490,49390,Otionohyus hybridus,species,Oreodon hybridus,species,3425,yes,recombination
+49822,45092,Paradoxodon ruetimeyerianus,species,Chriacus ruetimeyerianus,species,7016,yes,recombination
+49870,49393,Paramerycoidodon major,species,Oreodon major,species,3410,yes,recombination
+50529,51009,Pliohippus castilli,species,Protohippus castilli,species,3235,yes,recombination
+50652,44678,Potamotherium pachycephalus,species,Brachypsalis pachycephalus,species,24204,yes,recombination
+51065,50630,Protomeryx sternbergi,species,Poebrotherium sternbergii,species,53289,yes,unclear (multiple changes)
+51298,48277,Ramoceros coronatus,species,Merycodus coronatus,species,57364,yes,recombination
+51394,47166,Sarcolemur gracilis,species,Hyopsodus gracilis,species,59129,yes,recombination
+52231,52220,Texoceros conklingi,species,Tetrameryx conklingi,species,6222,yes,recombination
+52235,52225,Texoceros onusrosagris,species,Tetrameryx onusrosagris,species,6222,yes,recombination
+52262,49644,Thinohyus subaequans,species,Palaeochoerus subaequans,species,53291,yes,recombination
+52575,47781,Uintatherium furcatus,species,Loxalophodon furcatus,species,53197,yes,recombination
+53245,63147,Pakicetidae,subfamily,Pakicetinae,subfamily,11996,no,spelling variant (correction/misspelling)
+53413,53410,Eggysodon turgaicus,species,Epiaceratherium turgaicum,species,8399,yes,unclear (multiple changes)
+54056,54055,Prothylacyninae,family,Prothylacynidae,family,8437,no,spelling variant (correction/misspelling)
+58064,73856,Euomphalopterus aequilatera,species,Helictes aequilaterus,species,13424,yes,unclear (multiple changes)
+59347,114695,Batillariidae,subfamily,Batillariinae,subfamily,7429,no,spelling variant (correction/misspelling)
+63602,53253,Kekenodontidae,subfamily,Kekenodontinae,subfamily,12039,no,spelling variant (correction/misspelling)
+64127,63951,Preaulophyseter gaulichensis,species,Preaulophyseter gualichensis,species,12454,yes,unclear (multiple changes)
+64489,64488,Eschrichtius robusta,species,Balaenoptera robusta,species,13984,no,recombination
+64668,53143,Kampholophus serrulus,species,Kampholophos serrulus,species,4176,yes,recombination
+66551,68153,Limnosaurus transsyvanicus,species,Limnosaurus transsylvanicus,species,32946,yes,unclear (multiple changes)
+68474,63981,Eschrichtius prisca,species,Balaena prisca,species,12329,yes,recombination
+69861,68981,Balaenoptera molassicus,species,Balaena molassica,species,27065,yes,unclear (multiple changes)
+70051,71455,Melolonthinae,family,Melolonthidae,family,79016,no,spelling variant (correction/misspelling)
+70363,217908,Dasytinae,family,Dasytidae,family,39917,yes,spelling variant (correction/misspelling)
+70649,69560,Alleculinae,family,Alleculites,family,15464,no,spelling variant (correction/misspelling)
+71319,207031,Rhynchitisidae,family,Rhynchitidae,family,60183,no,spelling variant (correction/misspelling)
+76760,63253,Kritosaurus incurivmanus,species,Kritosaurus incurvimanus,species,14121,yes,unclear (multiple changes)
+77249,77248,Bucaniopsis waterkeynianus,species,Bucania waterkeyniana,species,15439,yes,unclear (multiple changes)
+77375,77372,Waagenella munsteri,species,Bellerophon munsteri,species,15850,yes,recombination
+77416,57701,Macluritella wanwanensis,species,Helicotoma wanwanensis,species,9042,yes,recombination
+77479,65598,Mackinnonia rostratum,species,Mellopegma rostratum,species,13270,yes,recombination
+77485,65770,Pycnotrochus septata,species,Isfarispira septata,species,13417,yes,recombination
+77700,72655,Teutonophon lineatus,species,Bellerophon lineatus,species,15859,no,recombination
+77888,72870,Kokenospira undata,species,Bucaniella undata,species,13884,yes,recombination
+78038,73098,Hippocardia gogoensis,species,Conocardium gogoensis,species,15909,yes,recombination
+78042,73103,Hippocardia ibergense,species,Conocardium ibergense,species,15752,yes,recombination
+78071,73133,Hippocardia reflexum,species,Conocardium reflexum,species,9042,yes,recombination
+78072,73137,Hippocardia rhenanum,species,Conocardium rhenanum,species,15752,yes,recombination
+78227,73344,Cyrtonella pileolus,species,Cyrtolites pileolus,species,15973,yes,recombination
+78501,73803,Holopea variablis,species,Haplospira variablis,species,13884,yes,recombination
+78665,74175,Macrochilina hermitei,species,Littorina hermitei,species,9042,yes,recombination
+78884,74580,Hypseloconus recurva,species,Metoptoma recurva,species,9042,yes,recombination
+78894,74609,Arhouriella thecoides,species,Modiolopsis thecoides,species,13306,yes,recombination
+79060,74788,Goniasma rotundata,species,Murchisonia rotundata,species,9042,yes,recombination
+79086,74817,Loxoplocus turricula,species,Murchisonia turricula,species,11463,yes,recombination
+79110,74843,Macrochilina littonanus,species,Natica littonanus,species,15971,yes,recombination
+79202,196385,Straparollina incarinatus,species,Straparollus (Oriostoma) incarinata,species,15911,yes,unclear (multiple changes)
+79397,75394,Mourlonia apicalis,species,Pleurotomaria apicalis,species,15980,yes,recombination
+79462,75442,Trechmannia conica,species,Pleurotomaria conica,species,16260,yes,recombination
+79475,75452,Streptotrochus cycylostoma,species,Pleurotomaria cycylostoma,species,16442,yes,recombination
+79546,75506,Oehlertia hebe,species,Pleurotomaria hebe,species,12157,yes,recombination
+79547,75506,Glabrocingulum hebe,species,Pleurotomaria hebe,species,12157,yes,recombination
+79564,75518,Mourlonia hyphantes,species,Pleurotomaria hyphantes,species,11466,yes,recombination
+79571,75522,Raphistoma immatura,species,Pleurotomaria immatura,species,15755,yes,recombination
+79912,75962,Climacoraphistoma vaginati,species,Raphistoma vaginati,species,11503,yes,recombination
+79985,76164,Macrochilina humilis,species,Soleniscus humilis,species,16762,yes,recombination
+80022,76231,Holopea atavus,species,Straparollus atavus,species,9042,yes,recombination
+80038,76255,Pachystrophia norvegicus,species,Straparollus norvegicus,species,11503,yes,recombination
+80222,76594,Nematotrochus bicarinatus,species,Turbinites bicarinatus,species,13424,yes,recombination
+80488,76922,Tryblidium pileolum,species,Triblidium pileolum,species,16451,yes,recombination
+81864,67815,Titanocetus sammariensis,species,Aulocetus sammarinensis,species,14541,yes,unclear (multiple changes)
+82551,82550,Chaenomya undata,species,Pholadomya undata,species,20608,yes,recombination
+82684,67028,Anoplosaurus macromerus,species,Syngonosaurus macrocercus,species,14179,yes,unclear (multiple changes)
+83378,83377,Morus atlantica,species,Sula atlantica,species,18140,yes,recombination
+84238,36751,Lamacetus,genus,Lomacetus,genus,12756,yes,spelling variant (correction/misspelling)
+84637,84639,Cryptograptus tricornis schaeferi,subspecies,Cryptograptus tricornis schaferi,subspecies,52853,yes,unclear (multiple changes)
+86128,86127,Portlandella rosa,species,Leda rosa,species,72886,yes,recombination
+89465,79371,Cartericardia bohemica,species,Conocardium bohemicum,species,13319,yes,unclear (multiple changes)
+91001,82070,Lissodelphis peroni peroni,subspecies,Delphinus peronii,species,19615,yes,rank change
+91185,91183,Orobitella floridana,species,Montacuta floridana,species,19419,yes,recombination
+91272,91271,Serripes groenlandicus,species,Cardium groenlandicum,species,19419,yes,unclear (multiple changes)
+91325,91324,Margarites groenlandicus,species,Trochus groenlandicus,species,19419,no,recombination
+91947,60036,Cypraea (Cypraea) isabella,species,Cypraea isabella,species,12782,no,reassignment (subgenus)
+92153,92152,Saccostrea cucullata,species,Ostrea cuccullata,species,19418,yes,unclear (multiple changes)
+95911,36652,Cetaceae,order,Cetacea,order,16880,yes,spelling variant (correction/misspelling)
+96130,75920,Palaeostylus marvinwelleri,species,Pseudozygopleura (Pyrgozyga) marvinwelleri,species,16097,yes,recombination
+96175,96174,Onchosaurus (Ischyrhiza) marrocanus,species,Onchosaurus maroccanus,species,23506,yes,unclear (multiple changes)
+96448,73648,Oriostoma globosa sculpta,subspecies,Euomphalus sculptus,species,16207,yes,rank change
+96523,96521,Platyostoma spirata,species,Nerita spirata,species,16207,yes,recombination
+96879,96878,Acila mirabilis,species,Nucula mirabilis,species,19418,no,recombination
+103039,103038,Dosinia (Dosinidia) whitneyi,species,Chione whitneyi,species,56757,yes,recombination
+103665,103664,Simthurus,genus,Sminthurus,genus,24556,yes,spelling variant (correction/misspelling)
+103959,50066,Aletridelphys florencae,species,Pediomys florencae,species,1241,yes,recombination
+103960,50061,Aletridelphys clemensi,species,Pediomys clemensi,species,3008,yes,recombination
+104411,72723,Waagenella tangentialis,species,Bellerophon tangentialis,species,16260,yes,recombination
+105051,94803,Halitherium antiquusm,species,Ischyrotherium antiquum,species,26876,yes,unclear (multiple changes)
+105325,3338,Stromatoporoidea,order,Stromatoporoidea,order,6930,no,none (duplicate/homonym)
+105977,105973,Zonaria (Prozonaria),subgenus,Prozonaria,genus,25005,yes,rank change
+105978,105975,Zonaria (Prozonaria) maxima,species,Cypraea mus maxima,subspecies,25005,yes,rank change
+105979,105975,Prozonaria maxima,species,Cypraea mus maxima,subspecies,25005,yes,rank change
+107121,90946,Barbatia (Cucullaearca) candida,species,Arca candida,species,19909,yes,recombination
+107800,107799,Coronia amica,species,Gemmula amica,species,13236,yes,recombination
+108180,108178,Nassarius (Nassarius) vibex,species,Nassa vibex,species,19909,yes,recombination
+108465,90944,Arca (Arca) zebra,species,Byssoarca zebra,species,19419,no,recombination
+108491,47943,Gomphotherium productus,species,Mastodon productus,species,2705,yes,recombination
+109636,53431,Heterosoricidae,subfamily,Heterosoricinae,subfamily,25485,no,spelling variant (correction/misspelling)
+109674,109673,Epitonium lamellosum,species,Scalaria lamellosa,species,19909,yes,unclear (multiple changes)
+110475,63209,Agorophius pygmaeum,species,Zeuglodon pygmaeus,species,15395,yes,unclear (multiple changes)
+110751,72602,Waagenella crassa,species,Bellerophon crassus,species,16179,yes,unclear (multiple changes)
+111148,111147,Projenneria ludoviciania,species,Cypraea ludoviciania,species,25532,yes,recombination
+112449,93921,Orca (Gladiator) capensis,species,Orca capensis,species,12659,yes,reassignment (subgenus)
+112450,102878,Orca (Gladiator) magellanica,species,Orca magellanica,species,24657,yes,reassignment (subgenus)
+114525,11586,Genotia (Pseudotoma),subgenus,Pseudotoma,genus,26211,yes,rank change
+114845,114844,Zonaria fabagina,species,Cypraea fabagina,species,26214,no,recombination
+115849,74241,Eunema sexcarinata,species,Lophospira sexcarinata,species,16339,yes,recombination
+117725,117721,Hyposteiromys axiculus,species,Steiromys axiculus,species,54882,yes,recombination
+117726,117720,Hyposteiromys nectus,species,Steiromys nectus,species,54882,yes,recombination
+121513,121512,Latiastraea kaufmanni,species,Latimeandra kaufmanni,species,9447,yes,recombination
+122087,75474,Stenoloron durhamensis,species,Pleurotomaria durhamensis,species,16442,yes,recombination
+122097,75598,Stenoloron putillus,species,Pleurotomaria putillus,species,16217,yes,recombination
+128375,128374,Liroceras molengraafi,species,Nautilus molengraaffi,species,27636,yes,unclear (multiple changes)
+129764,129763,Hypacanthoplites millertianum,species,Ammonites milletianus,species,27793,yes,unclear (multiple changes)
+130172,130171,Oxytropidoceras (Manuaniceras) applanatus,species,Oxytropidoceras applanatus,species,27823,yes,reassignment (subgenus)
+130173,130169,Oxytropidoceras (Manuaniceras) ornatus,species,Manuaniceras ornatus,species,27823,yes,recombination
+130174,130168,Oxytropidoceras (Oxytropidoceras) bravoensis,species,Schloenbachia bravoensis,species,27823,yes,recombination
+130536,130535,Cunningtoniceras inermis,species,Ammonites cunningtoni inermis,subspecies,27853,yes,rank change
+130569,130567,Spathites (Spathites) chispaensis,species,Spathites chispaensis,species,27857,yes,reassignment (subgenus)
+131286,131284,Lytoceras fimbriatus,species,Ammonites fimbriatus,species,19947,yes,recombination
+131289,131288,Lytoceras sublimbriatum,species,Ammonites subfimbriatus,species,19947,yes,unclear (multiple changes)
+131616,120247,Columactinastrea torallolensis,species,Placocolumastrea torallolensis,species,27990,yes,recombination
+132149,132119,Virgatoptychites (Propolyptychites) quadrificus,species,Polyptychites quadrifidus,species,28065,yes,unclear (multiple changes)
+132223,132220,Polyptychites (Astieriptychites) astierptychus,species,Astieriptychites astieriptychus,species,28065,yes,unclear (multiple changes)
+132343,132340,Natica (Natica) tremarieri,species,Natica tremarici,species,28080,yes,unclear (multiple changes)
+132488,132487,Sturtzaster spinosissimus,species,Asterias spinosissima,species,22156,yes,unclear (multiple changes)
+132729,132728,Pervinquieria evolutum,species,Inflaticeras evolutum,species,36026,yes,recombination
+132750,132749,Nostoceras (Nostoceras) fischeri,species,Nostoceras fisheri,species,63991,yes,unclear (multiple changes)
+133624,133369,Grallator palmipes,species,Moyenisauropus palmipes,species,28154,yes,recombination
+134757,134756,Megalornis emuinus,species,Lithornis emuinus,species,28336,yes,recombination
+135734,135730,Cypraea tripunctata,species,Cypraea europaea tripunctata,subspecies,23858,yes,rank change
+136492,109697,Clavatula turricula,species,Murex turricula,species,29091,yes,recombination
+138244,38883,Pelycosauria,order,Pelycosauria,order,9273,no,none (duplicate/homonym)
+139030,139029,Latiastraea variabilis,species,Microphyllia variabilis,species,28947,yes,recombination
+139805,139803,Archimosotipula,genus,Archimesotipula,genus,50682,yes,spelling variant (correction/misspelling)
+139987,139910,Mytilus postcarbonicus,species,Myalina postcarbonica,species,12032,yes,unclear (multiple changes)
+140819,140720,Flebotomus,genus,Phlebotomus,genus,5070,yes,spelling variant (correction/misspelling)
+140847,140846,Ceuthneura,genus,Ceuthoneura,genus,51297,yes,spelling variant (correction/misspelling)
+140852,140850,Palalaelimnobia,genus,Palaeolimnobia,genus,51297,yes,spelling variant (correction/misspelling)
+141429,141428,Deltocyathus cupuliformis,species,Trochocyathus cupuliformis,species,29108,no,recombination
+141546,141545,Latiastraea whitneyi,species,Orbicella whitneyi,species,25181,yes,recombination
+141552,141550,Favia conferta,species,Orbicella conferta,species,29068,yes,recombination
+141624,67381,Eubrontes (Ornithichnites),subgenus,Ornithichnites,genus,14325,yes,rank change
+141710,121530,Leda truncata,species,Nucula truncata,species,59878,yes,recombination
+142012,89009,Ostrea (Ostrea) edulis,species,Ostrea edulis,species,19909,yes,reassignment (subgenus)
+144538,144537,Desmophyllites gaudana,species,Ammonites gaudama,species,15338,yes,unclear (multiple changes)
+146209,146207,Douvilleiceras mamillatum,species,Ammonites mammillatus,species,29795,no,unclear (multiple changes)
+146318,146316,Coledium globulina,species,Terebratula globulina,species,42300,yes,recombination
+146393,146391,Phlyctiderma soror,species,Lucina soror,species,19909,no,recombination
+146935,98723,Arctocephalus (Arctocephalus) australis,species,Otaria australis,species,29727,no,recombination
+147281,146853,Pugilina aedicnema,species,Melongena (Pugilina) oedicnema,species,17609,yes,unclear (multiple changes)
+147497,147496,Staphylaea granulata,species,Cypraea granulata,species,23858,yes,recombination
+148373,138196,Latiastraea minima,species,Latimeandra minima,species,30120,yes,recombination
+148583,148582,Montlivaltia vasiformis,species,Caryophyllia vasiformis,species,89939,yes,recombination
+151924,151923,Montlivaltia turbinata,species,Anthophyllum turbinatum,species,90512,yes,unclear (multiple changes)
+153318,147608,Eggerellinae,family,Eggerellidae,family,30642,no,spelling variant (correction/misspelling)
+154785,152310,Latiastraea gironensis,species,Thalamocoenia gironensis,species,19746,yes,recombination
+155635,155634,Nerita (Dostia) cuneata,species,Nerita cuneata,species,59878,yes,reassignment (subgenus)
+156288,156287,Arene tricarinata,species,Architectonica tricarinata,species,19909,no,recombination
+156799,156798,Cotonopsis lafresnayi,species,Columbella lafresnayi,species,19909,yes,recombination
+157317,157315,Codakia antillarum,species,Lucina antillarum,species,19909,yes,recombination
+161115,161114,Olar buccinator,species,Cygnus buccinator,species,31487,yes,recombination
+161465,161464,Latiastraea valfinensis,species,Latimaeandra valfinensis,species,31416,yes,recombination
+162701,162697,Ornithocheirus hlavatschi,species,Cretornis hlavatschi,species,55181,yes,recombination
+164398,164397,Wattonithyris wuerttembergica,species,Terebratula wurtembergica,species,32227,yes,unclear (multiple changes)
+166986,72748,Mackinnonia costata,species,Bemella costata,species,13270,yes,recombination
+168048,168047,Gari (Gobraeus) furcata,species,Tellina fucata,species,18663,no,unclear (multiple changes)
+168216,168214,Solena novacularis,species,Solen novacula,species,322,yes,unclear (multiple changes)
+169298,169297,Janeia solikamica,species,Solemya (Janeia) solikamica,species,27621,yes,recombination
+170172,170167,Modestella zlambachensis,species,Trigonia zlambachensis,species,13062,yes,recombination
+170226,179328,Mylacridae,subfamily,Mylacridae,subfamily,37755,no,none (duplicate/homonym)
+171303,171302,Cimoliasaurus durobrivensis,species,Cimoliosaurus durobrivensis,species,33960,no,recombination
+171682,171681,Glyphostoma (Glyphostoma) tridesmia,species,Clathurella (Glyphostoma) tridesmia,species,69611,yes,recombination
+171780,91372,Anadara (Cunearca) chemnitzii,species,Arca chemnitzi,species,19419,yes,unclear (multiple changes)
+171909,169129,Pecten hindsi,species,Pecten hindsii,species,33050,yes,unclear (multiple changes)
+171992,167987,Timoclea squamosa,species,Tapes squamosa,species,19909,yes,recombination
+173489,106258,Palaeospheniscus bilocular,species,Chubutodyptes biloculata,species,25175,yes,unclear (multiple changes)
+175771,175770,Spiriferellina vercherei,species,Spiriferina vercherei,species,27310,yes,recombination
+176021,175582,Artematopodites propinqua,species,Ovivagina propinqua,species,34915,yes,recombination
+176525,176524,Cydonocephalus mercurus,species,Cheirurus mercurus,species,35054,yes,recombination
+177045,130371,Johndearia magna,species,Ingelarella magna,species,27374,yes,recombination
+177063,123893,Geothomasia profunda,species,Ingelarella profunda,species,27372,yes,recombination
+177065,177060,Geothomasia symmetrica,species,Ingelarella symmetrica,species,27372,yes,recombination
+177067,177066,Johndearia isbelli,species,Ingelarella isbelli,species,27372,yes,recombination
+178039,246914,Maeonia morrisi,species,Maeonia morrisii,species,42916,yes,unclear (multiple changes)
+179128,96556,Adocus wyomingensis,species,Baptemys wyomingensis,species,30725,yes,recombination
+179278,108967,Mixosaurus hectori,species,Ichthyosaurus australis,species,54045,yes,unclear (multiple changes)
+179524,176137,Ptyocephalus declevitus,species,Kirkella declevita,species,25414,no,unclear (multiple changes)
+179551,177782,Bienvillia papulosus,species,Triarthrus papulosus,species,35229,yes,recombination
+179606,179409,Petalura gigantea,species,Aeschna gigantea,species,35209,yes,recombination
+179788,72082,Pemphredoninae,family,Pemphredonidae,family,35522,no,spelling variant (correction/misspelling)
+179790,179704,Philanthinae,family,Philanthidae,family,12074,yes,spelling variant (correction/misspelling)
+179934,176833,Porterfieldia fisheri,species,Triarthrus fischeri,species,35079,yes,unclear (multiple changes)
+180097,196540,Archithemistidae,subfamily,Architheminae,subfamily,37357,no,spelling variant (correction/misspelling)
+180286,176071,Haglinae,subfamily,Haglidae,family,35209,no,rank change
+180902,180901,Tucetona canalis democraciana,subspecies,Glycymeris canalis democraciana,subspecies,17421,yes,recombination
+181605,181604,Frechitoides miyagi,species,Beyrichites migayi,species,33466,yes,unclear (multiple changes)
+181627,178675,Hodotermitini,tribe,Psammotermitinae,subfamily,35699,no,rank change
+183348,133878,Nephilidae,subfamily,Nephilinae,subfamily,35892,no,spelling variant (correction/misspelling)
+184654,184653,Neogriffithides sicula,species,Phillipsia sicula,species,15192,yes,recombination
+184936,184931,Sphenodiscus belviderensis,species,Ammonites belviderensis,species,36035,yes,recombination
+185866,182039,Parhemerobius multistriatus,species,Trichophlebia multostriata,species,35656,yes,unclear (multiple changes)
+186004,129364,Inflaticeras (Subschloenbachia),subgenus,Subschloenbachia,genus,36070,yes,rank change
+186107,186106,Wentzellophyllum persicum,species,Wentzelella persica,species,48282,yes,unclear (multiple changes)
+187097,187096,Dicellonema dicellonematum,species,Bellerophon (Dicellonema) dicellonematum,species,36382,yes,recombination
+187953,120569,Euspira muriciformis,species,Ranella muriciformis,species,36423,yes,recombination
+187978,43373,Leontinidae,family,Leontiniidae,family,43100,no,spelling variant (correction/misspelling)
+187999,42008,Hystrichomorpha,infraorder,Hystricomorpha,infraorder,36444,yes,spelling variant (correction/misspelling)
+188018,53700,Octodontotherium grande,species,Octodontotherium grandae,species,8513,yes,unclear (multiple changes)
+188250,233799,Triadotypus sodgianus,species,Triadotypus sogdianus,species,8350,yes,unclear (multiple changes)
+188371,233799,Reisia sodgianus,species,Triadotypus sogdianus,species,8350,yes,unclear (multiple changes)
+188799,188797,Megastrophia walmstedti,species,Strophomena walmstedti,species,36458,yes,recombination
+189329,226012,Marathonites pamiricus,species,Marathonites (Almites) pamiricus,species,40569,yes,reassignment (subgenus)
+189980,146770,Archaeocyatha,phylum,Archaeocyatha,phylum,36508,no,none (duplicate/homonym)
+190636,190634,Tyloplecta sinoindica,species,Productus sinoindicus,species,44776,yes,unclear (multiple changes)
+190780,190128,Placenticeras tamulicus,species,Ammonites tamulicus,species,58500,yes,recombination
+191410,191408,Jilinmartinia lopingensis,species,Martinia lopingensis,species,27487,yes,recombination
+192822,192819,Isfaropteridae,subfamily,Isfaropteridae,family,37163,yes,rank change
+193159,137099,Architipulinae,family,Architipulidae,family,35209,no,spelling variant (correction/misspelling)
+193990,193989,Dicranoptycha europaeus,species,Stibadocerites europaeus,species,36962,yes,recombination
+194356,194354,Astartella guthriensis,species,Astarte guthriensis,species,36975,yes,recombination
+195287,195285,Cnemopeltia rimulosum,species,Cnemidium rimulosum,species,15612,yes,recombination
+195300,195299,Pyrgochonia acetabulum,species,Tragos acetabulum,species,15612,yes,recombination
+196375,197984,Orthophlebioides obscura,species,Orthophlebioides obscurus,species,37408,yes,unclear (multiple changes)
+199854,195935,Fieldingiceras fieldingii,species,Ammonites fieldingii,species,8795,yes,recombination
+199892,199891,Cicadopsyllidae,subfamily,Cicadopsyllinae,subfamily,37651,no,spelling variant (correction/misspelling)
+200055,200054,Watsonulus euganthoides,species,Watsonia eugnathoides,species,37631,yes,unclear (multiple changes)
+200077,200075,Wentzellophyllum kinkiense,species,Stylidophyllum kinkiense,species,33672,yes,recombination
+200492,200491,Kalotermes pusillus,species,Termes (Eutermes) pusillus,species,37344,yes,recombination
+201693,220208,Cephalcia caplani,species,Cephaleia caplani,species,40166,yes,recombination
+206044,206043,Neosyringopora multiattenuata,species,Syringopora multattenuata,species,17786,yes,unclear (multiple changes)
+206533,86077,Neilonellidae,subfamily,Neilonellidae,family,38358,yes,rank change
+207088,176543,Cydninae,subfamily,Cydnides,family,5135,no,rank change
+207663,207661,Wentzellophyllum eguchii,species,Stylidophyllum eguchii,species,33773,yes,recombination
+207847,207846,Pseudophyllinae,family,Pseudophyllidae,family,70387,yes,spelling variant (correction/misspelling)
+211437,255654,Belytinae,family,Belytidae,family,5042,no,spelling variant (correction/misspelling)
+213117,222418,Ecnomidae,subfamily,Ecnominae,subfamily,86955,no,spelling variant (correction/misspelling)
+213551,213548,Ipidae,subfamily,Ipidae,family,35809,yes,rank change
+214380,237851,Termes laxus,species,Termes laxa,species,41866,yes,unclear (multiple changes)
+214455,214454,Propalingenia feistmantelia,species,Palingenia feistmanteli,species,35209,yes,unclear (multiple changes)
+214542,214541,Archaeoptilus lucazei,species,Archaeoptilus lucasi,species,35209,yes,unclear (multiple changes)
+214715,214714,Tegulorhynchia doderleini,species,Rhynchonella doederleini,species,39467,yes,unclear (multiple changes)
+216396,216395,Mesoscytina liliputa,species,Olgamartynovia lilliputa,species,50109,yes,unclear (multiple changes)
+217558,217557,Aegyptosuchidae,family,Aegyptosuchidae,family,39889,no,none (duplicate/homonym)
+220832,218715,Isonychiinae,family,Isonychiidae,family,70383,no,spelling variant (correction/misspelling)
+221278,221277,Hemimylacrinae,subfamily,Hemimylacridae,family,50092,no,rank change
+221409,202790,Parapsocus fossilis,species,Psocites fossilis,species,38075,yes,recombination
+222703,222604,Godavaria meunierii,species,Diplonevra meunieri,species,5895,yes,unclear (multiple changes)
+223104,92568,Phasmida,order,Phasmatodea,order,40421,yes,spelling variant (correction/misspelling)
+224240,224229,Caliroa mimus,species,Eriocampoides mimus,species,40479,yes,recombination
+225340,206854,Aphrophoridae,subfamily,Aphrophorides,family,68204,yes,rank change
+227616,179365,Corydiidae,subfamily,Corydiens,subfamily,40725,no,spelling variant (correction/misspelling)
+227876,227874,Amberaspinus orientales,species,Aspinus orientalus,species,58024,yes,unclear (multiple changes)
+229908,83417,Cygninae,tribe,Cygninini,tribe,40847,no,spelling variant (correction/misspelling)
+231098,231097,Rachicerinae,subfamily,Rachiceridae,family,40601,yes,rank change
+231321,222028,Camarotoscena anglica,species,Necropsylla anglica,species,37729,yes,recombination
+232328,232325,Oxytoma cygnipes,species,Pecten cygnipes,species,41211,yes,recombination
+233136,233132,Phylidorea pullchripennis,species,Limnophila (Dactylolabis) pulchripennis,species,45592,yes,unclear (multiple changes)
+233230,195006,Dysagrionidae,subfamily,Dysagrioninae,subfamily,37044,no,spelling variant (correction/misspelling)
+233472,231118,Ethmiinae,family,Ethmiidae,family,70626,no,spelling variant (correction/misspelling)
+233482,134427,Dacnonympha,suborder,Dacnonypha,suborder,41351,yes,spelling variant (correction/misspelling)
+233653,104247,Blastocerus bezoarticus,species,Cervus bezoarticus,species,12782,yes,recombination
+234359,86342,Bobcaprini,subfamily,Caprinae,subfamily,41458,no,spelling variant (correction/misspelling)
+234464,53069,Potoroinae,family,Potoroidae,family,23420,no,spelling variant (correction/misspelling)
+234518,236135,Blattina ilfeldensis,species,Spiloblattina ilfeldensis,species,49957,yes,recombination
+235694,226560,Melanthripidae,subfamily,Melanothripinae,subfamily,41708,no,spelling variant (correction/misspelling)
+236182,255874,Ameghinoia piatnitzkii,species,Ameghinoia piatnitzkyi,species,44403,yes,unclear (multiple changes)
+236372,201117,Compsoblatta analglyptica,species,Blattina anaglyptica,species,50019,yes,unclear (multiple changes)
+237391,237417,Carcinus fimbriatus,species,Gampsonyx fimbriatus,species,41866,yes,recombination
+237824,214336,Goldenbergia schmitzi,species,Dictyoneura schmitzi,species,41866,yes,recombination
+237840,214341,Goldenbergia affinis,species,Termes affinis,species,49286,yes,recombination
+238091,201286,Blattina wemmetsweilerensis,species,Blattina wemmetsweileriensis,species,37755,yes,unclear (multiple changes)
+238427,116711,Zangerlichelys scutumantiquum,species,Trionyx scutumantiquum,species,26380,yes,recombination
+239325,240165,Biwaellinae,family,Biwaellidae,family,42086,no,spelling variant (correction/misspelling)
+239725,72069,Fusulinida,suborder,Fusilinida,suborder,42124,no,spelling variant (correction/misspelling)
+244045,244043,Allolepidotus ruppellii,species,Pholidophorus rueppelli,species,38893,yes,unclear (multiple changes)
+244409,62423,Tapetini,subfamily,Tapetinae,subfamily,38358,yes,spelling variant (correction/misspelling)
+245064,149466,Discoproptychites septentrionale,species,Meekoceras septentrionale,species,30272,yes,recombination
+246331,244535,Abderitidae,unranked clade,Abderitesidae,family,17465,no,rank change
+246825,246824,Physonemus stellatus,species,Drepanacanthus stellatus,species,42819,yes,recombination
+247489,247488,Ortheziolini,subfamily,Ortheziolinae,subfamily,80229,no,spelling variant (correction/misspelling)
+248981,226593,Gyrodus sp,species,Mesturus cordillera,species,40617,yes,unclear (multiple changes)
+249233,180887,Anadara (Potiarca) vueltana,species,Arca (Scapharca) vueltana,species,17421,yes,recombination
+249746,109034,Talparia dominicensis,species,Cypraea dominicensis,species,43452,yes,recombination
+249751,249750,Mauritia campbelliana,species,Cypraea campbelliana,species,57809,yes,recombination
+250836,250834,Gutturinium muricinum,species,Distorsio muricina,species,30037,no,unclear (multiple changes)
+251421,170267,Bolitophilidae,subfamily,Bolitophilinae,subfamily,43545,no,spelling variant (correction/misspelling)
+252335,14320,Choristoceras (Peripleurites),subgenus,Peripleurites,genus,11541,no,rank change
+253173,253172,Eucycloscala elegans,species,Turbo elegans,species,46946,yes,recombination
+253310,253309,Wodnika althausii,species,Acrodus althausii,species,47882,yes,recombination
+253643,40231,Cimolestidae,subfamily,Cimolestidae,family,44033,no,rank change
+253690,39937,Marsupialia,family,Marsupialia,family,18770,no,none (duplicate/homonym)
+253966,253964,Toxorhynchina,tribe,Toxorhynchini,tribe,5137,no,spelling variant (correction/misspelling)
+255326,179957,Euglossinae,tribe,Euglossini,tribe,12074,no,spelling variant (correction/misspelling)
+255930,255897,Agroecomyrmecinae,tribe,Agroecomyrmicini,tribe,4971,no,spelling variant (correction/misspelling)
+256435,256433,Griffithides persephone,species,Asaphus globiceps,species,44218,yes,unclear (multiple changes)
+256521,211027,Penthetria lapidaria,species,Protomyia lapidaria,species,49305,yes,recombination
+257139,256575,Protoformica proformicoides,species,Formica (Protoformica) proformicoides,species,11234,yes,recombination
+257807,203603,Gomphidae perampla,species,Aeshna perampla,species,50041,yes,recombination
+257809,257808,Gomphidae valga,species,Libellula valga,species,35209,yes,recombination
+258996,226277,Climatius macnicoli,species,Euthacanthus macnicolli,species,90394,yes,unclear (multiple changes)
+259232,259231,Pteraspis rostratus,species,Cephalaspis rostratus,species,38758,yes,recombination
+259959,206850,Prosoeca (Palembolus) florigerus,species,Palembolus florigerus,species,5134,yes,recombination
+260876,260875,Cistelinae,subfamily,Cisteleniae,family,12074,yes,rank change
+261045,170250,Macromiidae,subfamily,Macromiinae,subfamily,33326,no,spelling variant (correction/misspelling)
+261401,220338,Burmantis burmiticus,species,Jersimantis burmiticus,species,40188,yes,recombination
+261516,71309,Ithycerinae,family,Ithyceridae,family,35809,yes,spelling variant (correction/misspelling)
+262194,153822,Coptolavia,genus,Coptoclava,genus,41900,yes,spelling variant (correction/misspelling)
+262666,262638,Pleuroneura graciosa,species,Pinicolites graciosus,species,45691,yes,unclear (multiple changes)
+262714,262710,Pteroplistes danicus,species,Pteroplistus danicus,species,45700,yes,recombination
+263107,263105,Ochevia alekseevi,species,Brachypterygius alekseevi,species,45740,no,recombination
+266864,266863,Zetoceras indicariense,species,Phylloceras (Geyeroceras) iudicariense,species,26344,yes,unclear (multiple changes)
+266960,266959,Holcolytoceras nodostricum,species,Ammonites nodostrictus,species,26344,yes,unclear (multiple changes)
+268774,57508,Argyronetidae,subfamily,Argyronetinae,subfamily,44648,no,spelling variant (correction/misspelling)
+269837,139602,Spirigera wissmannii,species,Terebratula wissmani,species,46946,no,unclear (multiple changes)
+269938,269290,Cucullea impressa,species,Arca impressa,species,46946,yes,recombination
+270106,269208,Montlivaultia radiciformis,species,Cyathophyllum radiciforme,species,46946,yes,unclear (multiple changes)
+270607,262665,Pleroneura,genus,Pleuroneura,genus,47182,no,spelling variant (correction/misspelling)
+270717,171823,Hoernesia spiralis,species,Hoernesia (Strophopteria) spiralis,species,33125,yes,reassignment (subgenus)
+271297,268883,Macaria,genus,Micaria,genus,47286,no,spelling variant (correction/misspelling)
+277579,277578,Electrotermitinae,family,Electrotermitinae,subfamily,48113,yes,rank change
+277601,273233,Termes (Termopsis) girardi,species,Termes girardi,species,47505,yes,reassignment (subgenus)
+279109,279108,Acosarina peculiaris,species,Schizophoria peculiaris,species,48289,yes,recombination
+279517,279516,Cyclostomaria suessii,species,Pleurotomaria suessii,species,30773,yes,recombination
+280450,210474,Heteropezinae,subfamily,Heteropezini,tribe,5868,no,rank change
+281289,69174,Tetraphalerini,tribe,Tetraphaleridae,family,48731,yes,rank change
+281861,253281,Listroderini,subtribe,Listroderina,subtribe,35809,no,spelling variant (correction/misspelling)
+282010,179664,Palaeomolobra borealis,species,Senobasis borealis,species,35512,yes,recombination
+282134,216395,Mesocimex liliputus,species,Olgamartynovia lilliputa,species,50109,yes,unclear (multiple changes)
+282561,282560,Pantherinae,unranked clade,Pantherinae,subfamily,48969,yes,rank change
+282892,282888,Pajaudina atlantica,species,Lacazella mediterranea,species,49093,yes,unclear (multiple changes)
+283641,283640,Victorithyris pectoralis,species,Waldheimia pectoralis,species,49060,yes,recombination
+283643,283642,Victorithyris sufflata,species,Waldheimia sufflata,species,49060,yes,recombination
+283644,283475,Victorithyris tapirina,species,Waldheimia tapirina,species,49060,yes,recombination
+283849,211391,Hipporhinus herii,species,Hipporhinus heeri,species,50640,yes,unclear (multiple changes)
+283903,283894,Curtisimyia curtisii,species,Bibio curtisii,species,49087,yes,recombination
+283952,183859,Phthiraptera,order,Phthiraptera,order,49092,no,none (duplicate/homonym)
+284289,284283,Aphelinus minuta,species,Mesidia minuta,species,49172,yes,recombination
+284566,71461,Cetonida,family,Cetoniidae,family,60235,no,spelling variant (correction/misspelling)
+284713,257595,Rhipidorhabdus schroeteri,species,Sphinx schroeteri,species,50674,yes,recombination
+285082,285081,Araripeneurinae,subfamily,Araripeneuridae,family,50453,no,rank change
+285541,285540,Angulathilda microsrtiata,species,Teretrina microstriata,species,49422,yes,unclear (multiple changes)
+286626,201641,Helophorus sibiricus,species,Empleurus sibiricus,species,49559,no,recombination
+287455,287454,Vectella augusta,species,Waldheimia mutabilis angusta,subspecies,49858,yes,rank change
+288299,205077,Chilopoda,subclass,Chilopoda,order,38448,no,rank change
+289154,75506,Calvibembexia hebe,species,Pleurotomaria hebe,species,12157,yes,recombination
+289885,86683,Sagenitinae,family,Sagenitidae,family,62703,no,spelling variant (correction/misspelling)
+290842,134265,Orthophlebia (Phryganidium),subgenus,Phryganeidium,genus,49700,no,rank change
+290893,290892,Xynoraphidia shuangyuanensis,species,Archeraphidia shuangyuanensis,species,51316,yes,recombination
+290900,290892,Mesoraphidia shuangyuanensis,species,Archeraphidia shuangyuanensis,species,51316,yes,recombination
+291481,70110,Dimites,subfamily,Diminae,subfamily,70845,yes,spelling variant (correction/misspelling)
+293032,167762,Chlamys mediacostatus,species,Pecten mediacostatus,species,32774,yes,recombination
+293250,293249,Pitar (Pitar) newcombinanus,species,Circe (Lioconcha) newcombiana,species,74899,yes,unclear (multiple changes)
+293251,293249,Pitar newcombinanus,species,Circe (Lioconcha) newcombiana,species,74899,yes,unclear (multiple changes)
+294443,291097,Archipolypoda,order,Archipolypoda,suborder,51037,no,rank change
+294514,291097,Archipolypoda,suborder,Archipolypoda,suborder,51037,yes,none (duplicate/homonym)
+295372,222919,Dataiaphis,genus,Dataiphis,genus,51226,no,spelling variant (correction/misspelling)
+295376,295373,Dataiaphis coniferis,species,Dataiphis coniferis,species,51226,yes,recombination
+295994,181702,Zygadenia trachylaenus,species,Lupicupes trachylaenus,species,35672,yes,recombination
+295996,243606,Zygadenia validus,species,Sinocupes validus,species,42533,yes,recombination
+299200,299250,Gnamptorhynchos inversum,species,Platystrophia regularis globata,subspecies,11416,yes,rank change
+302007,299312,Acanthothyris spinosa,species,Anomia spinosa,species,33914,yes,recombination
+303083,303081,Balanus pacificus,species,Balanus concavus pacificus,subspecies,52284,no,rank change
+303119,303118,Pycnolepas fimbriatus,species,Brachylepas fimbriatus,species,52290,yes,recombination
+303342,303341,Floweria iowenis,species,Schuchertella iowenis,species,52328,yes,recombination
+304040,304039,Neoscalpellum glauteri,species,Scalpellum (Neoscalpellum) glauerti,species,52412,yes,unclear (multiple changes)
+304530,269207,Phacelostylophyllum gracile,species,Cyathophyllum gracile,species,46946,yes,recombination
+304629,303574,Nematophora,order,Nematophora,order,52532,no,none (duplicate/homonym)
+304775,163855,Mytilus (Modiola) subangustissima,species,Modiola subangustissima,species,32196,yes,recombination
+305431,305430,Chonetoidea radiatulus,species,Chonetes radiatulus,species,50130,no,recombination
+305439,305438,Kozlowskites nuntia,species,Strophomena nuntia,species,50130,yes,recombination
+305923,305922,Chariocrinus andrae,species,Isocrinus andreae,species,52764,yes,unclear (multiple changes)
+306060,306054,Deporaus (Caenorhinus) goergesi,species,Coenorhinus goergesi,species,52793,yes,recombination
+307963,307962,Prionocheilus narinosum,species,Pharostoma narinosum,species,54559,yes,recombination
+308089,85816,Eubrontes (Ichnites) euskelosauroides,species,Ichnites euskelosauroides,species,29189,yes,recombination
+308090,67405,Eubrontes (Brontozoum) approximatus,species,Brontozoum approximatum,species,29189,yes,unclear (multiple changes)
+308093,67401,Anchisauripus (Otouphepus) minor,species,Otouphepus minor,species,14628,yes,recombination
+308095,68013,Batrachopus (Anisopus) gracilior,species,Anisopus gracilior,species,40559,yes,recombination
+308096,133347,Batrachopus (Comptichnus),subgenus,Comptichnus,genus,30860,yes,rank change
+308097,155316,Batrachopus (Comptichnus) obesus,species,Comptichnus obesus,species,30860,yes,recombination
+308162,308161,Plectambonites schmidti,species,Leptaena schmidti,species,15712,no,recombination
+308163,308161,Eoplectodonta schmidti,species,Leptaena schmidti,species,15712,yes,recombination
+308554,189897,Ixodida,order,Ixodida,order,44648,yes,none (duplicate/homonym)
+310464,310463,Scharyia micropygus,species,Proetus micropygus,species,53673,yes,recombination
+310783,310787,Mestoronema bipatellere,species,Raphistoma bipatellare,species,11503,yes,unclear (multiple changes)
+310946,310943,Aspidapion khnzoriani,species,Apion (Aspidapion) khnzoriani,species,53804,yes,recombination
+310959,310961,Ambonychia radiata,species,Byssonychia radiata,species,6344,no,recombination
+311315,311314,Spirifera pinyonensis,species,Spirifer (Trigonotreta) pinonensis,species,16407,yes,unclear (multiple changes)
+311536,311535,Glossella puleherrima,species,Lingulasma pulcherrimum,species,49558,yes,unclear (multiple changes)
+311996,311994,Metacamarella balcletchiensis,species,Stricklandinia balclatchiensis,species,52470,yes,unclear (multiple changes)
+312169,312168,Buprestis cuprostriata,species,Buprestis (Cypriacis) cupreostriata,species,53989,yes,unclear (multiple changes)
+313353,313352,Cymatoceras tskalsithelense,species,Nautilus tskaltsithelensis,species,54147,yes,unclear (multiple changes)
+314103,314102,Pseudobasilicus lata,species,Niobe lata,species,54236,yes,recombination
+314373,43599,Encholoeops,genus,Eucholoeops,genus,54112,no,spelling variant (correction/misspelling)
+314924,314923,Eurotetralia loerenthey,species,Trapezia loerentheyi,species,54338,yes,unclear (multiple changes)
+315985,315983,Stereotoechus spiniferus,species,Leptotrypa spinifera,species,54520,no,unclear (multiple changes)
+316044,299061,Syngastrioceras globosus,species,Eoasianites globosus,species,54435,yes,recombination
+317462,204648,Proscopioidea,infraorder,Proscopiidea,infraorder,68295,no,spelling variant (correction/misspelling)
+317463,220005,Episactidae,subfamily,Episacti,subfamily,70587,yes,spelling variant (correction/misspelling)
+319834,44619,Thinohyus (Bothriolabis),subgenus,Bothrolabis,genus,53735,yes,rank change
+320063,320062,Spermophagina,tribe,Spermophagini,tribe,68965,yes,spelling variant (correction/misspelling)
+320848,296846,Palaeogyrinus decorum,species,Palaeogyrinus decorus,species,51608,yes,unclear (multiple changes)
+322494,322493,Microdactylites attenuatus,species,Ammonites attenuatus,species,55563,yes,recombination
+322988,322987,Lytoceras liebigi,species,Holcostephanus (Spiticeras) obliquelobatus,species,61119,yes,unclear (multiple changes)
+323267,323266,Gervillia alaeformis,species,Modiola alaeformis,species,36012,yes,recombination
+323772,323771,Nautilus izumoensis,species,Eutrephoceras izumoensis,species,59661,yes,recombination
+324481,324480,Orbignyiceras pseudopunctatum,species,Harpoceras pseudopunctatum,species,55781,yes,recombination
+324483,324482,Orbignyiceras paulowi,species,Hecticoceras paulowi,species,55781,yes,recombination
+324485,324484,Orbignyiceras regulare,species,Hecticoceras regulare,species,55781,yes,recombination
+324487,324486,Orbignyiceras kiliani,species,Hecticoceras kiliani,species,55781,yes,recombination
+324738,324737,Peltoceratoides incostans,species,Peltoceras inconstans,species,55781,yes,unclear (multiple changes)
+326794,326793,Werneroceras (Crispoceras) crispus,species,Goniatites crispus,species,56082,yes,recombination
+327364,74392,Cyrtostropha subulata,species,Loxonema subulata,species,15555,yes,recombination
+327809,70467,Teredidae,subfamily,Teredinae,subfamily,83074,no,spelling variant (correction/misspelling)
+328183,37831,Pleurosauridae,subfamily,Pleurosauridae,family,43396,no,rank change
+328332,328317,Mantes,genus,Gryllus (Mantis),subgenus,12782,yes,rank change
+328382,85411,Ptychagnostus (Acidusus) acidusus,species,Agnostus atavus,species,56323,yes,unclear (multiple changes)
+329172,70754,Lepturetae,subfamily,Lepturinae,subfamily,12074,no,spelling variant (correction/misspelling)
+329194,328719,Grylliae,family,Grylloides,family,56377,no,spelling variant (correction/misspelling)
+329210,319710,Diplolepariae,family,Diplolepidini,tribe,12074,no,rank change
+329267,69379,Dermestini,family,Dermestidae,family,56516,yes,spelling variant (correction/misspelling)
+329269,69301,Lucanides,family,Lucanidae,family,56516,no,spelling variant (correction/misspelling)
+329562,8828,Turbo (Gibbula),subgenus,Gibbula,genus,56582,no,rank change
+330590,330572,Exochoidae,subfamily,Exochoidae,family,56748,yes,rank change
+331372,331367,Tropidostoma dubius,species,Dicynodon dubius,species,29040,yes,recombination
+331549,331547,Dalmanitina (Eodalmanitina) macrophtalma,species,Calymene macrophtalma,species,56963,yes,recombination
+333083,168002,Gnidiella gnidia,species,Venus gnidia,species,41911,yes,recombination
+333119,63476,Shiriyanetta goedertorum,species,Chonecetus goedertorum,species,12130,yes,recombination
+333131,333130,Leukoma lacinata,species,Tapes laciniata,species,41911,yes,unclear (multiple changes)
+333402,129391,Neophlycticeras brottianum,species,Ammonites brottianus,species,36067,no,unclear (multiple changes)
+333828,333827,Planammatoceras (Pseudammatoceras) beneri,species,Hammatoceras benneri,species,57456,yes,unclear (multiple changes)
+334090,153525,Coelocatiniidae,family,Catiniidae,family,8450,yes,spelling variant (correction/misspelling)
+334259,334258,Parkinsonia parkinsonia,species,Ammonites parkinsoni,species,57564,no,unclear (multiple changes)
+335677,335550,Dendragapus gillii,species,Palaeotetrix gillii,species,57864,yes,recombination
+335981,331349,Rhynchites (Tshernyshevinius) auratus,species,Curculio auratus,species,56299,no,recombination
+336505,336504,Pustulariopsis pustulifera,species,Cypraea pustulifera,species,58051,yes,recombination
+336826,212058,Bryopompilidae,tribe,Bryopompilini,tribe,39086,no,spelling variant (correction/misspelling)
+336942,66085,Tibia (Africoterebellum) elongata,species,Semiterebellum elongatum,species,13646,yes,unclear (multiple changes)
+339172,339171,Praerosaria inflatus,species,Cypraeacites inflatus,species,57817,yes,recombination
+339406,339405,Gyrodes (Sohlella) expansa,species,Gyrodes expansa,species,11856,yes,reassignment (subgenus)
+339749,264127,Dicynodon scopulosa,species,Kunpania scopulusa,species,46017,yes,unclear (multiple changes)
+340860,340859,Neosimnia passerinalis,species,Ovula passerinalis,species,59160,yes,recombination
+341158,341157,Metatissotia silzewiczi,species,Buchiceras slizewiczi,species,59212,yes,unclear (multiple changes)
+342309,342296,Transovula (Oxycypraea) symmetrcia,species,Ovula symmetrcia,species,18227,yes,recombination
+342512,342509,Lachryma (Proterato) pukeuriensi,species,Erato pukeuriensis,species,58357,yes,unclear (multiple changes)
+342807,342802,Siphocypraea (Muracypraea) pennai,species,Cypraeactaeon pennae,species,43452,yes,unclear (multiple changes)
+342939,342283,Cypraea sublynchoides,species,Cypraea sublyncoides,species,59230,no,unclear (multiple changes)
+343391,343390,Palimphyes longus,species,Clupea elongata,species,59519,yes,unclear (multiple changes)
+343553,343552,Paratollia ernslandensis,species,Polyptychites (Propolyptychites) emslandensis,species,29466,yes,unclear (multiple changes)
+344053,344052,Anenchelum angustus,species,Lepidopus angustus,species,59519,yes,recombination
+345025,16281,Grammatodon (Nordenskjoeldia),subgenus,Nordenskjoldia,genus,6930,no,rank change
+345027,345026,Grammatodon (Nordenskjoeldia) besairiei,species,Nordenskjoldia besairiei,species,59807,yes,recombination
+345246,93985,Colodon fissum,species,Desmatotherium fissum,species,1332,yes,recombination
+346281,329135,Staphylini,family,Staphyliniae,family,12074,no,spelling variant (correction/misspelling)
+348394,348393,Kayentapus wimanensis,species,Zizhongpus wumaensis,species,61166,yes,unclear (multiple changes)
+352072,352071,Saracenaria acutiauriculatus,species,Nautilus acutauricularis,species,62136,yes,unclear (multiple changes)
+352525,352522,Meretrix (Callista) pittsburgensis,species,Callista pittsburgensis,species,65963,yes,recombination
+353103,298636,Brachyprion geniculata,species,Brachyprion geniculatum,species,6949,yes,unclear (multiple changes)
+353814,353813,Xenodolamia eocaenus,species,Carcharias (Scoliodon) eocaenus,species,62336,yes,recombination
+355580,263567,Bolcaichthys catopygoptera,species,Clupea catopygoptera,species,45833,yes,recombination
+355657,355656,Onychoplecia longirostra,species,Camarella longirostra,species,15755,yes,recombination
+355722,32013,Hybocrinida,suborder,Hybocrinida,order,62474,yes,rank change
+355723,94456,Flexibilia,suborder,Flexibilia,subclass,62474,no,rank change
+355928,61523,Lopha (Arctostrea) falcata,species,Ostrea falcata,species,62476,no,recombination
+357564,357563,Sphaeroceras brongnarti,species,Ammonites brongniartii,species,62781,yes,unclear (multiple changes)
+357720,357338,Siemiradzkia (Prevalia) verciacensis,species,Perisphinctes (Grossouvria) verciacensis,species,62775,yes,recombination
+357827,357826,Parkinsonia rectangularis,species,Parkinsonia eimensis rectangularis,subspecies,62781,yes,rank change
+357829,357828,Parkinsonia crassum,species,Parkinsonia depressa crassa,subspecies,62781,yes,rank change
+358416,64093,Otozoum lineatum,species,Otozoum lineatus,species,62983,yes,unclear (multiple changes)
+358752,210579,Triadomerini,subfamily,Triadomerinae,subfamily,5834,no,spelling variant (correction/misspelling)
+359032,359031,Lichas verrucosus,species,Metopias verrucosus,species,63139,yes,recombination
+359514,359430,Amphilichas norvegicus,species,Lichas norvegicus,species,49901,yes,recombination
+360215,359975,Autoloxolichas santamathiae,species,Lichas stmathiae,species,63281,yes,unclear (multiple changes)
+360216,359975,Platylichas santaemathiasae,species,Lichas stmathiae,species,63281,yes,unclear (multiple changes)
+361989,96504,Nyctosaurinae,family,Nyctosauridae,subfamily,31519,yes,rank change
+362183,121082,Ancillariinae,subfamily,Ancillariinae,subfamily,63598,yes,none (duplicate/homonym)
+362533,321007,Rhinosauriscus jasykovi,species,Rhinosaurus jasykovii,species,55402,yes,unclear (multiple changes)
+362939,362937,Wetlugosaurus volgensis,species,Capitosaurus volgensis,species,7854,yes,recombination
+363860,363727,Elliptocephalus mirabilis,species,Holmia mirabilis,species,63963,yes,recombination
+364330,105267,Geochelone gallardoi,species,Testudo gallardoi,species,63683,yes,recombination
+364410,364409,Propalaeohoplophorus australis,species,Hoplophorus australis,species,15092,yes,recombination
+364564,360985,Chrysemys wyomingensis,species,Emys wyomingensis,species,30725,yes,recombination
+364724,244602,Haydenella anqingensis,species,Planihaydenella anqingensis,species,32358,yes,recombination
+365300,360985,Dermatemys wyomingensis,species,Emys wyomingensis,species,30725,yes,recombination
+365307,360985,Emys vyomingensis,species,Emys wyomingensis,species,30725,yes,unclear (multiple changes)
+366346,268231,Aphrodina major,species,Cucullaea bowersiana,species,68268,yes,unclear (multiple changes)
+366351,366349,Spisula ashburnerii,species,Mactra ashburnerii,species,64770,yes,recombination
+366353,366352,Spisula gabbiana,species,Mactra gabbiana,species,64770,yes,recombination
+367642,276198,Thelyphonida,order,Thelyphonida,order,65098,no,none (duplicate/homonym)
+367988,367987,Mayiella (Xishuiella),subgenus,Xishuiella,genus,10294,yes,rank change
+368874,368873,Taramelliceras (Proscaphites) denticulata,species,Oecotraustes denticulata,species,75134,yes,recombination
+368948,368946,Glycimeris veatchii,species,Axinaea veatchii,species,59878,no,recombination
+369055,351974,Dentalium cooperii,species,Dentalium cooperi,species,59878,no,unclear (multiple changes)
+369847,172900,Oligocorax mediterraneus,species,Phalacrocorax mediterraneus,species,57738,yes,recombination
+372716,149471,Holocrinida,family,Holocrinidae,family,62474,no,spelling variant (correction/misspelling)
+373023,170559,Pistosauroidea,infraorder,Pistosauroidea,suborder,33405,no,rank change
+374411,67865,Amebelodontidae,subfamily,Amebelodontinae,subfamily,987,no,spelling variant (correction/misspelling)
+375660,375659,Olenellus (Mesolenellus) hyperborea,species,Holmia hyperborea,species,66700,yes,recombination
+377221,377220,Voluta elongata,species,Volutoderma elongatum,species,58996,no,unclear (multiple changes)
+377300,91921,Globicephala feres,species,Delphinus feres,species,27688,yes,recombination
+378228,378029,Dictyograptus flabelliforme,species,Gorgonia flabelliformis,species,67156,no,unclear (multiple changes)
+379243,310490,Alegeinosaurus apicalis,species,Zatrachys apicalis,species,67451,yes,recombination
+380582,380581,Jonkeria angusticeps,species,Phoneosuchus angusticeps,species,67683,yes,recombination
+381610,168101,Spisula (Hemimactra) hemphillii,species,Spisula hemphillii,species,67956,yes,reassignment (subgenus)
+382070,229083,Elampini,subfamily,Elampinae,subfamily,40817,no,spelling variant (correction/misspelling)
+382114,382113,Serripedini,subfamily,Serripedini,tribe,62209,yes,rank change
+383157,298342,Brachistinae,family,Brachistoidae,family,68236,no,spelling variant (correction/misspelling)
+383182,383181,Rotularia tejonensis,species,Spiroglyphus tejonensis,species,74892,yes,recombination
+383391,383390,Ficopsis cooperiana,species,Fusus (Hemifusus) cooperii,species,58599,no,unclear (multiple changes)
+384113,329169,Brachyura,tribe,Brachyuri,infraorder,12074,yes,rank change
+384501,64515,Iguanodon leedsi,species,Camptosaurus leedsi,species,68541,yes,recombination
+384502,64521,Iguanodon valdensis,species,Camptosaurus valdensis,species,68541,yes,recombination
+384789,384725,Turricula bulwaldana,species,Drillia buwaldana,species,68571,yes,unclear (multiple changes)
+384997,384996,Callithrix penicillatus,species,Jacchus penicillatus,species,68644,yes,recombination
+385039,383181,Rotularia (Rotularia) tejonensis,species,Spiroglyphus tejonensis,species,74892,yes,recombination
+387925,259344,Dendrocystitida,order,Dendrocystitidae,family,67229,no,rank change
+387993,84870,Megalosauripodidae,family,Megalosauropodidae,family,69228,no,spelling variant (correction/misspelling)
+388947,388946,Carcinoplax antiquus,species,Curtonotus antiquus,species,41705,yes,recombination
+388948,286116,Cancer (Curtonotus),subgenus,Curtonotus,genus,41705,no,rank change
+389011,50831,Promerycochoerus vantasselensis pygmyus,subspecies,Promerycochoerus pygmyus,species,2265,yes,rank change
+389047,389046,Neozanthopsis sonthofenesis,species,Xanthopsis sonthofensis,species,61744,yes,unclear (multiple changes)
+389397,270049,Leptopodiinae,subfamily,Leptopodinae,subfamily,70197,yes,spelling variant (correction/misspelling)
+390521,390520,Leontopithecus illigeri,species,Hapale illigeri,species,69615,yes,recombination
+391002,229325,Eusthenopteron foordii,species,Eusthenopteron foordi,species,65383,yes,unclear (multiple changes)
+392099,392098,Agassizia poriferus,species,Brissopsis poriferus,species,16640,yes,recombination
+392120,392119,Mellita pentaporus,species,Echinus pentaporus,species,16640,yes,recombination
+394369,390462,Rectisulcus macfarlandi,species,Antiplanes macfarlandi,species,69612,yes,recombination
+394451,83166,Uyenoa benedenii,species,Oxyrhina benedenii,species,61545,no,recombination
+395109,395108,Palaeodictyota ramulosus,species,Inocaulis ramulosus,species,52869,yes,recombination
+395829,175559,Epilamprinae,family,Epilampridae,family,70208,no,spelling variant (correction/misspelling)
+396118,396117,Ptychoparia granulosa,species,Crepicephalus (Loganellus) granulosus,species,32640,yes,unclear (multiple changes)
+396131,396130,Ehmania oweni,species,Ptychoparia oweni,species,32640,yes,recombination
+398872,368946,Pectunculus veatchii,species,Axinaea veatchii,species,59878,yes,recombination
+399179,399177,Gyropleurodus francisci,species,Cestracion francisci,species,50617,yes,recombination
+399742,399741,Dagyssia lineolata,species,Spiriferina paleotypus lineolata,subspecies,71088,yes,rank change
+400119,400118,Atribonium obesa,species,Camarophoria obesa,species,27365,yes,recombination
+400131,400130,Atribonium rhomboidalis,species,Stenoscisma rhomboidalis,species,27365,yes,recombination
+400845,222858,Dakoticancroida,superfamily,Dakoticancroideae,superfamily,39037,no,spelling variant (correction/misspelling)
+401032,87092,Pecten (Chlamys) latiauratus,species,Pecten latiauratus,species,71229,yes,reassignment (subgenus)
+401159,401158,Mopalia acutus,species,Chiton acutus,species,71234,yes,recombination
+401161,401160,Mopalia lignosus,species,Chiton lignosus,species,71234,yes,recombination
+401164,401162,Mopalia ciliatus,species,Chiton ciliatus,species,71234,yes,recombination
+401168,401167,Katharina tunicatus,species,Chiton tunicatus,species,71234,yes,recombination
+402189,402188,Orithopsis siouxensis,species,Necrocarcinus siouxensis,species,71418,yes,recombination
+402915,201182,Eryma antiquuum,species,Protoclytiopsis antiqua,species,47548,yes,unclear (multiple changes)
+402940,216046,Tethysastacus tithonia,species,Eryma tithonia,species,40991,yes,recombination
+402981,402546,Argobuccinum tejonensis,species,Tritonium (Trachytriton) tejonensis,species,71308,yes,recombination
+403141,216015,Stenodactylina granulifea,species,Eryma granulifera,species,43355,yes,unclear (multiple changes)
+403402,403400,Ithycythara branneri,species,Mangilia (Cythara) branneri,species,71769,yes,recombination
+403441,351580,Orthopsis tricarinata,species,Necrocarcinus tricarinatus,species,57370,yes,unclear (multiple changes)
+403459,403458,Orthopsis isericus,species,Palaeocorystes isericus,species,53627,yes,recombination
+404047,404046,Scytophyllum pinnata,species,Aipteris pinnata,species,71506,yes,recombination
+404721,404719,Aachenoxylon multidens,species,Aachenosaurus multidens,species,88260,yes,recombination
+405006,405005,Ampelophyllites attenuatum,species,Ampelophyllum attenuatum,species,71641,yes,recombination
+406022,168033,Psammacoma yoldiformis,species,Macoma yoldiformis,species,63217,yes,recombination
+406023,102620,Tellina (Moerella) modesta,species,Angulus modesta,species,63217,yes,recombination
+407284,407283,Homalopoma luridum,species,Leptothyra sanguinea lurida,subspecies,63217,yes,rank change
+407397,407396,Paciocinebrina coryphaena,species,Tritonalia coryphaena,species,63217,yes,recombination
+407691,407690,Dictozamites falcatus,species,Dictyopteris falcata,species,71641,yes,unclear (multiple changes)
+408220,408219,Dechenella alpenesis,species,Dechenella (Dechenella) alpenesis,species,51874,yes,reassignment (subgenus)
+408807,408343,Charniodiscus yorgenesis,species,Charniodiscus yorgensis,species,71745,yes,unclear (multiple changes)
+409430,90147,Cancellaria (Calcarata) wynoochensis,species,Cancellaria wynootchensis,species,30891,yes,unclear (multiple changes)
+409444,409445,Cancellaria (Cancellaria) cooperi,species,Cancellaria (Narona) cooperi,species,74899,yes,spelling variant (correction/misspelling)
+409695,225233,Lobonotus granosa,species,Eohalimede granosa,species,47477,yes,recombination
+410080,410079,Kodmogyrina andreanszkyi,species,Chara andreanszkyi,species,71641,yes,recombination
+411506,224930,Podopthalminae,subfamily,Podophthalmidae,family,71613,yes,rank change
+412062,178264,Triarthrus caecigena,species,Triarthrus caecigenus,species,71896,no,unclear (multiple changes)
+412241,11745,Mangelia (Taranis),subgenus,Taranis,genus,71769,yes,rank change
+412270,412268,Glyptaesopus oldroydi,species,Columbella (Aesopus) oldroydi,species,71769,no,recombination
+412821,412817,Crassispira semiinflata,species,Pseudomelatoma penicillata semiinflata,subspecies,63217,yes,rank change
+412831,412828,Chlorostoma funebralis,species,Chlorostoma funebrale,species,63217,yes,unclear (multiple changes)
+414011,11691,Pleurotoma (Spirotropsis),subgenus,Spirotropis,genus,71769,no,rank change
+416826,309849,Spathognathodus inclinatus,species,Prioniodella inclinata,species,59751,yes,unclear (multiple changes)
+418303,54617,Laurocarpum (Cinnamomum),subgenus,Cinnamomum,genus,6528,yes,rank change
+419545,419539,Triacanthodoidea,superfamily,Triacanthoidea,superfamily,45151,no,spelling variant (correction/misspelling)
+419939,304009,Cretiscalpellidae,subfamily,Cretiscalpellinae,subfamily,52412,no,spelling variant (correction/misspelling)
+420664,397281,Aglaspidida,subclass,Aglaspidida,order,14973,no,rank change
+421179,421178,Portlandia packardi,species,Malletia packardi,species,63217,yes,recombination
+421911,98173,Anadara strongi,species,Arca (Barbatia) strongi,species,23850,yes,recombination
+422249,383390,Ficopsis cooperi,species,Fusus (Hemifusus) cooperii,species,59878,yes,unclear (multiple changes)
+422407,82240,Globoconella puncticulata,species,Globigerina puncticulata,species,90657,yes,recombination
+422563,402297,Tornatellaea impressus,species,Actaeon impressus,species,59878,yes,recombination
+422584,402420,Lembulus translucida,species,Leda translucida,species,59878,yes,recombination
+422743,379673,Lucina (Claibornites) rotunda,species,Lucina rotunda,species,72907,yes,reassignment (subgenus)
+423106,423104,Athabaskia belus,species,Bathyuriscus belus,species,51252,yes,recombination
+424445,384112,Reptantia,suborder,Reptantia,suborder,73388,no,none (duplicate/homonym)
+426747,426748,Lunulites pseudocretacea,species,Lunulites cretacea,species,73862,yes,unclear (multiple changes)
+428264,404234,Perissitys cretaceum,species,Sistrum (Ricinula) cretaceum,species,71549,yes,recombination
+428945,351732,Exiteloceras vancouverensis,species,Hamites vancouverensis,species,59878,yes,recombination
+430583,358952,Cyphaspis dabrown,species,Otarion (Otarion) dabrowni,species,63124,yes,unclear (multiple changes)
+430881,429827,Koenigiella alleganiensis,species,Belinurus alleganyensis,species,74720,yes,unclear (multiple changes)
+431396,431395,Heterodontus paucicarinata,species,Heterodontobatis paucicarinata,species,52687,yes,recombination
+432704,47766,Lophiotherium pygmaeus,species,Lophiotherium pygmaeum,species,82946,yes,unclear (multiple changes)
+433306,428833,Acirsa obsuta,species,Mesalia obsuta,species,74377,yes,recombination
+433762,433760,Phillibole latipalpebrata,species,Phillibole drewerensis latipalpebrata,subspecies,75772,yes,rank change
+435063,435062,Diaphus biatlanticus,species,Diaphus angulatus,species,78204,yes,unclear (multiple changes)
+435553,435552,Gnathophis umbrellabia,species,Fimbriceps umbrellabia,species,76272,yes,recombination
+438660,39473,Bathornithinae,family,Bathornithidae,family,77097,no,spelling variant (correction/misspelling)
+438822,438821,Conopeum okaianum,species,Membranipora okaiana,species,77144,yes,unclear (multiple changes)
+442304,442277,Myctophum mediterraneum,species,Berycidarum mediterraneus,species,78178,yes,unclear (multiple changes)
+442593,412269,Mangelia oldroydi,species,Mangilia oldroydi,species,71769,yes,recombination
+442611,398939,Ivara terricula,species,Odostomia (Ivara) amava,species,70816,no,unclear (multiple changes)
+442617,442616,Longchaeus mexicana,species,Turbonilla mexicana,species,78337,yes,recombination
+442898,442897,Bittium (Semibittium) quadrifiliatum,species,Bittium quadrifilatum,species,78354,yes,unclear (multiple changes)
+442933,422527,Murex (Pterorhytis) monoceros,species,Murex monoceros,species,71769,yes,reassignment (subgenus)
+442965,433863,Trophon (Boreotrophon) tenuisculptus,species,Trophon tenuisculptus,species,75792,yes,reassignment (subgenus)
+443711,443710,Lampanyctus microsombs,species,Myctophum microsoma,species,62554,yes,unclear (multiple changes)
+444759,333130,Tapes lacinatus,species,Tapes laciniata,species,41911,yes,unclear (multiple changes)
+445453,408375,Tectura depicta,species,Patelloida depicta,species,78337,yes,recombination
+445567,445565,Sulcocephalus candida,species,Talbotina candida,species,31418,yes,recombination
+445719,67352,Batrachia,subclass,Batrachia,class,16226,yes,rank change
+452971,369965,Dictyophyllum lobata,species,Fremontia lobata,species,65602,no,recombination
+456630,364695,Atelecrinoidea,family,Atelecrinidae,family,66461,no,spelling variant (correction/misspelling)
+456858,456857,Archaeometra asper,species,Solanocrinus asper,species,66461,yes,recombination
+458416,4690,Jyxilla,genus,Jixiella,genus,6930,yes,spelling variant (correction/misspelling)
+458423,215404,Liogaster ornata,species,Aphthartus ornatus,species,81858,no,unclear (multiple changes)
+458742,20207,Telaemarrolithus,genus,Telaeomarrolithus,genus,6930,yes,spelling variant (correction/misspelling)
+459416,219535,Paragalathea striata,species,Galathea striata,species,39024,yes,recombination
+459928,459927,Momipites kedvesi,species,Triatriopollenites kedvesi,species,81720,yes,recombination
+460632,220771,Distefania sergipensis,species,Cyclothyreus sergipensis,species,39024,yes,recombination
+460979,460978,Spirifer (Trigonotreta) strigosa,species,Spirifera strigosa,species,82259,yes,recombination
+461991,304099,Saltasaurini,unranked clade,Saltasaurini,tribe,82599,yes,rank change
+464129,314327,Trigonarca (Costelliarca) trinchinopolitensis,species,Arca trinchinopolitensis,species,54270,yes,recombination
+467556,467555,Lioharpes (Fritchaspis) crassimarqo,species,Fritchaspis crassimarqo,species,54179,yes,recombination
+470140,444055,Protoviverrops intermedium,species,Protictitherium intermedium,species,84197,yes,recombination
+471442,471441,Tainoceras subglobosa,species,Tainoceras noetlingi subglobosa,subspecies,27637,yes,rank change
+471736,204497,Warthia bifrons,species,Stachella bifrons,species,16403,yes,recombination
+472552,472551,Productella shumardianus,species,Productus shumardianus,species,50204,yes,recombination
+473116,174690,Pliomera barrandei,species,Amphion barrandei,species,84886,yes,recombination
+474960,344977,Hegaratella calisto,species,Ammonites calisto,species,88080,yes,recombination
+477355,477354,Bythoceratina rocana,species,Bythocythere rocana,species,74039,yes,recombination
+480779,268307,Cypridopsis tasmanica,species,Cythere tasmanica,species,46870,yes,recombination
+483997,16900,Propeamussiium (Parvamussium),subgenus,Parvamussium,genus,87556,no,rank change
+487493,487492,Aspidoceras sesquinodosus,species,Ammonites sesquinodosus,species,88063,no,recombination
+488463,488461,Dimorphinites (Vigoriceras) defrancii,species,Ammonites defrancii,species,87709,yes,recombination
+494832,494831,Globigerinoides altiapertura,species,Globigerina triloba altiapertura,subspecies,88892,yes,rank change
+499275,126317,Productus (Paramarginifera) kiangsiensis,species,Productus kiangsiensis,species,44371,no,reassignment (subgenus)
+499833,321326,Gantarostraspis,genus,Gantarostrataspis,genus,89629,no,spelling variant (correction/misspelling)
+504618,189832,Isotelus obtususm,species,Asaphus obtusus,species,11619,yes,unclear (multiple changes)
+505411,14505,Ammonoida,order,Ammonoidea,order,87757,no,spelling variant (correction/misspelling)
+506789,84931,Ammonoida,superorder,Ammonitida,order,87757,no,rank change
+507453,422283,Globigerinita unicavus,species,Catapsydrax unicavus,species,89091,yes,recombination
+509578,211338,Palaeobenthesicymus arambourgi,species,Penaeus arambourgi,species,92275,yes,recombination
+511126,332623,Eutrephoceras hendersoni,species,Nautilus hendersoni,species,21196,yes,recombination
+511801,92073,Acanthopterygii,superorder,Acanthopterygii,superorder,61628,yes,none (duplicate/homonym)
+516997,156647,Hypolophinae,family,Hypolophidae,family,93702,no,spelling variant (correction/misspelling)

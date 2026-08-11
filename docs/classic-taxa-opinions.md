@@ -1167,7 +1167,12 @@ taxon* ladder.
   `new_name` + `rank_id` + naming-act provenance, with the row's real `reference_id` / `attribution` /
   `pubyr` and `evidence = false`. The minting reason comes from the `spelling_reason` of the opinion
   that introduced the spelling (or `original`); the lineage edge's `target_permid` is that opinion's
-  `child_no`.
+  `child_no`. **The reason must come from the introducing opinion, not a blanket `'original'`** — a
+  misspelling has its own `authorities` row, so a uniform `'original'` minter would be
+  `never_accepted = false` and thus accepted-spelling-eligible, letting a typo win the accepted name
+  in `derive()` step 3. Sourcing the reason from the opinion mints a misspelling once, as
+  `misspelling`/`never_accepted`. See the mapping doc §3.1 for this collision on real data
+  (*Amphymenium* / *Amphimenium*) and the orphan-severance case (*Canis littoralis*, a Q2(a) orphan).
 - **`belongs to` opinions → `assignment_opinions`**, `subject_permid` = the `child_spelling_no`'s permid,
   `containing_permid` = the `parent_spelling_no`'s permid.
 - **Synonymy `status` → `concept`-class `name_opinions`**; the nomen family → `validity_opinions`.
