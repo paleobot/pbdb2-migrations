@@ -18,9 +18,7 @@ column because derive() sorts on it: every input to derive() is a typed,
 constrained, indexable column, and everything else is payload. Putting the year
 in both places would store one fact twice with nothing enforcing agreement.
 
-Shape follows the authorities migration convention: `citation` preserves the raw
-author string as published, `descriptors` holds the family names parsed out of
-it (decode-entities -> split on [,;:&] -> trim -> drop empty/"et al.").
+Shape follows the authorities migration convention defined in the Decisions section (D) of pbdb2-migrations/openspec/changes/archive/2026-06-02-migrate-authorities/design.md.
 */
 
 export const opinionAttributionSchema = {
@@ -48,6 +46,9 @@ export const opinionAttributionSchema = {
                         type: "string"
                     },
                     description: "Family names parsed out of citation"
+                },
+                publishedInReference: {
+                    type: "boolean"
                 }
             }
         }
