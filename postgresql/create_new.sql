@@ -4668,6 +4668,7 @@ CREATE TABLE name_opinions (
     permid uuid NOT NULL CHECK ((get_byte(uuid_send(permid), 6) >> 4) = 7),  -- opinion identity across transcription corrections
     authorizer_person_id integer REFERENCES persons("id") NOT NULL,
     enterer_person_id integer REFERENCES persons("id") NOT NULL,
+    oldpbdbid_taxon_no integer,
 
     subject_permid uuid NOT NULL,          -- the name-as-spelled this opinion is about
     target_permid uuid,                    -- what subject defers to; NULL only for edge_class 'root' ('original')
