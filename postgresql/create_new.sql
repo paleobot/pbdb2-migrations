@@ -4686,11 +4686,9 @@ CREATE TABLE name_opinions (
 
     -- Present on the 'original' minting row: the naming act's own provenance.
     authority_id bigint REFERENCES authorities("id"),
-    pages text,
-    figures text,
 
     reference_id bigint REFERENCES refs("id") NOT NULL,
-    pubyr integer,       -- second-hand: the attributed year, overriding the reference's
+    publication_year integer,       -- second-hand: the attributed year, overriding the reference's
     attribution jsonb,   -- second-hand: WHO, authors only; payloadSchemas/opinionAttribution.schema.js
     evidence boolean NOT NULL,   -- stated with evidence (true) vs. everything else
 
@@ -4737,7 +4735,7 @@ CREATE TABLE assignment_opinions (
     questioned boolean NOT NULL DEFAULT false,   -- incertae sedis
 
     reference_id bigint REFERENCES refs("id") NOT NULL,
-    pubyr integer,       -- second-hand: the attributed year, overriding the reference's
+    publication_year integer,       -- second-hand: the attributed year, overriding the reference's
     attribution jsonb,   -- second-hand: WHO, authors only; payloadSchemas/opinionAttribution.schema.js
     evidence boolean NOT NULL,   -- stated with evidence (true) vs. everything else
 
@@ -4766,7 +4764,7 @@ CREATE TABLE validity_opinions (
     target_permid uuid,          -- required iff targeted (enforced by the CHECK below)
 
     reference_id bigint REFERENCES refs("id") NOT NULL,
-    pubyr integer,       -- second-hand: the attributed year, overriding the reference's
+    publication_year integer,       -- second-hand: the attributed year, overriding the reference's
     attribution jsonb,   -- second-hand: WHO, authors only; payloadSchemas/opinionAttribution.schema.js
     evidence boolean NOT NULL,   -- stated with evidence (true) vs. everything else
 
