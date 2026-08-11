@@ -17,7 +17,7 @@ taxon_name	| new_name |
 taxon_rank	| rank_id | Find the id in dictionaries.taxonomy_ranks that corresponds to the taxon_rank.
 N/A | authority_id | This is a fk to the new authorities table record whose authority.legacyIDs.oldpbdbids includes the oldpbdb_taxon_no.
 reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
-N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority.attribution in the record fk'ed by authority_id
+N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
 N/A | publication_year | authorities.authority.attribution.publicationYear in the record fk'ed by authority_id
 N/A | removed | false
 
