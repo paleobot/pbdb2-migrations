@@ -1,4 +1,5 @@
 # Classic authorities to name_opinions migration
+### Every row from the classic authorities table should be imported according to the following mappings.
 Classic authorities	| name_opinions	| Notes   
 --- | --- | --- 
 N/A	| id	| pk
@@ -22,6 +23,10 @@ N/A | removed | false
 
 
 # Classic opinions to assignment_opinions migration
+
+### 1) This mapping applies only to records in the old opinions table that are returned by the following sql:
+   >SELECT * FROM opinions WHERE status = 'belongs to' AND 'spelling_reason = 'original_spelling';
+   
 Classic opinions | assignment_opinions | Notes
 -- | -- | --
 child_spelling_no | subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = child_spelling_no.
