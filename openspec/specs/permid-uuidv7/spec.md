@@ -1,3 +1,10 @@
+# permid-uuidv7 Specification
+
+## Purpose
+Require every minted `permid` across the migration scripts to be a UUIDv7 value.
+
+## Requirements
+
 ### Requirement: Permids are generated as UUIDv7
 Every migration script that mints a `permid` SHALL generate it as a UUIDv7 value. The in-scope tables are `authorities`, `collections`, `refs`, `schemas`, `characters`, and `states`. Scripts SHALL NOT use `crypto.randomUUID()` (UUIDv4) or any externally-sourced identifier as the permid for these tables.
 

@@ -1,4 +1,9 @@
-## ADDED Requirements
+# collection-migration Specification
+
+## Purpose
+Migrate legacy MariaDB `collections` rows into the new PostgreSQL `collections` table (identity, geography, stratigraphy, lithology, age) together with `additional_collection_refs`.
+
+## Requirements
 
 ### Requirement: Read all source data from MariaDB
 The script SHALL stream all rows from the MariaDB `collections` table, ordered by `collection_no ASC`. Required columns cover identity/audit (`collection_no`, `reference_no`, `authorizer_no`, `enterer_no`), name (`collection_name`, `collection_aka`), context (`collectors`, `coll_meth`, `collection_dates`, `collection_comments`), geography (`country`, `state`, `county`, `lat`, `lng`, `gps_datum`, `latlng_basis`, `altitude_value`, `altitude_unit`, `geogscale`, `geogcomments`, `museum`), stratigraphy (`supergroup`, `geological_group`, `subgroup`, `formation`, `member`, `bed`, `stratscale`, `stratcomments`, `local_section`, `local_bed`, `local_bed_unit`, `local_order`), lithology (`lithology1`, `lithology2`, `lithadj`, `lithadj2`, `minor_lithology`, `minor_lithology2`, `fossilsfrom1`, `fossilsfrom2`, `lithification`, `lithification2`), and age (`direct_ma*`, `max_ma*`, `min_ma*`). Deferred columns (`max_interval_no`, `min_interval_no`, `paleolat`, `paleolng`, `plate`, `latlng_precision`) SHALL NOT be used.

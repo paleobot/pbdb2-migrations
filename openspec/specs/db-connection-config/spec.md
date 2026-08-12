@@ -1,3 +1,10 @@
+# db-connection-config Specification
+
+## Purpose
+Define `.env`-based database connection configuration for the migration scripts (MariaDB source and PostgreSQL target).
+
+## Requirements
+
 ### Requirement: Environment-based connection configuration
 The system SHALL read database connection parameters from a `.env` file using the `dotenv` package. The `.env` file MUST NOT be committed to version control. A `.env.example` file with placeholder values SHALL be committed as documentation.
 

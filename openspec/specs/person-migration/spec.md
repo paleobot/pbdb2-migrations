@@ -1,3 +1,10 @@
+# person-migration Specification
+
+## Purpose
+Migrate legacy MariaDB `person` rows into the new PostgreSQL persons table.
+
+## Requirements
+
 ### Requirement: Read all person records from MariaDB
 The script SHALL read all rows from the MariaDB `person` table, selecting columns: `person_no`, `name`, `reversed_name`, `first_name`, `last_name`, `middle`, `email`, `institution`, `country`, `gender`, `role`, `is_authorizer`, `active`, `heir_no`, `superuser`.
 
@@ -230,4 +237,3 @@ For any source value that does not match after normalization, the `countryCode` 
 #### Scenario: Unmapped country value
 - **WHEN** a person has a `country` value that does not match any country name from `@countrystatecity/countries` after normalization
 - **THEN** the `countryCode` property is omitted from the JSONB and the script logs a warning with the `person_no` and original value
-

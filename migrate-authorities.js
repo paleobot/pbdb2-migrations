@@ -79,9 +79,16 @@ export function buildAuthorityPayload(src, scenario, refData) {
   const taxonNoStr = String(src.taxon_no);
   const payload = {
     legacyIDs: { oldpbdbIDs: [taxonNoStr] },
+    // false for scenarios ③/④ (ref_is_authority != 'YES'), true for ①/②
     publishedInReference: scenario === '1' || scenario === '2',
   };
-  if (scenario === '1') {
+  if (scenario === '4') {
+    // No discernible authorship: migrate with a fixed "unknown authority" sentinel.
+    // year is the string '0' (schema types year as string; numeric 0 would fail validation).
+    payload.citation = 'authority unknown';
+    payload.descriptors = [];
+    payload.year = '0';
+  } else if (scenario === '1') {
     payload.citation = buildCitationFromRef(refData);
     payload.descriptors = buildDescriptorsFromRef(refData.refAuthors);
     if (refData.publicationYear) payload.year = refData.publicationYear;
@@ -146,13 +153,11 @@ async function main() {
 
   // Counters
   let sourceRows = 0;
-  let scenario1 = 0, scenario2 = 0, scenario3 = 0;
-  let scenario4Skipped = 0;
+  let scenario1 = 0, scenario2 = 0, scenario3 = 0, scenario4 = 0;
   let orphanRefSkipped = 0;
   let bothPersonsZero = 0;
   let mergesAbsorbed = 0;
 
-  const logScenario4 = makeSampleLogger('scenario④ skip');
   const logOrphan = makeSampleLogger('orphan ref');
   const logBothZero = makeSampleLogger('both auth/ent 0');
   const logMerge = makeSampleLogger('merge');
@@ -176,11 +181,6 @@ async function main() {
       }
 
       const scenario = classifyScenario(src);
-      if (scenario === '4') {
-        scenario4Skipped++;
-        logScenario4(`taxon_no=${src.taxon_no}`);
-        continue;
-      }
 
       const refEntry = refMap.get(String(src.reference_no));
       if (!refEntry) {
@@ -219,7 +219,8 @@ async function main() {
       if (!survivors.has(key)) {
         if (scenario === '1') scenario1++;
         else if (scenario === '2') scenario2++;
-        else scenario3++;
+        else if (scenario === '3') scenario3++;
+        else scenario4++;
         survivors.set(key, {
           payload,
           reference_id,
@@ -233,7 +234,8 @@ async function main() {
         mergesAbsorbed++;
         if (scenario === '1') scenario1++;
         else if (scenario === '2') scenario2++;
-        else scenario3++;
+        else if (scenario === '3') scenario3++;
+        else scenario4++;
         logMerge(`absorbed taxon_no=${src.taxon_no} into survivor taxon_no=${s.payload.legacyIDs.oldpbdbIDs[0]}`);
       }
     }
@@ -246,13 +248,13 @@ async function main() {
   console.log(`  Scenario ① (ref-driven):   ${scenario1}`);
   console.log(`  Scenario ② (ria, *last):   ${scenario2}`);
   console.log(`  Scenario ③ (¬ria, *last):  ${scenario3}`);
-  console.log(`  Scenario ④ skipped:        ${scenario4Skipped}`);
+  console.log(`  Scenario ④ (unknown auth): ${scenario4}`);
   console.log(`  Orphan ref skipped:        ${orphanRefSkipped}`);
   console.log(`  Both auth/ent = 0:         ${bothPersonsZero}`);
   console.log(`  Survivors after dedup:     ${survivors.size}`);
   console.log(`  Merges absorbed:           ${mergesAbsorbed}`);
 
-  const accounted = survivors.size + mergesAbsorbed + scenario4Skipped + orphanRefSkipped;
+  const accounted = survivors.size + mergesAbsorbed + orphanRefSkipped;
   if (accounted !== sourceRows) {
     console.warn(`  WARNING: counter mismatch! accounted ${accounted} != sourceRows ${sourceRows}`);
   } else {
