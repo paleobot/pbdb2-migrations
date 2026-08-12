@@ -21,10 +21,20 @@ N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant d
 N/A | publication_year | authorities.authority.attribution.publicationYear in the record fk'ed by authority_id
 N/A | removed | false
 
+### There will be 18 rows from classic authorities that have a taxon rank of "informal". These should be mapped to the rank_id for "unranked" in the name_opinions record and a record should be added to validity_opinions that follows this mapping:
+
+Classic opinions | validity_opinions | Notes
+-- | -- | --
+taxon_no | subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = taxon_no.
+taxon_rank | nomenclatural_status_id | fk to the dictionaries.nomenclatural_statuses = 'informal'
+reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
+basis | evidence | 'stated with evidence' = TRUE, everything else = FALSE
+pubyr | publication_year | 
+author1last, author2last, otherauthors, ref_has_opinion | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
 
 # Classic opinions to assignment_opinions migration
 
-### 1) This mapping applies only to records in the old opinions table that are returned by the following sql:
+### This mapping applies only to records in the old opinions table that are returned by the following sql:
    >SELECT * FROM opinions WHERE status = 'belongs to' AND 'spelling_reason = 'original_spelling';
    
 Classic opinions | assignment_opinions | Notes
