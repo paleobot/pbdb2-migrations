@@ -134,6 +134,8 @@ INSERT INTO dictionaries.nomenclatural_statuses (status, targeted) VALUES
     ('nomen nudum',         false),   -- legacy: 2,533
     ('nomen vanum',         false),   -- legacy:   569
     ('nomen oblitum',       false),   -- legacy:    76
+    ('informal',             false),   -- legacy: 18
+    ('operational',          false),   -- legacy:  0
     ('invalid subgroup of', true);    -- legacy: 1,420
 
 
@@ -4760,7 +4762,7 @@ CREATE TABLE validity_opinions (
     enterer_person_id integer REFERENCES persons("id") NOT NULL,
 
     subject_permid uuid NOT NULL,
-    status_id integer NOT NULL,  -- FK is composite with targeted, below
+    nomenclatural_status_id integer NOT NULL,  -- FK is composite with targeted, below
     targeted boolean NOT NULL,   -- pinned copy of the status's `targeted` (Way 2 / A1)
     target_permid uuid,          -- required iff targeted (enforced by the CHECK below)
 
@@ -4776,7 +4778,7 @@ CREATE TABLE validity_opinions (
 
     -- Way 2 (A1 / §10.6 D9): pin (status_id, targeted) to the dictionary, then enforce
     -- "target_permid present iff targeted" as a plain same-row CHECK.
-    FOREIGN KEY (status_id, targeted)
+    FOREIGN KEY (nomenclatural_status_id, targeted)
         REFERENCES dictionaries.nomenclatural_statuses (id, targeted),
     CONSTRAINT validity_target_shape CHECK (targeted = (target_permid IS NOT NULL))
 );
