@@ -33,6 +33,7 @@ taxon_no | subject_permid | The permid from the name_opinions record with oldpbd
 taxon_rank | nomenclatural_status_id | fk to the dictionaries.nomenclatural_statuses = 'informal'
 reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
 N/A | evidence |  FALSE
+N/A | targeted | FALSE
 N/A | publication_year | authorities.authority.year in the record fk'ed by authority_id
 N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
 
