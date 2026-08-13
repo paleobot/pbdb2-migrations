@@ -36,6 +36,7 @@ N/A | evidence |  FALSE
 N/A | targeted | FALSE
 N/A | publication_year | authorities.authority.year in the record fk'ed by authority_id
 N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
+N/A | removed | false
 
 # Classic opinions to assignment_opinions migration
 
