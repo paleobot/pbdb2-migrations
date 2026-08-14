@@ -45,6 +45,10 @@ N/A | removed | false
    
 Classic opinions | assignment_opinions | Notes
 -- | -- | --
+N/A	| id	| pk
+N/A | permid | generated
+authorizer_no	| authorizer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = authorizer_no.
+enterer_no	| enterer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = enterer_no.
 child_spelling_no | subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = child_spelling_no.
 parent_spelling_no | containing_permid | The permid from the name_opinions record with oldpbdb_taxon_no = parent_spelling_no.
 reference_no | reference_id | fk to the refs record with reference.legacyIDs.oldpbdbid = reference_no.
