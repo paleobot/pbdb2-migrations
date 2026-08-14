@@ -41,7 +41,7 @@ N/A | removed | false
 # Classic opinions to assignment_opinions migration
 
 ### This mapping applies only to records in the old opinions table that are returned by the following sql:
-   >SELECT * FROM opinions WHERE status = 'belongs to' AND 'spelling_reason = 'original_spelling';
+   >SELECT * FROM opinions WHERE status = 'belongs to' AND spelling_reason = 'original spelling';
    
 Classic opinions | assignment_opinions | Notes
 -- | -- | --
