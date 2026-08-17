@@ -102,10 +102,32 @@ parent_spelling_no | target_permid |  permid of the name_opinions record whose o
 N/A	| edge_class | 'concept'
 status | objective | if status = 'objective synonym of' this gets TRUE, if satus = 'subjective synonym of' this gets FALSE
 basis | evidence | if basis = 'stated with evidence' this gets TRUE, everything else = FALSE
-N/A | new_name | new_name of name_opinions record whose permid = target_permid
-N/A | rank_id | rank_id of name_opinions record whose permid = target_permid
+N/A | new_name | NA
+N/A | rank_id | NA
 N/A | authority_id | NA
 reference_no | reference_id | fk to the refs record with reference.legacyIDs.oldpbdbid = reference_no.
 pubyr | publication_year | Second-hand override only, gated on ref_has_opinion (the same switch that drives attribution). When ref_has_opinion = 'YES' (first-hand: the reference is itself the source), leave publication_year NULL — derive_taxa() reads the year off the reference via COALESCE(publication_year, ref.publicationYear), so copying pubyr would just store the reference's own year twice. When ref_has_opinion IS NULL (second-hand: the opinion is attributed to an earlier author), set publication_year = pubyr, so the attributed year overrides the (later) reporting reference's year for recency ranking. Verified safe in scope: 0 rows have a pubyr with no resolvable reference year, so the NULL/COALESCE path never sinks a row to NULLS LAST.
 author1last, author2last, otherauthors, ref_has_opinion | attribution | Using opinionAttribution.schema.js, format attribution fields from the old data as described in the Decisions section of https://github.com/paleobot/pbdb2-migrations/blob/main/openspec/changes/archive/2026-06-02-migrate-authorities/design.md. 
 N/A | removed | false
+
+### Skip-and-log and reconciliation invariant
+
+Each in-scope synonym opinion becomes a `concept`-class `name_opinions` row. The columns `subject_permid`, `target_permid`, and `reference_id` are all NOT NULL (for a `concept` edge `target_permid` is forced NOT NULL by the `name_opinion_shape` CHECK), and `name_opinion_not_self` forbids `subject_permid = target_permid`. An in-scope opinion that cannot satisfy all of these is skipped and logged rather than inserted (mirroring the skip-and-log framework in migrate-assignment-opinions.js). Persons need no skipping: `persons.id` is pinned to the legacy `person_no`, so the D10 0-sentinel fallback is carried for safety but never fires in scope.
+
+Measured against the source and the migrated name_opinions/refs (2026-08-17), the in-scope set is 48,839 rows (47,687 `subjective synonym of` + 1,152 `objective synonym of`), of which 17 are skipped. Five buckets are defined (matching the assignment slice); only three fire in scope. The buckets are disjoint by first-match-wins evaluation in the order below:
+
+| Skip bucket | Rows | Cause |
+| -- | -- | -- |
+| self_reference | 7 | `child_spelling_no = parent_spelling_no`; would violate `name_opinion_not_self`. (Includes 3 byte-identical duplicates: opinion_no 525425/525426/525427.) |
+| child_spelling_unresolved | 6 | `child_spelling_no` has no `name_opinions` root row → `subject_permid` unresolvable. All 6 cluster on taxon_nos 242140/242141/242243 and reference_no 42348/42322. |
+| orphan_reference | 4 | `reference_no` not resolvable against migrated `refs` → `reference_id` is NOT NULL. All 4 cite reference_no 42348 — the same dangling source ref that skips opinion_no 422326 in the assignment slice. |
+| parent_spelling_zero | 0 | `parent_spelling_no = 0/NULL`; `target_permid` is NOT NULL for a `concept` edge, so a synonym-of-nothing carries no target. None in scope (a synonym opinion, unlike a `belongs to`, essentially never omits its senior name). |
+| parent_spelling_orphan | 0 | `parent_spelling_no` points at a `taxon_no` absent from `name_opinions` — dangling FK. None in scope. |
+
+The buckets are disjoint, so the migration MUST hold the reconciliation invariant:
+
+>inserted (48,822) + skipped (17) == in-scope (48,839)
+
+The run aborts if this does not hold. The 17 skipped rows are enumerated (with opinion_no, failure_reason, and source columns) in failing-synonymy-opinions.csv.
+
+Publication-year safety (re-verified for this slice, not inherited from the assignment section): among all 48,822 retained rows, `COALESCE(publication_year, ref.publicationYear)` is non-NULL for every row (0 first-hand and 0 second-hand would sink to NULLS LAST), so the second-hand NULL/COALESCE path never strands a synonym opinion in recency ranking. 1,498 retained second-hand rows carry a `pubyr` override; 7 retained second-hand rows have no author and take the "authority unknown" attribution sentinel.
