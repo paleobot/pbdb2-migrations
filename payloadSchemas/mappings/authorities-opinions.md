@@ -79,3 +79,33 @@ The buckets are disjoint, so the migration MUST hold the reconciliation invarian
 >inserted (743,381) + skipped (331) == in-scope (743,712)
 
 The run aborts if this does not hold. The 331 skipped rows are enumerated (with opinion_no, failure_reason, and source columns) in failing-assignment-opinions.csv. Note the 322 parent_spelling_zero rows are an expected, non-error outcome: they represent classifications that assert no containment, so "743,712 in, 743,381 out" is not data loss.
+
+# Classic opinions original spellings migration
+
+### This mapping applies only to records in the old opinions table that are returned by the following sql:
+```
+SELECT * FROM opinions 
+    WHERE (status = 'subjective synonym of' OR status = 'objective synonym of') 
+    AND spelling_reason = 'original spelling';
+```
+   
+Classic opinions | assignment_opinions | Notes
+-- | -- | --
+N/A	| id	| pk
+N/A | permid | generated
+authorizer_no	| authorizer_person_id	|
+enterer_no	| enterer_person_id	| 
+N/A | oldpbdb_taxon_no |  NA
+N/A	| reason_id	| 'junior synonym'
+child_spelling_no	| subject_permid | permid of the name_opinions record whose oldpbdb_taxon_no = child_spelling_no 
+parent_spelling_no | target_permid |  permid of the name_opinions record whose oldpbdb_taxon_no = parent_spelling_no
+N/A	| edge_class | 'concept'
+status | objective | if status = 'objective synonym of' this gets TRUE, if satus = 'subjective synonym of' this gets FALSE
+basis | evidence | if basis = 'stated with evidence' this gets TRUE, everything else = FALSE
+N/A | new_name | new_name of name_opinions record whose permid = target_permid
+N/A | rank_id | rank_id of name_opinions record whose permid = target_permid
+N/A | authority_id | NA
+reference_no | reference_id | fk to the refs record with reference.legacyIDs.oldpbdbid = reference_no.
+pubyr | publication_year | Second-hand override only, gated on ref_has_opinion (the same switch that drives attribution). When ref_has_opinion = 'YES' (first-hand: the reference is itself the source), leave publication_year NULL — derive_taxa() reads the year off the reference via COALESCE(publication_year, ref.publicationYear), so copying pubyr would just store the reference's own year twice. When ref_has_opinion IS NULL (second-hand: the opinion is attributed to an earlier author), set publication_year = pubyr, so the attributed year overrides the (later) reporting reference's year for recency ranking. Verified safe in scope: 0 rows have a pubyr with no resolvable reference year, so the NULL/COALESCE path never sinks a row to NULLS LAST.
+author1last, author2last, otherauthors, ref_has_opinion | attribution | Using opinionAttribution.schema.js, format attribution fields from the old data as described in the Decisions section of https://github.com/paleobot/pbdb2-migrations/blob/main/openspec/changes/archive/2026-06-02-migrate-authorities/design.md. 
+N/A | removed | false
