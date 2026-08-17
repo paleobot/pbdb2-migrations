@@ -131,3 +131,37 @@ The buckets are disjoint, so the migration MUST hold the reconciliation invarian
 The run aborts if this does not hold. The 17 skipped rows are enumerated (with opinion_no, failure_reason, and source columns) in failing-synonymy-opinions.csv.
 
 Publication-year safety (re-verified for this slice, not inherited from the assignment section): among all 48,822 retained rows, `COALESCE(publication_year, ref.publicationYear)` is non-NULL for every row (0 first-hand and 0 second-hand would sink to NULLS LAST), so the second-hand NULL/COALESCE path never strands a synonym opinion in recency ranking. 1,498 retained second-hand rows carry a `pubyr` override; 7 retained second-hand rows have no author and take the "authority unknown" attribution sentinel.
+
+# Classic opinions belongs to with misspellings migration
+
+### This mapping applies only to records in the old opinions table that are returned by the following sql:
+```
+SELECT * FROM opinions WHERE status = 'belongs to' AND spelling_reason = 'misspelling';
+```
+This requires new records in both the assignment_opinions and name_opinions tables.
+
+The assignment_opinions record should follow the same mapping as the "Classic opinions to assignment_opinions migration" section above.
+
+The name_opinions record should use the following mapping:
+
+Classic Opinions | Name_Opinions	| Special Notes
+--- | --- | ---
+N/A	| id	| new 
+N/A | permid | new
+authorizer_no	| authorizer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = authorizer_no.
+enterer_no	| enterer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = enterer_no.
+N/A | legacy_id |  NA
+N/A	| reason_id	| 'misspelling'
+child_spelling_no	| subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = child_spelling_no.
+child_no | target_permid | The permid from the name_opinions record with oldpbdb_taxon_no = child_no.
+N/A	| edge_class | 'lineage'
+see notes | objective | if status = 'objective synonym of' this gets TRUE, if satus = 'subjective synonym of' this gets FALSE
+basis | evidence | 'stated with evidence' = TRUE, everything else = FALSE
+N/A | new_name | The new_name from the name_opinions record with permid = target_permid
+N/A | rank_id | The rank_id from the name_opinions record with permid = target_permid
+N/A | authority_id | NA
+reference_no | reference_id | fk to the refs record with reference.legacyIDs.oldpbdbid = reference_no.
+pubyr | publication_year | Second-hand override only, gated on ref_has_opinion (the same switch that drives attribution). When ref_has_opinion = 'YES' (first-hand: the reference is itself the source), leave publication_year NULL — derive_taxa() reads the year off the reference via COALESCE(publication_year, ref.publicationYear), so copying pubyr would just store the reference's own year twice. When ref_has_opinion IS NULL (second-hand: the opinion is attributed to an earlier author), set publication_year = pubyr, so the attributed year overrides the (later) reporting reference's year for recency ranking. Verified safe in scope: 0 rows have a pubyr with no resolvable reference year, so the NULL/COALESCE path never sinks a row to NULLS LAST.
+author1last, author2last, otherauthors, ref_has_opinion | attribution | Using opinionAttribution.schema.js, format attribution fields from the old data as described in the Decisions section of https://github.com/paleobot/pbdb2-migrations/blob/main/openspec/changes/archive/2026-06-02-migrate-authorities/design.md. 
+N/A | removed | false
+
