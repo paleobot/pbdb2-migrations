@@ -80,7 +80,7 @@ The buckets are disjoint, so the migration MUST hold the reconciliation invarian
 
 The run aborts if this does not hold. The 331 skipped rows are enumerated (with opinion_no, failure_reason, and source columns) in failing-assignment-opinions.csv. Note the 322 parent_spelling_zero rows are an expected, non-error outcome: they represent classifications that assert no containment, so "743,712 in, 743,381 out" is not data loss.
 
-# Classic opinions original spellings migration
+# Classic opinions synonymy opinions (original spellings) migration
 
 ### This mapping applies only to records in the old opinions table that are returned by the following sql:
 ```
@@ -89,7 +89,7 @@ SELECT * FROM opinions
     AND spelling_reason = 'original spelling';
 ```
    
-Classic opinions | assignment_opinions | Notes
+Classic opinions | name_opinions | Notes
 -- | -- | --
 N/A	| id	| pk
 N/A | permid | generated
