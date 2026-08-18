@@ -144,6 +144,39 @@ insertion order, and the typo can win. `never_accepted` is the one signal that s
 the blanket rule is exactly what strips it off. (Aside: opinion 14's `basis = 'second hand'` from the
 special-cased ref 6930, §4.2, maps to `evidence = false` — §6.3.)
 
+### 3.2 Identity columns are root-only (ledger model) *(DECIDED, 2026-08-17)*
+
+**Decision.** In `name_opinions`, `new_name` and `rank_id` are populated **only** on `root` rows.
+Every non-root row — `lineage` and `concept` alike — carries `new_name = NULL` and `rank_id = NULL`.
+The `name_opinion_shape` CHECK is tightened to the single invariant:
+
+```
+new_name IS NOT NULL AND rank_id IS NOT NULL   ⇔   edge_class = 'root'
+```
+
+**Why.** `new_name`/`rank_id` are immutable attributes of a *permid*, not of an opinion (§9.8.1).
+Under the **ledger model** — the opinions tables (`name_opinions`, `assignment_opinions`,
+`validity_opinions`) are append-only records of *every* opinion ever entered, and all collapse
+(canonical-winner, accepted-spelling, misspelling exclusion) happens only when `taxa` is derived — every
+name-as-spelled gets its identity **once**, on the `root` row minted from its `authorities` row. A
+`lineage` or `concept` edge is a pure relationship between two permids whose identities already live on
+their own root rows; restating identity on the edge can only duplicate the subject's root row (redundant)
+or contradict it (a bug — e.g. the belongs-to/misspelling mapping that copied the *target's* name onto
+the edge). Concept edges already encode this (identity `NULL`, commit a64c85f); this decision recognizes
+that lineage edges are the same kind of thing.
+
+**Guarding invariant.** Every retained non-root edge's `subject_permid` resolves to a root row (its
+authorities-minted identity). The skip-and-log framework already drops any edge whose subject is
+unresolvable (`child_spelling_unresolved`), so every retained lineage/concept row satisfies this by
+construction.
+
+**Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `lineage` rows *within the
+authorities pass*, drawing identity from `authorities`) and the §9.8.2 language "that minting row carries
+the permid's immutable identity" — which now holds for `root` only. Under the ledger decomposition the
+authorities pass mints **roots only** (already implemented in `migrate-name-opinions.js`); `lineage`
+edges are written by the per-slice opinion migrations and carry no identity. §9.1's root-vs-lineage
+split (shape decided by the top-ranked introducing opinion) does not apply to the ledger migration.
+
 ---
 
 ## 4. Open questions (need a human call — awaiting offline feedback)
@@ -311,6 +344,42 @@ several disagree), which does not change this matrix.
 Minting rows for names **not** carried by a spelling-change opinion are sourced from `authorities`
 (§3) and mint as `root` (`reason = 'original'`) — the 403,559 original spellings and the 670 orphans
 alike (Q2(a)).
+
+### 5.1 Lineage-edge discriminator is `child_spelling_no ≠ child_no`, not `spelling_reason` *(2026-08-17)*
+
+Under the **ledger model** each opinion slice writes rows for the opinions it owns, and slices key off
+`spelling_reason` (the misspelling slice does `WHERE spelling_reason = 'misspelling'`; the future
+recombination slice will do `= 'recombination'`; etc.). That is unsafe as the test for "does this
+`belongs to` opinion introduce a lineage edge?" — because the legacy `spelling_reason` label is
+**wrong on ~50 rows**. The reliable discriminator is the one §3 already names: an opinion mints/asserts a
+lineage edge **iff `child_spelling_no ≠ child_no`**, regardless of the label. `spelling_reason` supplies
+the reason *token* only when it is trustworthy.
+
+**The anomaly.** `SELECT count(*) FROM opinions WHERE status='belongs to' AND spelling_reason='original
+spelling' AND child_spelling_no <> child_no` = **50** (live `pbdb_archive`, 2026-08-17). These are
+`belongs to`/`original spelling` opinions whose spelling genuinely differs from `child_no`. As currently
+routed (original spelling → `assignment_opinions` only, no `name_opinions` edge), each gets a containment
+row but **no lineage edge** — silently severing `child_spelling` from `child_no`. The assignment slice
+has already run and taken these as `assignment_opinions`, so the missing lineage edges are a **backfill**
+owed by whichever slice ends up owning them (most naturally the recombination slice).
+
+**Their reason is inferred from the name relationship, not the label** (49 rows resolve to an
+`authorities` row; the 50th has a dangling `child_spelling_no` and is itself a skip case):
+
+| inferred reason | rows | rule | example |
+|---|---|---|---|
+| `reranked` | 16 | `taxon_rank` differs | *Cetacea* order → superorder (36652→147596) |
+| `recombination` | 10 | genus (first word) differs | *Atrypa transversa* → *Pterotheca transversa* (72526→75879) |
+| `correction` | 1 | same genus/rank, spelling differs | *Perrisonota* → *Perissonota* (61690→61684) |
+| `duplicate-or-homonym` | 22 | name **and** rank identical, different `taxon_no` | *Sirenia*/*Sirenia* — no spelling change; a lineage edge would merge duplicate records (or is a homonym/merge decision, possibly no edge) |
+
+The full worklist — `opinion_no`, both names/ranks, parent, and `inferred_reason` per row — is in
+`mistagged-original-spelling.csv`. Only the 10 `recombination` rows answer to `recombination`; the label
+must never be trusted to set the reason here.
+
+> Not to be confused with the *reversion* case (a `belongs to`/`original spelling` opinion where
+> `child_spelling_no = child_no`, re-preferring the original combination after a recombination). That one
+> has no second endpoint and is **not** a lineage edge — see §9.8.4.1's "accepted divergence."
 
 ---
 

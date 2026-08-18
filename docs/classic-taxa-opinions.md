@@ -1076,7 +1076,14 @@ A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `
 A permid is **minted** by the row that first introduces it as subject (`original`, or a `lineage`
 reason for a spelling introduced as a form of an earlier one). That minting row carries the permid's
 immutable identity — `new_name`, **`rank_id`**, and the naming-act provenance (`authority_id`, `pages`,
-`figures`). This is exactly where correction 1 lands: `authorities.taxon_rank` is the definitive rank of
+`figures`).
+
+> **Superseded for identity by the ledger model (mapping doc §3.2, 2026-08-17).** Under the append-only
+> ledger migration the authorities pass mints a `root` row for *every* name-as-spelled, so identity
+> (`new_name`, `rank_id`) is carried **only** by `root` rows; `lineage` (and `concept`) edges carry
+> `new_name = NULL` / `rank_id = NULL`. Read "that minting row carries the permid's immutable identity"
+> as `root`-only. The naming-act provenance columns (`authority_id`, `pages`, `figures`) are a separate
+> question, unaffected by that decision. This is exactly where correction 1 lands: `authorities.taxon_rank` is the definitive rank of
 *that* name, inherited with the row's `reference_id` / `attribution` / `pubyr`.
 
 Two things therefore **leave the design**:
@@ -1146,6 +1153,50 @@ Two subtleties are load-bearing and easy to get wrong in a single-pass implement
   it is the most recent reliable placement. Carry Classic's `use_synonyms` constraints: **equal rank
   only, species excluded** (a species must be allocated to its current genus directly, §4.2). "Pool the
   concept" is right for *where does it sit*, wrong for *what is its name*.
+
+### 9.8.4.1 Deriving from the ledger — implementation deltas (2026-08-17)
+
+> The `derive_taxa()` routine currently in `postgresql/create_new.sql` predates two settled decisions —
+> the **append-only ledger model** (the opinion tables hold *every* opinion ever entered; no dedup or
+> winner-collapse at migration) and **root-only identity** (`new_name`/`rank_id` set iff `edge_class =
+> 'root'`; change `name-opinions-root-only-identity`, mapping doc §3.2). It is Option-1-shaped and is
+> **not authoritative** — treat it as a foil. This subsection records the deltas the eventual rework
+> must make; it does not describe the current code.
+
+**What stays (validated).** The three-contest structure is correct: `derive()` runs **independent
+winner-elections** over `name_opinions` (accepted spelling + concept), `assignment_opinions`
+(containment), and `validity_opinions` (status). Each elects its own winning opinion/reference — they
+need not agree. The lineage + concept union-finds are computed **once** from `name_opinions` and shared
+by the other contests (grouping is shared; winners are independent). The accepted-spelling contest stays
+**`name_opinions`-only** — it does *not* pool `assignment_opinions` recency, so a species re-preferred in
+its original combination after a recombination is an **accepted divergence** from Classic's cross-opinion
+`getMostRecentSpelling`.
+
+**What changes (four break-points).** All four come from the ledger giving every name-as-spelled its own
+`root` row (~517K) plus N edges, where Option-1 gave each permid exactly one mint row:
+
+1. **Output is one row per permid**, not one per `name_opinions` row. A permid now has a `root` row plus
+   any number of lineage edges (e.g. 11 `misspelling` edges for *Iguanodon prestwichi* / 168579);
+   iterating opinion rows fans the `taxa` output out. Iterate **distinct permids** (their `root` rows).
+2. **Identity comes from the `root` row.** `name`/`rank_id`/`authority_id` are a plain 1:1 lookup on the
+   permid's `root` row — cut the identity plumbing that threads `new_name`/`rank_id` through the ranking
+   (lineage/concept edges now carry NULL identity by CHECK).
+3. **`never_accepted` is permid-scoped, not row-scoped.** A permid is misspelling-excluded from
+   accepted-spelling candidacy iff its **canonical-winner** lineage edge — top by
+   `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` among its introducing edges — is
+   `never_accepted`. Row-scoped exclusion fails because the typo's own `root` row is `never_accepted =
+   false` and would keep it eligible (168579's root id 168281 > the correct spelling's 64264 ⇒ the typo
+   would win). This is the migration-doc "canonical winner" (Q2 sub-decision) **moved from migration time
+   to derive time** — the ledger keeps all edges; `derive()` picks the winner.
+4. **`original_permid` is topological, not "earliest-year root."** Every spelling now has a `root` row, so
+   "the `root` member of the lineage" is no longer unique. The original is the lineage node that is a
+   lineage **target but never a lineage subject** (the direct-to-original sink, Q1(a)); fall back to
+   year-rank only for the 0-/2-candidate components (two-competing-originals, §9.8.5).
+
+**Also:** define `winning_name_opinion_id` under duplicates (the canonical-winner introducing edge, or the
+`root` if the permid has no lineage edge). The `taxa-opinions` spec's derive requirements
+(`spec.md:190`, `:255-260`) still describe identity coming from a "`lineage` reason" minting row and a
+row-scoped exclusion; they are corrected by the future derive-rework change's delta, not here.
 
 ### 9.8.5 Occurrence synergy (why `original_permid` is materialized)
 
