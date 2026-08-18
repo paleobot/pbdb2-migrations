@@ -157,8 +157,8 @@ child_no | target_permid | The permid from the name_opinions record with oldpbdb
 N/A	| edge_class | 'lineage'
 see notes | objective | if status = 'objective synonym of' this gets TRUE, if satus = 'subjective synonym of' this gets FALSE
 basis | evidence | 'stated with evidence' = TRUE, everything else = FALSE
-N/A | new_name | The new_name from the name_opinions record with permid = target_permid
-N/A | rank_id | The rank_id from the name_opinions record with permid = target_permid
+N/A | new_name | NA (NULL) — identity is root-only; a lineage edge carries no name (ledger model, mapping doc §3.2)
+N/A | rank_id | NA (NULL) — identity is root-only; a lineage edge carries no rank (ledger model, mapping doc §3.2)
 N/A | authority_id | NA
 reference_no | reference_id | fk to the refs record with reference.legacyIDs.oldpbdbid = reference_no.
 pubyr | publication_year | Second-hand override only, gated on ref_has_opinion (the same switch that drives attribution). When ref_has_opinion = 'YES' (first-hand: the reference is itself the source), leave publication_year NULL — derive_taxa() reads the year off the reference via COALESCE(publication_year, ref.publicationYear), so copying pubyr would just store the reference's own year twice. When ref_has_opinion IS NULL (second-hand: the opinion is attributed to an earlier author), set publication_year = pubyr, so the attributed year overrides the (later) reporting reference's year for recency ranking. Verified safe in scope: 0 rows have a pubyr with no resolvable reference year, so the NULL/COALESCE path never sinks a row to NULLS LAST.
