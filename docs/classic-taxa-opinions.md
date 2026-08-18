@@ -1198,6 +1198,93 @@ its original combination after a recombination is an **accepted divergence** fro
 (`spec.md:190`, `:255-260`) still describe identity coming from a "`lineage` reason" minting row and a
 row-scoped exclusion; they are corrected by the future derive-rework change's delta, not here.
 
+### 9.8.4.2 Validity feeding the name and concept contests (2026-08-18)
+
+> Same caveat as §9.8.4.1: these are deltas the eventual derive-rework must make, not a description of
+> the SQL currently in `create_new.sql`. They were prompted by a question the mapping-doc §5 routing
+> never answered: certain nomenclatural-status opinions plainly bear on whether a name should win the
+> *other* contests, which the "three independent winner-elections" framing (§9.8.4.1) understates.
+
+**The gap.** `derive()` step 3 (accepted spelling) excludes a candidate for exactly one reason —
+`never_accepted` on its canonical-winner lineage edge. It never consulted `validity_opinions` at all, so
+a spelling carrying a winning `nomen nudum` opinion was fully eligible to become its lineage's accepted
+name. Investigating the fix (2026-08-18 session) required checking, opinion by opinion, how Classic's own
+`getSeniorSynonym`/`getMostRecentClassification`/`Classification.pm` treat each of the five
+nomenclatural-status tokens (`invalid subgroup of`, `nomen dubium`, `nomen nudum`, `nomen oblitum`,
+`nomen vanum`) — the answer was different for each, and diverges from Classic in two places on purpose.
+
+**Per-token disposition, decided 2026-08-18:**
+
+- **`invalid subgroup of` → an ordinary `concept`-class `name_opinions` edge (`reason = 'invalid
+  subgroup'`), not a `validity_opinions` row at all.** Classic's own code treats it exactly like a
+  synonym: `TaxonInfo.pm` comments on both `getSeniorSynonym` and `getJuniorSynonyms`, verbatim, *"Note
+  that invalid subgroup is technically not a synonym, but treated computationally the same"* — same
+  regex (`synonym|replaced|subgroup|nomen`), same senior-synonym chase, same reliability-ranked
+  winner-election (`getMostRecentClassification`) as `subjective/objective synonym of`/`replaced by`.
+  `Classification.pm:452` files it as a synonym in the printed hierarchy, not a child. It is a
+  concept-fold, not a classification/containment matter, and not a name-availability bar either — no new
+  `derive()` machinery is needed: it is simply more input to the existing concept union-find and senior-
+  lineage ranking. The existing "pool `belongs to` across the whole concept, equal rank only, species
+  excluded" rule (§9.8.4 step 5, already carried over from Classic's `getJuniorSynonyms($dbt, $t,
+  "equal")`) already reproduces Classic's own asymmetry — folding subgroup members into concept identity
+  unconditionally while excluding them from containment-borrowing when rank doesn't match — for free.
+- **`nomen oblitum`, when targeted, → also an ordinary `concept`-class fold** (`reason = 'nomen
+  oblitum'`), same mechanism, no special-casing for the priority *reversal* it enacts. Seniority in this
+  design was never decided by comparing the raw age of names — only by which way a concept edge points
+  (subject defers to target) and by ranking the *opinions* asserting the fold. A `nomen oblitum`
+  declaration is a normal-shaped concept opinion whose subject is the chronologically senior (forgotten)
+  name and whose target is the chronologically junior (protected) one; folding subject-into-target *is*
+  the reversal Article 23.9 enacts. No date comparison is needed because none was ever being done.
+  **When untargeted** (no recorded protectum — 17 of 76 legacy rows), it has nothing to point at and
+  falls back to `validity_opinions` as inert testimony, treated the same as `nomen dubium`/`nomen vanum`
+  below — a "forgotten name, forgotten in favor of nothing on record" doesn't obviously mean "reject this
+  name," so it does not bar candidacy either.
+- **`nomen dubium` and `nomen vanum` → recorded in `validity_opinions`, with *zero* effect on `derive()`,
+  full stop.** This is a deliberate pbdb2 departure from Classic, not a fidelity gap: conceptually these
+  are *doubt about a name's quality/diagnosability*, not an act of invalidation — Classic cannot make
+  that distinction mechanically, because both compete in the same `getMostRecentClassification`
+  reliability-ranked pool as `belongs to`/synonymy/`invalid subgroup of`. pbdb2 records the testimony
+  (someone doubted this name) without letting it move anything.
+- **`nomen nudum` → recorded in `validity_opinions`, and *is* consulted by `derive()`** — but as a
+  candidacy bar on its own subject, not a concept fold. `derive()` computes the winning validity opinion
+  per `subject_permid` (`evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — the same discipline as
+  every other contest in this design), and if that winner's status is `nomen nudum`
+  (`bars_candidacy = true`), the permid is excluded from its own lineage's accepted-spelling contest in
+  step 3 — symmetric with how a `never_accepted` lineage edge already excludes misspellings. Because the
+  winner is re-computed, a later, better-evidenced validity opinion of a non-barring status on the same
+  permid reverses the bar; the "priority rules of evidence and publication year" decide whether the
+  rejection stands, exactly as they decide every other contest here.
+
+**Targets are dropped even where they exist.** Live data (`pbdb_archive`, probed 2026-08-18) shows the
+legacy `parent_no` is populated far more often than the mapping doc's original 100%-untargeted assumption
+for the nomen family: `nomen dubium` 7,245/8,208 (88.3%), `nomen nudum` 2,430/2,533 (95.9%), `nomen
+oblitum` 59/76 (77.6%), `nomen vanum` 469/569 (82.4%). None of that target survives migration
+for `dubium`/`vanum`/`nudum` — a deliberate, logged loss, same category of choice as the `revalidated`
+drop already accepted for `status_old` (§4 Q4) or the chain-order loss of Q1(a). It is not a data-quality
+problem: Classic's own FAQ (`public/tips/taxonomy_FAQ.html:697-700`) documents the parent field for these
+statuses as optional best-effort ("enter the most specific thing possible... it *is* possible for a
+species to be a nomen dubium falling within a recognizeable genus," implying it often isn't), the guest
+submission form (`guest_templates/opinion_form.html:259-266`) doesn't even render a parent field on the
+nomen branch, and the main editor form (`Opinion.pm:595-611`) treats the parent box as one shared,
+always-optional field regardless of which status is selected. An untargeted `nomen dubium`/`nomen vanum`/
+`nomen nudum` row is the ordinary product of "the material is too poor to place even approximately," not
+lost or corrupted data.
+
+**The empty-lineage / empty-concept cascade this entails.** Once a permid's own name can be barred
+(`nomen nudum`), a lineage — or, if every one of its lineages is exhausted, an entire concept — can end
+up with no eligible accepted-spelling candidate at all. The resolution (2026-08-18): **run the candidacy
+filter before concept-seniority ranking, not after.** Seniority (step 2) must be decided only among
+lineages that have at least one eligible candidate; if a would-be-senior lineage is fully barred, the
+next-most-senior *available* synonym is promoted instead — the concept survives under a different name.
+Only if *every* lineage in a concept is simultaneously exhausted does the whole concept emit no rows in
+`taxa` at all: the taxonomic concept has been argued out of existence. This is a genuine terminal state,
+not an error to catch — `taxa.accepted_spelling_permid`/`concept_permid` stay `NOT NULL` because no row
+is ever emitted for a permid with no eligible representative, rather than emitting one with a null triad.
+What happens to a taxon whose winning classification pointed at a now-vanished concept (should its
+children fall through to a next-best `belongs to` opinion, or become tree roots via the existing
+"NULL containment = root" convention?) is deliberately **out of scope of this decision** — noted as an
+open question for whoever implements the derive-rework change, not resolved here.
+
 ### 9.8.5 Occurrence synergy (why `original_permid` is materialized)
 
 An occurrence is identified to a *spelling*, so it binds to a `permid` 1:1 (Classic `taxon_no`, a direct
@@ -1404,9 +1491,16 @@ cannot arise: the 2010 opinion picks the older spelling, and that spelling's ran
    | `stated without evidence`, `implied`, `second hand` | `false` |
    | `NULL` → legacy reference's basis, then as above | `true` / `false` |
    | authorities-sourced (minting opinion, no legacy `opinions` row) | `false` (authorities has no basis) |
-2. **The nomen family needs somewhere to go.** 12,806 opinions (`nomen dubium` 8,208, `nomen nudum`
-   2,533, `invalid subgroup of` 1,420, `nomen vanum` 569, `nomen oblitum` 76) are neither assignments
-   nor name changes, and would be silently dropped without `validity_opinions`.
+2. **Most, but not all, of the nomen family needs somewhere to go.** Of the original 12,806 candidate
+   opinions (`nomen dubium` 8,208, `nomen nudum` 2,533, `invalid subgroup of` 1,420, `nomen vanum` 569,
+   `nomen oblitum` 76), two slices turned out to have somewhere else to go: `invalid subgroup of`
+   (1,420, always targeted) and targeted `nomen oblitum` (59 of 76) are ordinary `name_opinions`
+   concept-class folds (§9.8.4.2, 2026-08-18) — Classic's own code treats them as synonymy-equivalent.
+   The remaining **11,327 rows** — all of `nomen dubium` (8,208) and `nomen vanum` (569) regardless of
+   whether the legacy row was targeted, all of `nomen nudum` (2,533), and untargeted `nomen oblitum`
+   (17) — are neither an assignment nor a name change (nor, for `dubium`/`vanum`/`nudum`, a concept fold
+   even when the legacy data offered a target — §9.8.4.2's deliberate departure from Classic), and would
+   be silently dropped without `validity_opinions`.
 
 **Migration order.** Because opinions carry bare permids rather than pointing at `taxa` rows, there
 is no bootstrap problem — the derived table simply comes last:
