@@ -19,7 +19,7 @@ The schema SHALL define three append-only assertion tables — `name_opinions`, 
 
 ### Requirement: name_opinions models typed edges with a minting shape
 
-`name_opinions` SHALL represent typed edges between name-as-spelled permids: `subject_permid` defers to `target_permid` in the manner given by `reason_id`, whose `edge_class` (`'root'` | `'lineage'` | `'concept'`) selects the derivation grouping. A same-row CHECK SHALL enforce the minting shape: `'root'` rows carry no target but do carry `new_name` and `rank_id`; `'lineage'` rows carry a target and carry `new_name` and `rank_id`; `'concept'` rows carry a target and carry neither `new_name` nor `rank_id`. A row SHALL NOT have `subject_permid` equal to `target_permid`.
+`name_opinions` SHALL represent typed edges between name-as-spelled permids: `subject_permid` defers to `target_permid` in the manner given by `reason_id`, whose `edge_class` (`'root'` | `'lineage'` | `'concept'`) selects the derivation grouping. Identity (`new_name`, `rank_id`) is an immutable attribute of a permid, minted once on its `root` row; edges assert relationships between permids whose identities already live on their own root rows. A same-row CHECK SHALL enforce the minting shape so that `new_name` and `rank_id` are populated **iff** `edge_class = 'root'`: `'root'` rows carry no target but do carry `new_name` and `rank_id`; `'lineage'` rows carry a target and carry neither `new_name` nor `rank_id`; `'concept'` rows carry a target and carry neither `new_name` nor `rank_id`. A row SHALL NOT have `subject_permid` equal to `target_permid`.
 
 #### Scenario: A valid root (minting) opinion is accepted
 
@@ -29,6 +29,16 @@ The schema SHALL define three append-only assertion tables — `name_opinions`, 
 #### Scenario: A root opinion carrying a target is rejected
 
 - **WHEN** a `name_opinions` row is inserted with `edge_class = 'root'` and a non-NULL `target_permid`
+- **THEN** the minting-shape CHECK rejects the insert
+
+#### Scenario: A valid lineage edge with no identity is accepted
+
+- **WHEN** a `name_opinions` row is inserted with `edge_class = 'lineage'`, a non-NULL `target_permid`, and `new_name IS NULL` and `rank_id IS NULL`
+- **THEN** the insert succeeds
+
+#### Scenario: A lineage edge carrying an identity is rejected
+
+- **WHEN** a `name_opinions` row is inserted with `edge_class = 'lineage'` and a non-NULL `new_name` or `rank_id`
 - **THEN** the minting-shape CHECK rejects the insert
 
 #### Scenario: A concept edge carrying an identity is rejected
@@ -55,19 +65,19 @@ Each `name_opinions` row SHALL carry an `edge_class text NOT NULL` copy of its r
 - **WHEN** an `UPDATE` attempts to change `edge_class` of a `namechange_reasons` row that a `name_opinions` row still references
 - **THEN** the default `NO ACTION` referential rule refuses the update
 
-### Requirement: validity_opinions enforces the targeted rule
+### Requirement: validity_opinions is untargeted, self-referential testimony
 
-`validity_opinions` SHALL carry `status_id`, a `targeted boolean NOT NULL` copy pinned to `dictionaries.nomenclatural_statuses` by a composite FK `(status_id, targeted) → (id, targeted)`, and a `target_permid` required exactly when `targeted` is true, enforced by a same-row CHECK (`targeted = (target_permid IS NOT NULL)`).
+`validity_opinions` SHALL carry `nomenclatural_status_id` as a plain FK to `dictionaries.nomenclatural_statuses`, and SHALL NOT carry a `target_permid` or `targeted` column — every row is a self-referential assertion about `subject_permid`'s own naming act, never a relationship to another permid. `dictionaries.nomenclatural_statuses` SHALL carry a `bars_candidacy boolean NOT NULL DEFAULT false` column instead of `targeted`, true only for `nomen nudum`.
 
-#### Scenario: A targeted status without a target is rejected
+#### Scenario: validity_opinions has no target column
 
-- **WHEN** a `validity_opinions` row is inserted with a `status_id` whose status is `targeted = true` (e.g. `invalid subgroup of`) and `target_permid IS NULL`
-- **THEN** the `validity_target_shape` CHECK rejects the insert
+- **WHEN** `validity_opinions` is inspected after applying `create_new.sql`
+- **THEN** it has no `target_permid` and no `targeted` column, and `nomenclatural_status_id` is a plain (non-composite) FK to `dictionaries.nomenclatural_statuses`
 
-#### Scenario: A non-targeted status with a target is rejected
+#### Scenario: Only nomen nudum bars candidacy
 
-- **WHEN** a `validity_opinions` row is inserted with a `status_id` whose status is `targeted = false` (e.g. `nomen dubium`) and a non-NULL `target_permid`
-- **THEN** the CHECK rejects the insert
+- **WHEN** the `nomenclatural_statuses` dictionary is queried
+- **THEN** `nomen nudum` has `bars_candidacy = true` and `nomen dubium`/`nomen vanum`/`nomen oblitum` have `bars_candidacy = false`
 
 ### Requirement: The taxa ledger exists as derived output
 
@@ -122,22 +132,22 @@ The schema SHALL define `taxon_annotations` (versioned curatorial prose: `common
 
 ### Requirement: Dictionaries are reconciled to the settled vocabularies
 
-`dictionaries.taxonomy_ranks` SHALL gain an explicit `height integer` (NULL for `unranked`/`unranked clade`) and include the previously-missing `order` rank. `dictionaries.namechange_reasons` SHALL carry `edge_class` (`NOT NULL`, `IN ('root','lineage','concept')`) and `never_accepted`, expose the composite `UNIQUE (id, edge_class)`, and seed exactly the eight tokens `original`, `misspelling`, `reranked`, `recombination`, `assignment`, `correction`, `junior synonym`, `replaced by` — with no `code` token and no `nomen oblitum` token. `dictionaries.nomenclatural_statuses` SHALL exist with `(status, targeted)` seeded for the nomen family plus `invalid subgroup of`, and expose the composite `UNIQUE (id, targeted)`.
+`dictionaries.taxonomy_ranks` SHALL gain an explicit `height integer` (NULL for `unranked`/`unranked clade`) and include the previously-missing `order` rank. `dictionaries.namechange_reasons` SHALL carry `edge_class` (`NOT NULL`, `IN ('root','lineage','concept')`) and `never_accepted`, expose the composite `UNIQUE (id, edge_class)`, and seed exactly the ten tokens `original`, `misspelling`, `reranked`, `recombination`, `assignment`, `correction`, `junior synonym`, `replaced by`, `invalid subgroup`, `nomen oblitum` — with no `code` token, `invalid subgroup` and `nomen oblitum` both `edge_class = 'concept'`. `dictionaries.nomenclatural_statuses` SHALL exist with `(status, bars_candidacy)` seeded for exactly `nomen dubium`, `nomen nudum`, `nomen vanum`, `nomen oblitum` — `invalid subgroup of` is not a member (it lives in `namechange_reasons` instead) — with `bars_candidacy = true` only for `nomen nudum`.
 
 #### Scenario: Rank ordering is explicit and complete
 
 - **WHEN** the `taxonomy_ranks` dictionary is queried
 - **THEN** `order` is present, and `height` is populated for all ranked values while `unranked` and `unranked clade` have `height IS NULL`
 
-#### Scenario: namechange_reasons holds exactly the eight reconciled tokens
+#### Scenario: namechange_reasons holds exactly the ten reconciled tokens
 
 - **WHEN** the `namechange_reasons` dictionary is queried
-- **THEN** exactly the eight tokens are present, `code` and `nomen oblitum` are absent, and `misspelling` has `never_accepted = true`
+- **THEN** exactly the ten tokens are present, `code` is absent, `invalid subgroup` and `nomen oblitum` both have `edge_class = 'concept'`, and `misspelling` has `never_accepted = true`
 
-#### Scenario: nomenclatural_statuses carries the nomen family
+#### Scenario: nomenclatural_statuses carries the residual self-referential nomen family
 
 - **WHEN** the `nomenclatural_statuses` dictionary is queried
-- **THEN** `nomen dubium`/`nomen nudum`/`nomen vanum`/`nomen oblitum` are present with `targeted = false` and `invalid subgroup of` with `targeted = true`
+- **THEN** exactly `nomen dubium`, `nomen nudum`, `nomen vanum`, `nomen oblitum` are present, `invalid subgroup of` is absent, and only `nomen nudum` has `bars_candidacy = true`
 
 ### Requirement: The obsolete taxa/opinions block is removed and the schema builds clean
 

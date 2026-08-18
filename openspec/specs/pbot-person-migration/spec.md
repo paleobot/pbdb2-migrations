@@ -1,3 +1,10 @@
+# pbot-person-migration Specification
+
+## Purpose
+Migrate PBot GraphQL Person nodes into the new PostgreSQL persons table.
+
+## Requirements
+
 ### Requirement: Fetch Person nodes from PBot GraphQL API
 The script SHALL fetch all Person nodes from `https://pbot.paleobiodb.org/graphql` using a single POST request. The query SHALL retrieve `pbotID`, `given`, `surname`, `email`, `orcid`, and `registered` fields.
 

@@ -1,3 +1,10 @@
+# entity-versioning-triggers Specification
+
+## Purpose
+Define the in-database version-succession triggers that place new entity versions in their lineage and swing foreign-key references onto them on insert.
+
+## Requirements
+
 ### Requirement: FK references swing to new version on insert
 When a new version of a versioned entity is inserted (i.e., a row with `preceded_by_id IS NOT NULL`), the system SHALL automatically update all foreign key columns in other tables that reference the old version's `id` to point to the new version's `id`.
 

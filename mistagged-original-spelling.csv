@@ -1,0 +1,50 @@
+opinion_no,reference_no,child_no,child_no_name,child_no_rank,child_spelling_no,spelling_name,spelling_rank,parent_spelling_no,parent_name,inferred_reason
+539262,52715,30938,Rhombifera,order,30998,Rhombifera,order,305707,Hydrophoridea,duplicate-or-homonym
+268290,29980,36652,Cetacea,order,147596,Cetacea,superorder,40209,Eutheria,reranked
+43725,4783,36873,Sirenia,family,86537,Sirenia,order,40209,Eutheria,reranked
+95878,4766,36873,Sirenia,family,86537,Sirenia,order,40209,Eutheria,reranked
+329157,35859,40218,Cimolesta,order,182914,Cimolesta,unranked clade,40209,Eutheria,reranked
+184439,10459,40978,Miacidae,family,139229,Miacinae,subfamily,41189,Canidae,reranked
+268219,29980,41370,Rodentia,order,147571,Rodentia,superorder,40209,Eutheria,reranked
+43669,4783,43230,Proboscidea,family,105150,Proboscidea,order,40209,Eutheria,reranked
+726086,14517,52805,Iguanodontia,infraorder,144577,Iguanodontia,infraorder,38713,Ornithopoda,duplicate-or-homonym
+268223,29980,52943,Edentata,order,147572,Edentata,superorder,40209,Eutheria,reranked
+95936,4766,53270,Pinnipedia,family,105191,Pinnipedia,suborder,40209,Eutheria,reranked
+848475,77959,53943,Carnosauria,infraorder,91967,Carnosauria,infraorder,94209,Theropoda,duplicate-or-homonym
+87037,11859,59965,Cuna praeclava,species,61126,Micromeris (Mesocuna) praecalva,species,61102,Micromeris (Mesocuna),recombination
+84231,7412,61690,Perrisonota,genus,61684,Perissonota,genus,61035,Malletiinae,recombination
+84268,7412,61690,Perrisonota,genus,61683,Perissonata,genus,61035,Malletiinae,recombination
+465622,46421,67350,Dipnomorpha,unranked clade,266397,Dipnomorpha,unranked clade,266396,Dipnotetrapodomorpha,duplicate-or-homonym
+268252,29980,67570,Ungulata,unranked clade,105045,Ungulata,superorder,40209,Eutheria,reranked
+129710,11456,72526,Atrypa transversa,species,75879,Pterotheca transversa,species,8368,Pterotheca,recombination
+129711,9042,72526,Atrypa transversa,species,75879,Pterotheca transversa,species,8368,Pterotheca,recombination
+116390,16082,76844,Turbo schwelmensis,species,196505,Turbo (Eunema) schwelmensis,species,196504,Turbo (Eunema),correction
+106276,15510,81062,Goniophorina (Cosmogoniophorina),subgenus,17122,Cosmogoniophorina,genus,17136,Goniophorina,reranked
+200046,15166,81062,Goniophorina (Cosmogoniophorina),subgenus,17122,Cosmogoniophorina,genus,17136,Goniophorina,reranked
+188907,18084,105044,Monodelphia,subclass,106362,Monodelphia,unranked clade,40209,Eutheria,reranked
+197725,6930,111481,Drepanocheilus (Arrhoges),subgenus,9503,Arrhoges,subgenus,9785,Drepanocheilus,recombination
+197726,130,111481,Drepanocheilus (Arrhoges),subgenus,9503,Arrhoges,subgenus,9785,Drepanocheilus,recombination
+203180,26190,111481,Drepanocheilus (Arrhoges),subgenus,9503,Arrhoges,subgenus,9785,Drepanocheilus,recombination
+204554,14687,111481,Drepanocheilus (Arrhoges),subgenus,9503,Arrhoges,subgenus,9785,Drepanocheilus,recombination
+200036,6930,112716,Goniophora (Cosmogoniophora),subgenus,17121,Cosmogoniophora,genus,17135,Goniophora,reranked
+200037,15166,112716,Goniophora (Cosmogoniophora),subgenus,17121,Cosmogoniophora,genus,17135,Goniophora,reranked
+71325,3175,138950,Dromomeryx (Subdromomeryx),subgenus,51866,Subdromomeryx,genus,0,,reranked
+40438,4783,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+99757,14324,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+100180,6171,182911,Eutheria,subclass,40209,Eutheria,subclass,67561,Boreosphenida,duplicate-or-homonym
+182262,3198,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+182382,2237,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+188895,18084,182911,Eutheria,subclass,40209,Eutheria,subclass,36651,Mammalia,duplicate-or-homonym
+253589,1210,182911,Eutheria,subclass,40209,Eutheria,subclass,97116,Tribosphenida,duplicate-or-homonym
+268138,29980,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+329151,35858,182911,Eutheria,subclass,40209,Eutheria,subclass,39860,Theria,duplicate-or-homonym
+729933,69467,182911,Eutheria,subclass,40209,Eutheria,subclass,36651,Mammalia,duplicate-or-homonym
+740818,15348,182911,Eutheria,subclass,40209,Eutheria,subclass,36651,Mammalia,duplicate-or-homonym
+840081,77138,182911,Eutheria,subclass,40209,Eutheria,subclass,36651,Mammalia,duplicate-or-homonym
+821880,75423,183662,Metatheria,subclass,39936,Metatheria,subclass,36651,Mammalia,duplicate-or-homonym
+783413,43759,209248,Actinistia,unranked clade,67349,Actinistia,unranked clade,67348,Sarcopterygii,duplicate-or-homonym
+787790,72367,209248,Actinistia,unranked clade,67349,Actinistia,unranked clade,67348,Sarcopterygii,duplicate-or-homonym
+529889,7068,265037,Davidsonella moorei,species,300647,Thecidea moorei,species,30681,Thecidea,recombination
+876927,75597,312556,Dicynodontia,order,38996,Dicynodontia,order,95805,Anomodontia,duplicate-or-homonym
+791799,72645,397281,Aglaspidida,order,420481,Aglaspidida,order,420649,Vicissicaudata,duplicate-or-homonym
+791957,72670,397281,Aglaspidida,order,420481,Aglaspidida,order,308386,Artiopoda,duplicate-or-homonym

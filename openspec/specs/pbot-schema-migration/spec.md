@@ -1,3 +1,10 @@
+# pbot-schema-migration Specification
+
+## Purpose
+Migrate PBot GraphQL Schema nodes (with their relationships) into the new PostgreSQL schemas table.
+
+## Requirements
+
 ### Requirement: Fetch Schemas from PBot GraphQL API
 The script SHALL fetch all Schema nodes from `https://pbot.paleobiodb.org/graphql` using a POST request with a Bearer token from the `PBOT_TOKEN` environment variable. The query SHALL retrieve schema scalar fields (`pbotID`, `title`, `year`, `purpose`, `acknowledgments`), `partsPreserved` and `notableFeatures` (as relationship nodes or string values), `references` (with `order` and Reference `pbotID`), `authoredBy` (with `order` and Person `given`, `surname`), and `enteredBy` (with `type`, `timestamp`, and Person `pbotID`).
 

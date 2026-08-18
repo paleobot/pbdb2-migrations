@@ -1,3 +1,10 @@
+# pbot-refs-migration Specification
+
+## Purpose
+Migrate PBot GraphQL Reference nodes (with entered-by/authored-by relationships) into the new PostgreSQL refs table.
+
+## Requirements
+
 ### Requirement: Fetch all References from PBot GraphQL API
 The script SHALL fetch all Reference nodes from `https://pbot.paleobiodb.org/graphql` using a single POST request. The query SHALL retrieve all scalar Reference fields (`pbotID`, `title`, `year`, `publicationType`, `firstPage`, `lastPage`, `journal`, `bookTitle`, `publicationVolume`, `publicationNumber`, `publisher`, `description`, `bookType`, `editors`, `notes`, `doi`, `pbdbid`) plus nested `enteredBy` (with `type`, `timestamp`, and `Person` fields) and `authoredBy` (with `order` and `Person` fields).
 

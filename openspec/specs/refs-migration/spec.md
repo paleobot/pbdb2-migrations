@@ -1,4 +1,9 @@
-## ADDED Requirements
+# refs-migration Specification
+
+## Purpose
+Migrate legacy MariaDB `refs` (with `ref_authors`/`ref_editors`) into the new PostgreSQL `refs` table.
+
+## Requirements
 
 ### Requirement: Read all source data from MariaDB
 The script SHALL read all rows from MariaDB `refs` table (including the `comments` column), plus all rows from `ref_authors` and `ref_editors`. The `ref_authors` and `ref_editors` rows SHALL be pre-loaded into Maps keyed by `reference_no` for lookup during transformation.

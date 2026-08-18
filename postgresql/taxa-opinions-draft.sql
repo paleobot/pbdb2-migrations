@@ -353,12 +353,15 @@ CREATE TABLE name_opinions (
     -- THE MINTING SHAPE, now a plain same-row CHECK because edge_class is on the
     -- row (formerly "enforced by the write path / derive()"; A1 resolved). Every
     -- writer is guarded, always, at the storage layer:
+    -- Identity (new_name, rank_id) is set IFF edge_class = 'root': a permid's name
+    -- and rank are minted once, on its root row (from authorities); lineage and
+    -- concept edges carry a target and NO identity (ledger model — mapping doc §3.2).
     --   'root'    ('original')      ⇒ no target; mints identity  (new_name, rank_id set)
-    --   'lineage' (new spelling)    ⇒ target set; mints identity  (new_name, rank_id set)
+    --   'lineage' (new spelling)    ⇒ target set; NO identity     (new_name, rank_id NULL)
     --   'concept' (synonymy edge)   ⇒ target set; NO identity     (new_name, rank_id NULL)
     CONSTRAINT name_opinion_shape CHECK (
            (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL)
-        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NOT NULL AND rank_id IS NOT NULL)
+        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
         OR (edge_class = 'concept' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
     )
     -- RESIDUAL (not covered here): "objective NOT NULL iff reason = 'junior

@@ -1,4 +1,9 @@
-## ADDED Requirements
+# authorities-migration Specification
+
+## Purpose
+Migrate legacy MariaDB `authorities` rows (citation data only) into the new PostgreSQL `authorities` table: scenario classification, citation/descriptor fabrication, dedup with legacy-ID preservation, and orphan/person handling.
+
+## Requirements
 
 ### Requirement: Read all source data from MariaDB
 The script SHALL read all rows from the MariaDB `authorities` table, ordered by `taxon_no ASC`. Required columns: `taxon_no`, `ref_is_authority`, `author1last`, `author2last`, `otherauthors`, `pubyr`, `reference_no`, `authorizer_no`, `enterer_no`. Taxon-related columns (`taxon_name`, `taxon_rank`, `orig_no`, `extant_old`, classification fields) SHALL NOT be read.
@@ -13,14 +18,14 @@ The script SHALL read all rows from the MariaDB `authorities` table, ordered by 
 
 
 ### Requirement: Classify each source row by scenario
-The script SHALL classify each source row into one of four scenarios based on `(ref_is_authority, author1last)`. The classification SHALL drive citation construction, descriptor construction, and the migrate-vs-skip decision.
+The script SHALL classify each source row into one of four scenarios based on `(ref_is_authority, author1last)`. The classification SHALL drive citation construction, descriptor construction, and the payload-build path. All four scenarios are migrated; none are skipped on the basis of classification alone.
 
 | Scenario | `ref_is_authority` | `author1last` | Action |
 |---|---|---|---|
 | ① | `'YES'` | `''` | Migrate; citation+descriptors from reference |
 | ② | `'YES'` | non-empty | Migrate; citation+descriptors from `*last` fields |
 | ③ | not `'YES'` | non-empty | Migrate; citation+descriptors from `*last` fields |
-| ④ | not `'YES'` | `''` | Skip and log |
+| ④ | not `'YES'` | `''` | Migrate; sentinel citation `authority unknown`, year `0`, empty descriptors |
 
 #### Scenario: Classification ①
 - **WHEN** a row has `ref_is_authority = 'YES'` and `author1last = ''`
@@ -36,7 +41,7 @@ The script SHALL classify each source row into one of four scenarios based on `(
 
 #### Scenario: Classification ④
 - **WHEN** a row has `ref_is_authority = ''` and `author1last = ''`
-- **THEN** the row is classified as scenario ④ and is logged with its `taxon_no` but not inserted
+- **THEN** the row is classified as scenario ④ and migrated with sentinel authority values (not skipped)
 
 #### Scenario: Empty author1last test is exact
 - **WHEN** `author1last` is the empty string `''`
@@ -175,7 +180,7 @@ The script SHALL set `authority.year` to `pubyr` (scenarios ②/③) or `ref.pub
 
 
 ### Requirement: Set publishedInReference per scenario
-The script SHALL set `authority.publishedInReference` based on the row's `ref_is_authority` value: `true` for scenarios ① and ②, `false` for scenario ③. (Scenario ④ is not inserted.)
+The script SHALL set `authority.publishedInReference` based on the row's `ref_is_authority` value: `true` for scenarios ① and ② (`ref_is_authority = 'YES'`), `false` for scenarios ③ and ④ (`ref_is_authority != 'YES'`).
 
 #### Scenario: ref_is_authority = 'YES'
 - **WHEN** a scenario ① or ② row is migrated
@@ -183,6 +188,10 @@ The script SHALL set `authority.publishedInReference` based on the row's `ref_is
 
 #### Scenario: ref_is_authority != 'YES'
 - **WHEN** a scenario ③ row is migrated
+- **THEN** `authority.publishedInReference = false`
+
+#### Scenario: Scenario ④ publishedInReference
+- **WHEN** a scenario ④ row is migrated
 - **THEN** `authority.publishedInReference = false`
 
 
@@ -270,12 +279,32 @@ The script SHALL generate a v4 UUID using `crypto.randomUUID()` for each inserte
 - **THEN** its `permid` is a newly-generated v4 UUID, distinct from all other rows in the table
 
 
-### Requirement: Log scenario ④ rows without migrating
-The script SHALL log every scenario ④ row (`ref_is_authority != 'YES'` AND `author1last = ''`) with its `taxon_no` and SHALL NOT insert it. Approximate count: 16,606 rows.
+### Requirement: Migrate scenario ④ rows with sentinel authority
+The script SHALL migrate every scenario ④ row (`ref_is_authority != 'YES'` AND empty `author1last`) by building an `authority` payload with fixed sentinel values, then flowing it through the same reference lookup, person resolution, dedup, payload validation, and transaction-wrapped insert pipeline as scenarios ②/③. The sentinel payload SHALL be:
 
-#### Scenario: Scenario ④ skipped
-- **WHEN** a source row has `ref_is_authority=''` and `author1last=''`
-- **THEN** the row is logged with its `taxon_no` and no insert occurs
+- `citation`: the literal string `"authority unknown"`
+- `year`: the literal string `"0"` (the schema types `year` as a string of maxLength 4; the numeric `0` is not used)
+- `descriptors`: `[]` (empty array, allowed by the schema)
+- `publishedInReference`: `false`
+- `legacyIDs.oldpbdbIDs`: `[taxon_no]`, appended to as dedup merges absorb further scenario ④ rows
+
+No authorship parsing is attempted; scenario ④ rows have none.
+
+#### Scenario: Sentinel payload shape
+- **WHEN** a source row has `ref_is_authority=''` and `author1last=''` and resolves to a ref
+- **THEN** the built payload is `{ legacyIDs: { oldpbdbIDs: ['<taxon_no>'] }, publishedInReference: false, citation: 'authority unknown', year: '0', descriptors: [] }`
+
+#### Scenario: Year sentinel is a string
+- **WHEN** a scenario ④ payload is validated against `payloadSchemas/authority.schema.js`
+- **THEN** `authority.year` is the string `'0'` (not the number `0`) and validation passes
+
+#### Scenario: Scenario ④ collapses by reference
+- **WHEN** multiple scenario ④ rows share the same resolved `reference_id`
+- **THEN** they produce the identical dedup key `(reference_id, 'authority unknown', '0', [])` and collapse to a single survivor whose `oldpbdbIDs` lists every absorbed `taxon_no`
+
+#### Scenario: Scenario ④ subject to standard ref and person handling
+- **WHEN** a scenario ④ row is processed
+- **THEN** its `reference_id` is resolved via the standard `reference_no` lookup and its person FKs via the zero-sentinel fallback, and a row whose `reference_no` does not resolve is skipped-and-logged as an orphan like any other scenario
 
 
 ### Requirement: Log dedup merges

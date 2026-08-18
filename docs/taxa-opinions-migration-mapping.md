@@ -1,19 +1,27 @@
 # Taxa/Opinions Migration Mapping (B4) — Working Draft
 
 **Status:** DRAFT — all open questions DECIDED (2026-08-06): Q1, Q2 (+ sub-decision), Q4. Per-table
-column maps now filled (**§9**, 2026-08-07); two tiny residual calls flagged there (§9.7 i, iii).
-Next is starting B4 (§8).
+column maps filled (**§9**, 2026-08-07). Ledger model + root-only identity DECIDED (§3.2,
+2026-08-17). **Nomen-family / validity routing revised (§5.2, 2026-08-18):** `invalid subgroup of`
+and targeted `nomen oblitum` move to `name_opinions` as concept-class folds; `nomen dubium`,
+`nomen vanum`, `nomen nudum`, and untargeted `nomen oblitum` stay in `validity_opinions`, with
+`nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. Next is starting B4
+(§8).
 **Scope:** the legacy→new *opinion* migration (OpenSpec change **B4 = `migrate-taxa-opinions`**,
 not yet started). This is the detailed, laid-out successor to the flat
 `payloadSchemas/mappings/collections.txt`, needed because the opinion migration is a
 *decomposition*, not a column-for-column copy.
 
-Companion design doc: `docs/classic-taxa-opinions.md` (§9.8 the identity inversion, §10.5 the
-"migrating data with no opinions" probe, §10.6 the D-register). This doc does **not** restate the
-model; it records the migration mapping and the calls that must be made before B4 can be written.
+Companion design doc: `docs/classic-taxa-opinions.md` (§9.8 the identity inversion, §9.8.4.1–.2 the
+derive() deltas including the §5.2 decisions below, §10.5 the "migrating data with no opinions"
+probe, §10.6 the D-register). This doc does **not** restate the model; it records the migration
+mapping and the calls that must be made before B4 can be written.
 
 Source of truth for all counts below: live MariaDB `pbdb_archive` (MariaDB 10.11), queried
-2026-08-03. Target schema: `postgresql/create_new.sql` (taxa/opinions block ~L4578–4985).
+2026-08-03, except where marked **(2026-08-18)** — those were re-probed live against the
+Postgres-ported mirror (`pg-classic-pool.js`, `PG_CLASSIC_*`) during this round of decisions.
+Target schema: `postgresql/create_new.sql` (taxa/opinions block ~L4701–5018; exact offsets have
+shifted since 2026-08-07 as the dictionaries grew).
 
 ---
 
@@ -25,9 +33,10 @@ migrated at all (it is recomputed by `derive_taxa()`):
 
 ```
  LEGACY                                  NEW
- authorities (517,287) ───────────┐      name_opinions       (root/lineage minting + concept edges)
-                                  ├────▶ assignment_opinions (containment)
- opinions    (998,565) ───────────┘      validity_opinions   (nomen* / invalid subgroup)
+ authorities (517,287) ───────────┐      name_opinions       (root/lineage minting + concept edges,
+                                  ├────▶                      incl. invalid subgroup of / nomen oblitum)
+ opinions    (998,565) ───────────┘      assignment_opinions (containment)
+                                         validity_opinions   (residual nomen dubium/nudum/vanum/oblitum)
                                          taxa  ← DERIVED by derive_taxa(), NOT migrated
 ```
 
@@ -143,6 +152,39 @@ leaving only `id DESC` to break the tie. The genus's accepted spelling would be 
 insertion order, and the typo can win. `never_accepted` is the one signal that should settle it, and
 the blanket rule is exactly what strips it off. (Aside: opinion 14's `basis = 'second hand'` from the
 special-cased ref 6930, §4.2, maps to `evidence = false` — §6.3.)
+
+### 3.2 Identity columns are root-only (ledger model) *(DECIDED, 2026-08-17)*
+
+**Decision.** In `name_opinions`, `new_name` and `rank_id` are populated **only** on `root` rows.
+Every non-root row — `lineage` and `concept` alike — carries `new_name = NULL` and `rank_id = NULL`.
+The `name_opinion_shape` CHECK is tightened to the single invariant:
+
+```
+new_name IS NOT NULL AND rank_id IS NOT NULL   ⇔   edge_class = 'root'
+```
+
+**Why.** `new_name`/`rank_id` are immutable attributes of a *permid*, not of an opinion (§9.8.1).
+Under the **ledger model** — the opinions tables (`name_opinions`, `assignment_opinions`,
+`validity_opinions`) are append-only records of *every* opinion ever entered, and all collapse
+(canonical-winner, accepted-spelling, misspelling exclusion) happens only when `taxa` is derived — every
+name-as-spelled gets its identity **once**, on the `root` row minted from its `authorities` row. A
+`lineage` or `concept` edge is a pure relationship between two permids whose identities already live on
+their own root rows; restating identity on the edge can only duplicate the subject's root row (redundant)
+or contradict it (a bug — e.g. the belongs-to/misspelling mapping that copied the *target's* name onto
+the edge). Concept edges already encode this (identity `NULL`, commit a64c85f); this decision recognizes
+that lineage edges are the same kind of thing.
+
+**Guarding invariant.** Every retained non-root edge's `subject_permid` resolves to a root row (its
+authorities-minted identity). The skip-and-log framework already drops any edge whose subject is
+unresolvable (`child_spelling_unresolved`), so every retained lineage/concept row satisfies this by
+construction.
+
+**Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `lineage` rows *within the
+authorities pass*, drawing identity from `authorities`) and the §9.8.2 language "that minting row carries
+the permid's immutable identity" — which now holds for `root` only. Under the ledger decomposition the
+authorities pass mints **roots only** (already implemented in `migrate-name-opinions.js`); `lineage`
+edges are written by the per-slice opinion migrations and carry no identity. §9.1's root-vs-lineage
+split (shape decided by the top-ranked introducing opinion) does not apply to the ledger migration.
 
 ---
 
@@ -298,50 +340,154 @@ First-cut decomposition of a legacy `opinions` row into target rows. Q1, Q2, and
 (§4); the only refinement still open is the Q2 sub-decision (which opinion "introduces" a spelling when
 several disagree), which does not change this matrix.
 
-| legacy `status` | legacy `spelling_reason` | → name_opinions | → assignment_opinions | → validity_opinions |
+| legacy `status` | legacy `spelling_reason` / target | → name_opinions | → assignment_opinions | → validity_opinions |
 |---|---|---|---|---|
 | belongs to | original spelling | root (mint) | ✅ containment | — |
 | belongs to | recombination / reassignment / correction / rank change | lineage (mint), target → permid(child_no) [Q1(a)] | ✅ containment | — |
 | subjective / objective synonym of | any | concept — `'junior synonym'`, `objective` bool | — | — |
 | replaced by | any | concept — `'replaced by'` | — | — |
 | misspelling of | (misspelling) | lineage — `'misspelling'` (never_accepted) | — | — |
-| nomen dubium / nudum / vanum / oblitum | any | — | — | ✅ untargeted |
-| invalid subgroup of | any | — | — | ✅ targeted → parent |
+| **invalid subgroup of** | any (always has `parent_no`) | **concept — `'invalid subgroup'`** [§5.2] | — | — |
+| **nomen oblitum** | **`parent_no ≠ 0`** (59/76 legacy) | **concept — `'nomen oblitum'`** [§5.2] | — | — |
+| nomen oblitum | `parent_no = 0` (17/76 legacy) | — | — | ✅ testimony only, no target [§5.2] |
+| nomen dubium / nomen vanum | any (target dropped regardless) | — | — | ✅ testimony only, no target [§5.2] |
+| nomen nudum | any (target dropped regardless) | — | — | ✅ candidacy bar [§5.2] |
 
 Minting rows for names **not** carried by a spelling-change opinion are sourced from `authorities`
 (§3) and mint as `root` (`reason = 'original'`) — the 403,559 original spellings and the 670 orphans
 alike (Q2(a)).
 
+### 5.1 Lineage-edge discriminator is `child_spelling_no ≠ child_no`, not `spelling_reason` *(2026-08-17)*
+
+Under the **ledger model** each opinion slice writes rows for the opinions it owns, and slices key off
+`spelling_reason` (the misspelling slice does `WHERE spelling_reason = 'misspelling'`; the future
+recombination slice will do `= 'recombination'`; etc.). That is unsafe as the test for "does this
+`belongs to` opinion introduce a lineage edge?" — because the legacy `spelling_reason` label is
+**wrong on ~50 rows**. The reliable discriminator is the one §3 already names: an opinion mints/asserts a
+lineage edge **iff `child_spelling_no ≠ child_no`**, regardless of the label. `spelling_reason` supplies
+the reason *token* only when it is trustworthy.
+
+**The anomaly.** `SELECT count(*) FROM opinions WHERE status='belongs to' AND spelling_reason='original
+spelling' AND child_spelling_no <> child_no` = **50** (live `pbdb_archive`, 2026-08-17). These are
+`belongs to`/`original spelling` opinions whose spelling genuinely differs from `child_no`. As currently
+routed (original spelling → `assignment_opinions` only, no `name_opinions` edge), each gets a containment
+row but **no lineage edge** — silently severing `child_spelling` from `child_no`. The assignment slice
+has already run and taken these as `assignment_opinions`, so the missing lineage edges are a **backfill**
+owed by whichever slice ends up owning them (most naturally the recombination slice).
+
+**Their reason is inferred from the name relationship, not the label** (49 rows resolve to an
+`authorities` row; the 50th has a dangling `child_spelling_no` and is itself a skip case):
+
+| inferred reason | rows | rule | example |
+|---|---|---|---|
+| `reranked` | 16 | `taxon_rank` differs | *Cetacea* order → superorder (36652→147596) |
+| `recombination` | 10 | genus (first word) differs | *Atrypa transversa* → *Pterotheca transversa* (72526→75879) |
+| `correction` | 1 | same genus/rank, spelling differs | *Perrisonota* → *Perissonota* (61690→61684) |
+| `duplicate-or-homonym` | 22 | name **and** rank identical, different `taxon_no` | *Sirenia*/*Sirenia* — no spelling change; a lineage edge would merge duplicate records (or is a homonym/merge decision, possibly no edge) |
+
+The full worklist — `opinion_no`, both names/ranks, parent, and `inferred_reason` per row — is in
+`mistagged-original-spelling.csv`. Only the 10 `recombination` rows answer to `recombination`; the label
+must never be trusted to set the reason here.
+
+> Not to be confused with the *reversion* case (a `belongs to`/`original spelling` opinion where
+> `child_spelling_no = child_no`, re-preferring the original combination after a recombination). That one
+> has no second endpoint and is **not** a lineage edge — see §9.8.4.1's "accepted divergence."
+
+### 5.2 The nomen family, re-routed per token *(DECIDED, 2026-08-18)*
+
+**The trigger.** `derive()`'s accepted-spelling contest (§9.8.4 step 3) excludes a candidate for exactly
+one reason — `never_accepted` on a lineage edge (misspellings). It never consulted `validity_opinions` at
+all, so a `nomen nudum` spelling was fully eligible to win its lineage's accepted name. Chasing the fix
+required checking, status by status, how Classic's own resolution code (`classic/lib/PBDB/{Opinion,
+TaxonInfo,Classification}.pm`) actually treats each of the five nomenclatural-status tokens — the answer
+differs per token, and pbdb2 deliberately diverges from Classic for two of them. Full design rationale and
+Classic citations: `docs/classic-taxa-opinions.md` §9.8.4.2. This section records only the resulting
+routing and the live-data counts behind it.
+
+**Per-token decisions:**
+
+| token | disposition | why |
+|---|---|---|
+| `invalid subgroup of` | `name_opinions` concept-class fold (`reason = 'invalid subgroup'`) | Classic's `getSeniorSynonym`/`getJuniorSynonyms` fold it into the senior-synonym chase by explicit comment — *"technically not a synonym, but treated computationally the same"* as `subjective/objective synonym of`/`replaced by`. Needs no new `derive()` logic: it's ordinary input to the existing concept union-find. |
+| `nomen oblitum`, targeted | `name_opinions` concept-class fold (`reason = 'nomen oblitum'`) | Same mechanism. The priority *reversal* (chronologically senior name treated as junior) needs no special code — seniority here was never decided by comparing dates, only by which way a concept edge points; folding the oblitum name (subject) into the protected name (target) *is* the reversal. |
+| `nomen oblitum`, untargeted | `validity_opinions`, no derive() effect | No recorded protectum to fold into; treated as testimony, same as `dubium`/`vanum` below. |
+| `nomen dubium` | `validity_opinions`, no derive() effect, target dropped | Doubt about a name's quality/diagnosability is not an act of invalidation. A deliberate pbdb2 departure from Classic, which cannot make this distinction (both compete in the same reliability-ranked pool in `getMostRecentClassification`). |
+| `nomen vanum` | `validity_opinions`, no derive() effect, target dropped | Same reasoning as `nomen dubium` — a criticism of a name's quality, not an invalidating act. |
+| `nomen nudum` | `validity_opinions`, **candidacy bar**, target dropped | An explicit rejection of the name's availability. `derive()` computes the winning validity opinion per `subject_permid` (`evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`, the same discipline as every other contest) and excludes that permid from its own lineage's accepted-spelling contest when the winner is `nomen nudum` — reversible by a later, better opinion of a non-barring status on the same permid. |
+
+**Live counts (re-probed 2026-08-18, Postgres-ported `pbdb_archive` mirror):**
+
+| status | total | targeted (`parent_no ≠ 0`) | untargeted | self-edges (`child_spelling_no = parent_spelling_no`) |
+|---|---|---|---|---|
+| `invalid subgroup of` | 1,420 | 1,420 | 0 | 1 |
+| `nomen dubium` | 8,208 | 7,245 (88.3%) | 963 | 0 |
+| `nomen nudum` | 2,533 | 2,430 (95.9%) | 103 | 0 |
+| `nomen oblitum` | 76 | 59 (77.6%) | 17 | 0 |
+| `nomen vanum` | 569 | 469 (82.4%) | 100 | 0 |
+
+No unresolvable `parent_spelling_no` among any of the targeted nomen-family rows either (0 found) — clean
+data across the board. The single `invalid subgroup of` self-edge joins the existing skip register (§9.5).
+
+**Why dropping ~90% of the nomen family's targets is not a data-quality problem.** The naive read of these
+numbers is "most of this data is corrupted or incomplete." It isn't. Three independent parts of the
+Classic codebase treat the parent field on these statuses as optional best-effort, not a required
+relationship:
+
+- `public/tips/taxonomy_FAQ.html:697-700` (the user-facing FAQ) frames it as "enter the most specific
+  thing *possible*" — phrasing that assumes the common case is often not being able to offer anything.
+- `guest_templates/opinion_form.html:259-266` doesn't render a parent field at all on the nomen-family
+  branch of the guest submission form.
+- `classic/lib/PBDB/Opinion.pm:595-611` (the main editor form) uses one shared, always-optional parent
+  field regardless of which status is selected from the dropdown — nothing marks it required for any
+  particular status.
+
+An untargeted `nomen dubium`/`nomen vanum`/`nomen nudum`/`nomen oblitum` row is the expected product of
+"the material is too poor to place even approximately" (per the FAQ's own definitions — e.g. `nomen
+vanum`: *"the type is so poor that it is certainly indeterminate at the species level"*), not lost data.
+Dropping the target for `dubium`/`vanum`/`nudum` (even the ~90% that have one) is therefore a deliberate,
+accepted design choice, not a workaround for a data gap — same category as the `revalidated` drop already
+accepted for `status_old` (§4 Q4).
+
 ---
 
 ## 6. Settled enum crosswalks
 
-### 6.1 `spelling_reason` → `name_opinions.reason` (`namechange_reasons`)
+### 6.1 `spelling_reason` / `status` → `name_opinions.reason` (`namechange_reasons`)
 
-| legacy `spelling_reason` | new `reason` | edge_class |
-|---|---|---|
-| original spelling | `original` | root |
-| recombination | `recombination` | lineage |
-| reassignment | `assignment` | lineage |
-| correction | `correction` | lineage |
-| rank change | `reranked` | lineage |
-| misspelling | `misspelling` (never_accepted) | lineage |
+| legacy source | new `reason` | edge_class | legacy count |
+|---|---|---|---|
+| `spelling_reason`: original spelling | `original` | root | — |
+| `spelling_reason`: recombination | `recombination` | lineage | — |
+| `spelling_reason`: reassignment | `assignment` | lineage | — |
+| `spelling_reason`: correction | `correction` | lineage | — |
+| `spelling_reason`: rank change | `reranked` | lineage | — |
+| `spelling_reason`: misspelling | `misspelling` (never_accepted) | lineage | — |
+| `status`: subjective/objective synonym of | `junior synonym` (`objective` bool) | concept | 52,106 / 1,246 |
+| `status`: replaced by | `replaced by` | concept | 4,020 |
+| `status`: invalid subgroup of | `invalid subgroup` | concept | 1,420 [§5.2] |
+| `status`: nomen oblitum, targeted only | `nomen oblitum` | concept | 59 [§5.2] |
 
-The synonymy reasons (`junior synonym`, `replaced by`; both `concept`) come from `status`, not
-`spelling_reason` (§5). `objective`/`subjective synonym of` both map to `junior synonym` with the
-`objective` boolean (D7). Dropped legacy-invention token `code` has no source (D7).
+`objective`/`subjective synonym of` both map to `junior synonym` with the `objective` boolean (D7).
+Dropped legacy-invention token `code` has no source (D7). `invalid subgroup` and `nomen oblitum` carry
+`objective = NULL` — the boolean is the sole carrier of the subjective/objective split and doesn't apply
+to either (§5.2).
 
-### 6.2 `status` (nomen family) → `validity_opinions.status` (`nomenclatural_statuses`)
+### 6.2 `status` (residual nomen family) → `validity_opinions.status` (`nomenclatural_statuses`)
 
-| legacy `status` | new `status` | targeted | legacy count |
+*(Revised 2026-08-18, §5.2 — `invalid subgroup of` and targeted `nomen oblitum` moved to §6.1 above;
+`targeted`/`target_permid` dropped from `validity_opinions` entirely, so there is no "targeted" column
+left to map to.)*
+
+| legacy `status` | new `status` | `bars_candidacy` | legacy count |
 |---|---|---|---|
 | nomen dubium | `nomen dubium` | false | 8,208 |
-| nomen nudum | `nomen nudum` | false | 2,533 |
+| nomen nudum | `nomen nudum` | **true** | 2,533 |
 | nomen vanum | `nomen vanum` | false | 569 |
-| nomen oblitum | `nomen oblitum` | false | 76 |
-| invalid subgroup of | `invalid subgroup of` | true (→ parent) | 1,420 |
+| nomen oblitum, untargeted only | `nomen oblitum` | false | 76 total, 17 untargeted |
 
-Total nomen family: 12,806 rows that would be silently dropped without `validity_opinions` (§10.5).
+Total residual: 11,327 rows (8,208 + 2,533 + 569 + 17) that would be silently dropped without
+`validity_opinions` — down from the original 12,806 headline now that `invalid subgroup of` and 59 of the
+76 `nomen oblitum` rows have a concept-class home instead (§10.5, §5.2).
 
 ### 6.3 `basis` → `evidence` (all three tables; §10.5 constraint 1)
 
@@ -374,12 +520,17 @@ correction to a reference's basis will not retroactively change inheriting opini
 | —— of the 670, pointed-at only (≥1 of child_no/parent_no/parent_spelling_no; 130 via parent_spelling_no) | 141 |
 | `orig_no = 0` | 0 |
 | opinions with `basis IS NULL` | 298,470 |
-| nomen-family opinions (validity) | 12,806 |
+| nomen-family + invalid-subgroup-of opinions (original headline) | 12,806 |
+| — of those, now routed to `name_opinions` concept-class (§5.2, 2026-08-18) | 1,479 |
+| — of those, remaining in `validity_opinions` (§5.2, 2026-08-18) | 11,327 |
 
 Design-doc §10.5 probes (kept for cross-reference): distinct `orig_no`→permids 403,640; orig rows w/o
 original-spelling opinion 13,607; clusters with no opinions at all 10,245; rootless clusters (no
 `belongs to`) 17,062; authorities rows no opinion references 6,361; clusters where rank varies across
 spellings 11,704.
+
+See §5.2 for the full per-token targeted/untargeted breakdown behind the 1,479 / 11,327 split
+(re-probed live 2026-08-18 against the Postgres-ported `pbdb_archive` mirror).
 
 ---
 
@@ -394,6 +545,13 @@ spellings 11,704.
 - [x] Fill the per-table column maps — **§9** (drafted 2026-08-07; legacy columns + all counts
       re-probed live against `pbdb_archive`). Residual soft calls made inline (§9.7); two flagged
       for confirmation.
+- [x] **Nomen-family / `invalid subgroup of` routing** DECIDED per-token — **§5.2** (2026-08-18):
+      `invalid subgroup of` and targeted `nomen oblitum` become `name_opinions` concept-class folds;
+      `nomen dubium`/`nomen vanum`/`nomen nudum`/untargeted `nomen oblitum` stay in `validity_opinions`
+      as untargeted rows (`target_permid` dropped from the table entirely); `nomen nudum` alone bars its
+      subject's accepted-spelling candidacy in `derive()`. Schema (`create_new.sql`) and spec already
+      updated to match; `derive_taxa()` itself still needs the ledger-model rewrite tracked in
+      `docs/classic-taxa-opinions.md` §9.8.4.1–.2 before B4 can rely on it.
 - [ ] Then start B4 (`/opsx:new migrate-taxa-opinions`).
 
 ---
@@ -414,9 +572,11 @@ row), while every other emitted opinion row is driven by an `opinions` row.
 ```
  0. mint map:   taxon_no → uuidv7 permid, 1:1 over all 517,287 authorities rows (§2). Never collapses.
  1. name mint:  iterate authorities  → 517,287 name_opinions rows (root or lineage; §9.1)
- 2. name concept: iterate opinions status ∈ {subj/obj synonym of, replaced by} → ~57,262 rows (§9.2)
+ 2. name concept: iterate opinions status ∈ {subj/obj synonym of, replaced by,
+                  invalid subgroup of, nomen oblitum WHERE parent_no≠0}         → ~58,851 rows (§9.2)
  3. assignment: iterate opinions status = 'belongs to'                          → ~927,178 rows (§9.3)
- 4. validity:   iterate opinions status ∈ {nomen *, invalid subgroup of}        →   12,806 rows (§9.4)
+ 4. validity:   iterate opinions status ∈ {nomen dubium, nomen nudum, nomen
+                  vanum, nomen oblitum WHERE parent_no=0}                       →   11,327 rows (§9.4)
 ```
 
 `opinions` status `'misspelling of'` (875) and every spelling-change `'belongs to'` are **not** emitted
@@ -478,18 +638,21 @@ The lineage row draws its **provenance** (`reference`, `pubyr`/`attribution`, `e
 `authority_id`) from `authorities`. See §9.7(ii) for why `evidence` must be `map(w.basis)` and not the
 `false` that a literal reading of §3 would give.
 
-### 9.2 `name_opinions` — concept pass (iterate `opinions` synonymy, ~57,262 rows)
+### 9.2 `name_opinions` — concept pass (iterate `opinions` synonymy + folds, ~58,851 rows)
 
-Source: `status ∈ {'subjective synonym of' 52,106, 'objective synonym of' 1,246, 'replaced by' 4,020}`
-= 57,372, **minus 110 self-edges** skipped (§9.5). Non-minting: identity columns stay `NULL`.
+Source: `status ∈ {'subjective synonym of' 52,106, 'objective synonym of' 1,246, 'replaced by' 4,020,
+'invalid subgroup of' 1,420, 'nomen oblitum' WHERE parent_no≠0 59}` = 58,851, **minus 111 self-edges**
+skipped (110 from the original synonymy set + 1 from `invalid subgroup of`; §9.5). Non-minting: identity
+columns stay `NULL`. `invalid subgroup of` and targeted `nomen oblitum` join this pass 2026-08-18 (§5.2)
+— routed identically to the original three statuses; Classic treats all five as the same kind of fold.
 
 | target column | source |
 |---|---|
 | `subject_permid` | `permid(child_spelling_no)` |
-| `target_permid` | `permid(parent_spelling_no)` — always present for these statuses (0 rows with `parent_spelling_no=0`) |
-| `reason_id` | `'junior synonym'` for subjective/objective synonym; `'replaced by'` for replaced by (§6.1) |
+| `target_permid` | `permid(parent_spelling_no)` — always present for these statuses (0 rows with `parent_spelling_no=0`; confirmed live for `invalid subgroup of`/targeted `nomen oblitum` too, 2026-08-18) |
+| `reason_id` | `'junior synonym'` for subjective/objective synonym; `'replaced by'` for replaced by; `'invalid subgroup'` for invalid subgroup of; `'nomen oblitum'` for nomen oblitum WHERE `parent_no≠0` (§6.1) |
 | `edge_class` | `'concept'` |
-| `objective` | `true` for `objective synonym of`; `false` for `subjective synonym of`; **`NULL`** for `replaced by` (D7; sole carrier of the split) |
+| `objective` | `true` for `objective synonym of`; `false` for `subjective synonym of`; **`NULL`** for `replaced by`, `invalid subgroup of`, and `nomen oblitum` (D7; sole carrier of the split, applies to none of the fold-only reasons) |
 | `new_name`, `rank_id`, `authority_id`, `pages`, `figures` | `NULL` (non-minting concept edge) |
 | `reference_id`, `pubyr`/`attribution`, `evidence` | from the `opinions` row (shared §9.0) |
 
@@ -506,17 +669,28 @@ and **minus 2** self-edges (§9.5). No other status asserts containment (routing
 | `questioned` | **`false`** — no legacy source column for incertae sedis on `opinions` (§9.7 note; not flagged, default is correct for the mass) |
 | `reference_id`, `pubyr`/`attribution`, `evidence` | shared §9.0 |
 
-### 9.4 `validity_opinions` (iterate `opinions` nomen family, 12,806 rows)
+### 9.4 `validity_opinions` (iterate `opinions` residual nomen family, 11,327 rows)
 
-Source: the five statuses of §6.2. `status_id` + `targeted` FK-composite pinned (create_new.sql:4780).
+*(Revised 2026-08-18, §5.2 — the table is no longer target-bearing at all; the single-shape table below
+replaces the old untargeted/targeted split now that `invalid subgroup of` and targeted `nomen oblitum`
+have moved to §9.2.)*
 
-| target column | untargeted (nomen dubium 8,208 / nudum 2,533 / vanum 569 / oblitum 76) | targeted (`invalid subgroup of` 1,420) |
-|---|---|---|
-| `subject_permid` | `permid(child_spelling_no)` | `permid(child_spelling_no)` |
-| `status_id` | `map(status)` via §6.2 | `'invalid subgroup of'` |
-| `targeted` | `false` | `true` |
-| `target_permid` | `NULL` (CHECK: `targeted = (target IS NOT NULL)`) | `permid(parent_spelling_no)` — all 1,420 have `parent_spelling_no ≠ 0` |
+Source: `status ∈ {'nomen dubium' 8,208, 'nomen nudum' 2,533, 'nomen vanum' 569}` plus `'nomen oblitum'
+WHERE parent_no=0` (17) = 11,327. `nomenclatural_status_id` is a plain FK to
+`dictionaries.nomenclatural_statuses` (no composite/targeted FK — create_new.sql `validity_opinions`).
+`parent_no`/`parent_spelling_no` are read for none of these rows — the legacy target, when one exists
+(7,245 / 2,430 / 469 / 0 of the four respectively; §5.2), is a deliberate, logged drop, not a column on
+this table.
+
+| target column | source |
+|---|---|
+| `subject_permid` | `permid(child_spelling_no)` |
+| `nomenclatural_status_id` | `map(status)` via §6.2 |
 | `reference_id`, `pubyr`/`attribution`, `evidence` | shared §9.0 |
+
+No other column varies by status — `bars_candidacy` lives on the dictionary row (`nomen nudum` only),
+not on the opinion, so `derive()` reads it via the FK rather than the migration needing to stamp
+anything status-specific onto the row itself.
 
 ### 9.5 Skip / repair register (edge cases, all counts live 2026-08-07)
 
@@ -528,11 +702,17 @@ silently dropped:
 | `child_spelling_no ∉ authorities` (subject unresolvable) | **2** | 2–4 | skip the row (no permid to be subject) |
 | `parent_spelling_no ∉ authorities` (target/containing unresolvable) | **8** | 2–4 | skip the edge (untargeted validity is unaffected) |
 | `child_no ∉ authorities` (lineage target unresolvable) | **1** | 1 | disqualify as introducing opinion → spelling falls to next-ranked, else root |
-| concept self-edge `child_spelling_no = parent_spelling_no` | **110** | 2 | skip (would violate `name_opinion_not_self`; self-synonymy is meaningless) |
+| concept self-edge `child_spelling_no = parent_spelling_no` (synonymy family) | **110** | 2 | skip (would violate `name_opinion_not_self`; self-synonymy is meaningless) |
+| concept self-edge `child_spelling_no = parent_spelling_no` (`invalid subgroup of`) | **1** | 2 | skip, same reason (probed 2026-08-18, §5.2) |
 | assignment self-edge `child_spelling_no = parent_spelling_no` | **2** | 3 | skip (would violate `assignment_not_self`) |
 | `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | emit no assignment row (already in §9.3 count) |
 
 `child_spelling_no = 0`: **0 rows** — every opinion has a resolvable subject candidate.
+
+**Targeted nomen family (probed 2026-08-18, §5.2): clean.** Across all 10,203 targeted rows of `nomen
+dubium`/`nomen nudum`/`nomen vanum`/`nomen oblitum` (routing to §9.2 or dropped per §5.2 as applicable),
+**0** self-edges and **0** unresolvable `parent_spelling_no` — no skip-register entries needed for this
+slice.
 
 ### 9.7 Residual column calls (made inline; two flagged for confirmation)
 
