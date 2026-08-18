@@ -4707,13 +4707,18 @@ CREATE TABLE name_opinions (
     FOREIGN KEY (reason_id, edge_class)
         REFERENCES dictionaries.namechange_reasons (id, edge_class),
 
-    -- THE MINTING SHAPE, a plain same-row CHECK because edge_class is on the row:
+    -- THE MINTING SHAPE, a plain same-row CHECK because edge_class is on the row.
+    -- Identity (new_name, rank_id) is set IFF edge_class = 'root': a permid's name
+    -- and rank are minted once, on its root row (from authorities); lineage and
+    -- concept edges assert relationships between permids whose identities already
+    -- live on their own root rows, so they carry a target and NO identity.
+    -- (Ledger model — mapping doc §3.2, 2026-08-17.)
     --   'root'    ('original')    ⇒ no target; mints identity  (new_name, rank_id set)
-    --   'lineage' (new spelling)  ⇒ target set; mints identity  (new_name, rank_id set)
+    --   'lineage' (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
     --   'concept' (synonymy edge) ⇒ target set; NO identity     (new_name, rank_id NULL)
     CONSTRAINT name_opinion_shape CHECK (
            (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL)
-        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NOT NULL AND rank_id IS NOT NULL)
+        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
         OR (edge_class = 'concept' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
     )
     -- RESIDUAL (not covered here): "objective NOT NULL iff reason = 'junior synonym'"
