@@ -23,6 +23,20 @@ Postgres-ported mirror (`pg-classic-pool.js`, `PG_CLASSIC_*`) during this round 
 Target schema: `postgresql/create_new.sql` (taxa/opinions block ~L4701–5018; exact offsets have
 shifted since 2026-08-07 as the dictionaries grew).
 
+> **MIGRATION vs. DERIVATION — read this before any other section.** Migration writes every
+> qualifying legacy opinion as its own ledger row, unconditionally. It NEVER compares `evidence` /
+> `pubyr` / `id` across candidate opinions to pick a "winner," and it never needs to know which
+> opinion currently governs a permid's accepted spelling, classification, or validity. That
+> ranking — `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — belongs exclusively to
+> `derive_taxa()` (`docs/classic-taxa-opinions.md` §9.8.4), which runs later, standalone, against
+> the complete ledger to materialize `taxa`. **If you are designing migration logic and find
+> yourself ranking or selecting among multiple candidate opinions, stop — that logic belongs in
+> `derive_taxa()`, not here.** This document is a decision log: later dated sections can supersede
+> earlier ones (see "Supersedes" notes), but superseded sections are not rewritten, only annotated
+> in place — always prefer the most recently dated decision on a given topic. Two sections below
+> predate the §3.2 ledger-model decision and describe migration-time ranking that is no longer
+> correct; each is marked accordingly where it appears (§4 Q2 sub-decision, §9.1).
+
 ---
 
 ## 1. Why this can't be a flat mapping
@@ -259,7 +273,16 @@ unstable, improperly-rewritten pointer B4 exists to avoid — for 0.13% of names
 Classic itself failed to document. The severance is real (see §3.1 example 1, *Canis littoralis*) and
 accepted. The earlier lean to (b) is **reversed.**
 
-**Sub-decision — the canonical winner *(DECIDED, 2026-08-06)*.** When a derived spelling appears as
+**Sub-decision — the canonical winner *(DECIDED, 2026-08-06 — ⚠ SUPERSEDED, 2026-08-17, §3.2)*.**
+This sub-decision predates the ledger model and describes a **migration-time** ranking. Under §3.2
+there is no single "minting row" for a derived spelling to be won — every qualifying opinion
+(any row with `child_spelling_no ≠ child_no`) is migrated as its own `lineage` ledger row,
+unconditionally, with no ranking or comparison across candidates. The `evidence`/`pubyr`/`id`
+ranking described below is real and still used — but only by `derive_taxa()`, later, reading the
+full ledger this migration produced, never by migration code itself. Kept here for history; do
+not implement this as written.
+<br><br>
+Original text, for reference only: when a derived spelling appears as
 `child_spelling_no` in *several* introducing (spelling-*change*) opinions carrying *different*
 `spelling_reason`s, which one sets the minting row's `reason` + `target`?
 
@@ -280,14 +303,18 @@ since `misspelling` is `never_accepted` while `correction`/`recombination`/`rank
 accepted-spelling-eligible. The other 38 are conflicts among legitimate reasons (cosmetic — they change
 the token, not eligibility).
 
-**DECISION: canonical winner.** The introducing opinion is the top-ranked one by `derive_taxa()`'s own
+**DECISION (⚠ SUPERSEDED, 2026-08-17, §3.2 — see the note above; NOT a migration-side rule despite
+the closing line below, kept verbatim for history): canonical winner.** The introducing opinion is
+the top-ranked one by `derive_taxa()`'s own
 ordering — `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — and its `spelling_reason` +
 `child_no` set the minting row. No new machinery (it reuses the ranking `derive_taxa()` applies
 everywhere), deterministic and total (strict order → exactly one winner), and correct on the stakes:
 for the 586 misspelling-vs-legitimate cases, whichever opinion is best-evidence/most-recent decides
 whether the spelling is minted `never_accepted` or accepted-eligible — the literature adjudicates,
-exactly as it does for classification. A migration-side rule only; settles all 624 without a bespoke
-branch.
+exactly as it does for classification. ~~A migration-side rule only; settles all 624 without a bespoke
+branch.~~ **This last sentence is the error this note exists to flag: under the ledger model (§3.2)
+this ranking runs only inside `derive_taxa()`, never in migration. Migration writes all 624
+conflicting rows as separate ledger rows and lets `derive_taxa()` resolve them at read time.**
 
 **Why the doc says 13.6K (and why it's a different problem).** §10.5's probe bundles several unrelated
 "orphan" counts under one headline. Separated:
@@ -613,10 +640,24 @@ text carries from whichever source row the pass names.
 
 ### 9.1 `name_opinions` — minting pass (iterate `authorities`, 517,287 rows)
 
-One row per `authorities.taxon_no`. **Shape** is decided by the **top-ranked introducing opinion** —
+> ⚠ **SUPERSEDED framing, 2026-08-17, §3.2.** The next paragraph and the "LINEAGE" half of the table
+> below describe a **pre-ledger** design where this single pass decides ROOT-vs-LINEAGE **shape** by
+> ranking candidate opinions and mints exactly one row per `authorities.taxon_no` either way. That is
+> no longer correct. Under the ledger model:
+> - This pass (now `migrate-name-opinions.js`) mints **ROOT rows only**, unconditionally, one per
+>   `authorities.taxon_no`, with no ranking and no dependency on any `opinions` row at all.
+> - **LINEAGE** rows are NOT minted here. Every opinion satisfying `child_spelling_no ≠ child_no` is
+>   migrated as its own separate `lineage` row by whichever per-slice migration owns that opinion —
+>   unconditionally, with no ranking or "winning opinion" selection at migration time (see the notice
+>   at the top of this document). `derive_taxa()` ranks among them later, at read time.
+> - The LINEAGE column's per-row *derivations* below (how to populate a lineage row from a single
+>   introducing opinion `w`) are still substantively correct and reusable — read `w` as "the opinion
+>   this particular ledger row comes from," not "the winning opinion out of several."
+
+One row per `authorities.taxon_no`. ~~**Shape** is decided by the **top-ranked introducing opinion** —
 `opinions WHERE child_spelling_no = taxon_no AND child_no <> taxon_no`, ranked by derive_taxa()'s own
 `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` (the Q2 sub-decision canonical winner). None
-⇒ **root**; one ⇒ **lineage**. `orig_no` is never read (§2, §9.8.1).
+⇒ **root**; one ⇒ **lineage**.~~ `orig_no` is never read (§2, §9.8.1).
 
 | target column | ROOT (404,229: 403,559 originals + 670 orphans) | LINEAGE (113,058, refined by winning intro opinion `w`) |
 |---|---|---|
