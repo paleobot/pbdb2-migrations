@@ -599,6 +599,12 @@ See §5.2 for the full per-token targeted/untargeted breakdown behind the 1,479 
       updated to match; `derive_taxa()` itself still needs the ledger-model rewrite tracked in
       `docs/classic-taxa-opinions.md` §9.8.4.1–.2 before B4 can rely on it.
 - [ ] Then start B4 (`/opsx:new migrate-taxa-opinions`).
+- **Parallel exploratory validation (2026-08-19, not B4 itself):** `migration_exploration/` prototypes the
+  full `opinions` → `name_opinions`/`assignment_opinions`/`validity_opinions` translation as 48 individual
+  `(status, spelling_reason)` handlers, each validated against live `pg_classic` data — see its own
+  `DESIGN.md`. It's a parallel rewrite, not a start on B4 proper; nothing above is superseded by it, but
+  several of its live-probed findings (dictionary-token gaps, the `containing_permid` nullability decision,
+  new anomaly classes) are folded into this doc above as they were confirmed.
 
 ---
 
@@ -771,6 +777,17 @@ silently dropped:
 | assignment self-edge `child_spelling_no = parent_spelling_no` | **2** | 3 | skip (would violate `assignment_not_self`) |
 | `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | ⚠ SUPERSEDED, 2026-08-19, §9.6 — now emitted with `containing_permid = NULL`, not skipped |
 
+**`parent_spelling_no ∉ authorities`/`child_spelling_no ∉ authorities` — root cause confirmed, 2026-08-19.**
+Live-probed against `pg_classic`: every one of these orphaned `taxon_no` values (and `319671`, a `parent_no`
+concept anchor behind two of them) is **entirely absent from Classic's own `authorities` table**, not
+merely excluded by this project's separate authorities-migration pass. Each sits as a single-id gap inside
+an otherwise dense, taxonomically coherent id neighborhood (e.g. `100716`, referenced by 5 `belongs to`
+opinions, sits directly between real neighbors `100715 Eschrichtidae`/`100717 Grampidae`) — the signature
+of an `authorities` row that existed and was later deleted without Classic cascading the delete into
+`opinions`. Genuine Classic-side data defect, not a migration gap; the skip disposition above is correct
+and no fix applies on this side. Full detail (affected opinion_no list) in
+`migration_exploration/DESIGN.md` §3.
+
 `child_spelling_no = 0`: **0 rows** — every opinion has a resolvable subject candidate.
 
 **Targeted nomen family (probed 2026-08-18, §5.2): clean.** Across all 10,203 targeted rows of `nomen
@@ -807,6 +824,22 @@ couldn't resolve the parent." An unresolvable/orphaned `parent_spelling_no` (§9
 `parent_spelling_orphan` case) is always skipped and logged, never written as NULL. If a future change
 ever makes an unresolvable parent migrate as NULL too, this invariant breaks and the two populations
 become indistinguishable by inspecting the table alone.
+
+**Two more anomaly classes surfaced during the exploratory pair-based validation (2026-08-19), not
+previously catalogued anywhere in this doc — full write-ups in `migration_exploration/DESIGN.md` §3, not
+duplicated here:**
+- **"Convergent correction"** (`replaced-by`/`correction`, 9 rows): a correction's `child_spelling_no`
+  coincides with the `replaced by` target's identity — confirmed benign, every case a genuine
+  unavailable/replacement-name event (e.g. *Tianchiasaurus* → *Tianchisaurus*). The concept edge is
+  correctly skipped as a self-loop while the independent lineage edge still emits the same fact; no data
+  is lost and no fix applies.
+- **Lineage self-reference** (224 rows: `child_spelling_no = child_no` despite a non-`'original spelling'`
+  `spelling_reason`): root cause genuinely unclear. Sibling-opinion evidence suggests Classic curators
+  sometimes populate `spelling_reason` from a taxon's general nomenclatural history rather than strictly
+  this row's own values; for `misspelling of` specifically, the deviation shows up on `parent_spelling_no`
+  (a field this pair's handler never reads) rather than `child_spelling_no`, likely a vestigial data-entry
+  artifact. Doesn't change migration behavior — the existing no-lineage-edge skip is correct regardless of
+  why — but worth raising with Classic's curatorial team for their own documentation.
 
 ### 9.7 Residual column calls (made inline; two flagged for confirmation)
 
