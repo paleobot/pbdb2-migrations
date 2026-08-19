@@ -1,7 +1,7 @@
 # Opinions Migration — Pair-Based Decomposition
 
-**Status:** All 48 `(status, spelling_reason)` pairs implemented (`opinions/`), syntax-checked. Not yet
-execution-tested against live data (see §7).
+**Status:** All 48 `(status, spelling_reason)` pairs implemented (`opinions/`), syntax-checked, and now
+individually validated against live `pg_classic` data (see §7). Not yet execution-tested end-to-end.
 **Scope:** legacy `opinions` → `name_opinions` / `assignment_opinions` / `validity_opinions` only.
 **Not in scope:** legacy `authorities` → `name_opinions` (root minting). `migrate-authorities.js` and
 `migrate-name-opinions.js`'s root-minting pass are unchanged, reused as-is from the existing root-level
@@ -81,21 +81,47 @@ tokens are `lineage`-class and `never_accepted`.
 orthogonal to whether that file also emits a lineage edge (which depends on `spelling_reason`, not
 `parent_no`).
 
-**The `belongs-to`/`original-spelling` anomaly.** 50 of the 743,712 rows in this pair are labeled
-`original spelling` but have `child_spelling_no ≠ child_no` — a real lineage claim hiding under a
-mistrusted label. Each gets its own lineage row regardless, with the reason taken from the pre-computed
-`mistagged-original-spelling.csv` worklist:
+**The mistagged `original spelling` anomaly.** Not exclusive to one pair: any `spelling_reason =
+'original spelling'` row can, in principle, have `child_spelling_no ≠ child_no` — a real lineage claim
+hiding under a mistrusted label. Each gets its own lineage row regardless, resolved per-pair:
 
-| inferred reason | rows | `namechange_reasons` token |
-|---|---:|---|
-| reranked | 16 | `reranked` |
-| recombination | 10 | `recombination` |
-| correction | 1 | `correction` |
-| duplicate-or-homonym | 22 | `assignment` |
+- **`belongs-to`/`original-spelling`** (50 of 743,712 rows): reason taken from the pre-computed
+  `mistagged-original-spelling.csv` worklist:
 
-The 22 "duplicate-or-homonym" rows (identical name + rank, different `taxon_no` — e.g. a name re-anchored
-to a newer authority, common in botanical nomenclature) are not special-cased; none of the more specific
-tokens describe "same name, same rank, new authority," so they use the generic `assignment` token.
+  | inferred reason | rows | `namechange_reasons` token |
+  |---|---:|---|
+  | reranked | 16 | `reranked` |
+  | recombination | 10 | `recombination` |
+  | correction | 1 | `correction` |
+  | duplicate-or-homonym | 22 | `assignment` |
+
+  The 22 "duplicate-or-homonym" rows (identical name + rank, different `taxon_no` — e.g. a name
+  re-anchored to a newer authority, common in botanical nomenclature) are not special-cased; none of
+  the more specific tokens describe "same name, same rank, new authority," so they use the generic
+  `assignment` token.
+
+- **`replaced-by`/`original-spelling`** (1 of 3,706 rows — opinion_no 955925, found live during the
+  validation pass, 2026-08-19): another duplicate-or-homonym case (`child_no` and `child_spelling_no`
+  both resolve to "Metatheria", subclass, under different `taxon_no`) → `assignment` token. Hardcoded
+  in the handler (`MISTAGGED_LINEAGE_REASON`) rather than CSV-driven, since it's a single confirmed
+  instance rather than a worklist-sized anomaly.
+
+- **`subjective-synonym-of`/`original-spelling`** (2 of 47,687 rows, found live during the validation
+  pass, 2026-08-19) — the first pair where this backfill had to be added as genuinely new logic (no
+  prior assignment/lineage split existed in this single-output concept-only handler):
+  - opinion_no 71324: `child_no`="Dromomeryx (Subdromomeryx)" (subgenus) vs `child_spelling_no`=
+    "Subdromomeryx" (genus) — a rank-change claim → `reranked` token.
+  - opinion_no 912640: `child_no`/`child_spelling_no` both "Ericales" (order), different `taxon_no` →
+    duplicate-or-homonym, `assignment` token. This row's concept edge is *also* independently skipped
+    as a same-taxon self-reference (`child_no == parent_no`) — the backfill still fires regardless,
+    since it's gated only on the true shared prerequisites (`child_spelling_no` and reference
+    resolving), not on the concept edge's own outcome. This is the first confirmed case where a row
+    hits two independent anomalies at once, and it validates the "resolved and skipped independently"
+    principle from §3's dual-emission rule for a case where the two paths' skip conditions actually
+    overlap.
+
+Every other pair checked during validation (§7) came back clean of this anomaly — but absence there is
+only "none found where checked," not proof none exist in pairs not yet re-probed after a code change.
 
 **Homonyms are not modeled in this migration.** Per the 2.0-native design (distinct from Classic),
 homonymy is an emergent property of the derived `taxa` table (non-unique `taxon_name`), not a curated or
@@ -133,17 +159,20 @@ migration_exploration/
     identity.js                      name-permid Map, reference Map, person 0-sentinel fallback
     attribution.js                   second-hand rule, opinionAttribution builder, "authority unknown" sentinel
     evidence.js                      basis → evidence boolean
+    anomaly-log.js                   per-status-folder anomaly ledger (§7): createAnomalyLog(import.meta.url)
+                                      .log(opinionNo, targetTable, severity, issue, description), .flush()
+                                      rewrites <folder>/anomalies.csv, replacing only that script's own rows
   opinions/
-    belongs-to/                      6 files (one per spelling_reason)
-    subjective-synonym-of/           6 files
-    objective-synonym-of/            5 files
-    invalid-subgroup-of/             6 files
-    misspelling-of/                  1 file
-    replaced-by/                     5 files
-    nomen-dubium/                    5 files
-    nomen-nudum/                     5 files
-    nomen-oblitum/                   4 files (each branches internally on parent_no, §3)
-    nomen-vanum/                     5 files
+    belongs-to/                      6 files (one per spelling_reason) + anomalies.csv
+    subjective-synonym-of/           6 files + anomalies.csv
+    objective-synonym-of/            5 files + anomalies.csv
+    invalid-subgroup-of/             6 files + anomalies.csv
+    misspelling-of/                  1 file + anomalies.csv
+    replaced-by/                     5 files + anomalies.csv
+    nomen-dubium/                    5 files + anomalies.csv
+    nomen-nudum/                     5 files + anomalies.csv
+    nomen-oblitum/                   4 files (each branches internally on parent_no, §3) + anomalies.csv
+    nomen-vanum/                     5 files + anomalies.csv
   run.js                            not yet written — global orchestrator (§7)
 ```
 
@@ -166,10 +195,30 @@ All 48 pairs are implemented and pass `node --check`. Every pair falls into exac
 
 ## 7. Remaining work
 
-- **Validation.** Pairs 1–10 and 24 were each individually confirmed against live query results and
-  spot-checked opinion_nos during development. The remaining 37 pairs were implemented against the rules in
-  §3–§4 but have not each been individually probed the same way — worth a validation pass before treating
-  this as production-ready.
+- **Validation — complete, all 48 pairs.** Every pair has been individually confirmed against live
+  `pg_classic` query results, cross-checked against its header comment's row count, and probed for
+  structural anomalies (self-references, orphaned identities, mislabeled `original spelling` rows). This
+  includes the 11 pairs validated earliest in development (belongs-to's 6, subjective-synonym-of's
+  `correction`/`original-spelling`/`rank-change`/`recombination`, `misspelling-of/misspelling.js`),
+  retrofitted after the fact with the same `lib/anomaly-log.js` instrumentation once it existed. Every
+  finding is logged to a per-status-folder `opinions/<status>/anomalies.csv` (schema:
+  `opinion_no,script,target_table,severity,issue,description`; `severity` is `skip` for rows a handler
+  excludes entirely from a given target table, `warning` for rows that are written but carry a noteworthy
+  property) — 734 anomaly rows total across all 48 pairs.
+  - **Gaps found and fixed:** two mistagged-`original spelling` backfills were missing and got added —
+    `replaced-by/original-spelling.js` (1 row, hardcoded `MISTAGGED_LINEAGE_REASON` map) and
+    `subjective-synonym-of/original-spelling.js` (2 rows; this one required adding the backfill
+    mechanism to a handler that had never had a lineage-emission path at all, since it's otherwise a
+    pure single-output concept pair). The latter also surfaced the first case where a row hits two
+    independent anomalies at once (opinion_no 912640: same-taxon self-reference on the concept side,
+    *and* mistagged-spelling on the lineage side) — confirming the "resolved and skipped independently"
+    principle actually holds when the two paths' skip conditions overlap, not just when they're disjoint.
+  - **Recurring anomaly patterns:** (1) same-taxon self-reference opinions (`child_no == parent_no`),
+    found across most synonymy/replacement-style statuses (heaviest in `belongs-to`, absent in
+    `nomen-oblitum`/`nomen-vanum`), always correctly skipped by the existing `self_reference` checks;
+    (2) "convergent correction" rows in `replaced-by/correction.js` specifically, where a correction's
+    `child_spelling_no` coincides with the replacement target's identity — the concept edge is correctly
+    dropped as a self-loop while the independent lineage edge still emits.
 - **`run.js`.** The global orchestrator — run all 48 handlers, aggregate one final reconciliation
   (inserted + skipped == 998,565 across every pair) — has not been written.
 - **Execution testing.** Nothing in this exploration has been run end-to-end. This sandbox's `.env` only

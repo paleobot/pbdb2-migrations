@@ -10,6 +10,7 @@ import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
 import { resolveSecondHand, assertValidAttribution } from '../../lib/attribution.js';
 import { evidenceFromBasis } from '../../lib/evidence.js';
+import { createAnomalyLog } from '../../lib/anomaly-log.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -26,6 +27,8 @@ function makeSampleLogger(label) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting nomen-vanum/original-spelling migration...`);
+
+  const anomalyLog = createAnomalyLog(import.meta.url);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
@@ -66,10 +69,20 @@ async function main() {
 
       const child = Number(src.child_spelling_no);
       const subjectPermid = child ? nameMap.get(child) : undefined;
-      if (!subjectPermid) { skip.child_spelling_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`); continue; }
+      if (!subjectPermid) {
+        skip.child_spelling_unresolved++;
+        logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'validity_opinions', 'skip', 'child_spelling_unresolved', `validity_opinions testimony skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+        continue;
+      }
 
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
-      if (!referenceId) { skip.orphan_reference++; logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`); continue; }
+      if (!referenceId) {
+        skip.orphan_reference++;
+        logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+        anomalyLog.log(src.opinion_no, 'validity_opinions', 'skip', 'orphan_reference', `validity_opinions testimony skipped: reference_no=${src.reference_no} not found in migrated refs`);
+        continue;
+      }
 
       const firstHand = src.ref_has_opinion === 'YES';
       const evidence = evidenceFromBasis(src.basis);
@@ -104,6 +117,9 @@ async function main() {
     process.exit(1);
   }
   console.log(`  Reconciliation: ${validityRows.length} + ${totalSkipped} == ${sourceRows} ✓`);
+
+  const anomalyCount = anomalyLog.flush();
+  console.log(`  Wrote ${anomalyCount} anomaly rows to opinions/nomen-vanum/anomalies.csv`);
 
   const pgClient = await pg.connect();
   let inserted = 0;

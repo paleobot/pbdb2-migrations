@@ -15,6 +15,7 @@ import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
 import { resolveSecondHand, assertValidAttribution } from '../../lib/attribution.js';
 import { evidenceFromBasis } from '../../lib/evidence.js';
+import { createAnomalyLog } from '../../lib/anomaly-log.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -31,6 +32,8 @@ function makeSampleLogger(label) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting nomen-oblitum/original-spelling migration...`);
+
+  const anomalyLog = createAnomalyLog(import.meta.url);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
@@ -88,11 +91,31 @@ async function main() {
       if (targeted) {
         targetedCount++;
         const subjectPermid = child ? nameMap.get(child) : undefined;
-        if (!subjectPermid) { conceptSkip.child_spelling_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`); continue; }
+        if (!subjectPermid) {
+          conceptSkip.child_spelling_unresolved++;
+          logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_spelling_unresolved', `concept (nomen oblitum, targeted) edge skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+          continue;
+        }
         const targetPermid = parent ? nameMap.get(parent) : undefined;
-        if (!targetPermid) { conceptSkip.parent_spelling_orphan++; logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`); continue; }
-        if (child === parent) { conceptSkip.self_reference++; logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`); continue; }
-        if (!referenceId) { conceptSkip.orphan_reference++; logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`); continue; }
+        if (!targetPermid) {
+          conceptSkip.parent_spelling_orphan++;
+          logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_orphan', `concept (nomen oblitum, targeted) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
+          continue;
+        }
+        if (child === parent) {
+          conceptSkip.self_reference++;
+          logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `concept (nomen oblitum, targeted) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no})${Number(src.child_no) === Number(src.parent_no) ? ` -- child_no == parent_no (${src.child_no}) too, a same-taxon self-reference opinion` : ''}`);
+          continue;
+        }
+        if (!referenceId) {
+          conceptSkip.orphan_reference++;
+          logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'orphan_reference', `concept (nomen oblitum, targeted) edge skipped: reference_no=${src.reference_no} not found in migrated refs`);
+          continue;
+        }
 
         const firstHand = src.ref_has_opinion === 'YES';
         const evidence = evidenceFromBasis(src.basis);
@@ -108,8 +131,18 @@ async function main() {
       } else {
         untargetedCount++;
         const subjectPermid = child ? nameMap.get(child) : undefined;
-        if (!subjectPermid) { validitySkip.child_spelling_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`); continue; }
-        if (!referenceId) { validitySkip.orphan_reference++; logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`); continue; }
+        if (!subjectPermid) {
+          validitySkip.child_spelling_unresolved++;
+          logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'validity_opinions', 'skip', 'child_spelling_unresolved', `validity_opinions testimony (nomen oblitum, untargeted) skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+          continue;
+        }
+        if (!referenceId) {
+          validitySkip.orphan_reference++;
+          logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+          anomalyLog.log(src.opinion_no, 'validity_opinions', 'skip', 'orphan_reference', `validity_opinions testimony (nomen oblitum, untargeted) skipped: reference_no=${src.reference_no} not found in migrated refs`);
+          continue;
+        }
 
         const firstHand = src.ref_has_opinion === 'YES';
         const evidence = evidenceFromBasis(src.basis);
@@ -146,6 +179,9 @@ async function main() {
   }
   console.log(`  Reconciliation (concept, targeted):     ${conceptRows.length} + ${totalConceptSkipped} == ${targetedCount} ✓`);
   console.log(`  Reconciliation (validity, untargeted):  ${validityRows.length} + ${totalValiditySkipped} == ${untargetedCount} ✓`);
+
+  const anomalyCount = anomalyLog.flush();
+  console.log(`  Wrote ${anomalyCount} anomaly rows to opinions/nomen-oblitum/anomalies.csv`);
 
   const pgClient = await pg.connect();
   let insertedConcept = 0;

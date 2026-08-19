@@ -1,3 +1,5 @@
 .env
 node_modules/
 .scratch/
+CLAUDE.local.md
+migration_exploration/opinions/*/anomalies.csv

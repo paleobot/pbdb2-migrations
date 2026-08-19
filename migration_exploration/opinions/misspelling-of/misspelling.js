@@ -17,6 +17,7 @@ import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
 import { resolveSecondHand, assertValidAttribution } from '../../lib/attribution.js';
 import { evidenceFromBasis } from '../../lib/evidence.js';
+import { createAnomalyLog } from '../../lib/anomaly-log.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -33,6 +34,8 @@ function makeSampleLogger(label) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting misspelling-of/misspelling migration...`);
+
+  const anomalyLog = createAnomalyLog(import.meta.url);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
@@ -72,15 +75,35 @@ async function main() {
       const childNo = Number(src.child_no);
 
       const subjectPermid = childSpelling ? nameMap.get(childSpelling) : undefined;
-      if (!subjectPermid) { skip.child_spelling_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`); continue; }
+      if (!subjectPermid) {
+        skip.child_spelling_unresolved++;
+        logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_spelling_unresolved', `lineage (historical misspelling) edge skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+        continue;
+      }
 
       const targetPermid = childNo ? nameMap.get(childNo) : undefined;
-      if (!targetPermid) { skip.child_no_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_no_unresolved child_no=${src.child_no}`); continue; }
+      if (!targetPermid) {
+        skip.child_no_unresolved++;
+        logSkip(`opinion_no=${src.opinion_no} child_no_unresolved child_no=${src.child_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_no_unresolved', `lineage (historical misspelling) edge skipped: child_no=${src.child_no} has no migrated permid`);
+        continue;
+      }
 
-      if (childSpelling === childNo) { skip.self_reference++; logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`); continue; }
+      if (childSpelling === childNo) {
+        skip.self_reference++;
+        logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `lineage (historical misspelling) edge skipped: child_spelling_no == child_no (${src.child_spelling_no}) despite status='misspelling of' -- row carries no actual spelling deviation`);
+        continue;
+      }
 
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
-      if (!referenceId) { skip.orphan_reference++; logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`); continue; }
+      if (!referenceId) {
+        skip.orphan_reference++;
+        logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'orphan_reference', `lineage (historical misspelling) edge skipped: reference_no=${src.reference_no} not found in migrated refs`);
+        continue;
+      }
 
       const firstHand = src.ref_has_opinion === 'YES';
       const evidence = evidenceFromBasis(src.basis);
@@ -116,6 +139,9 @@ async function main() {
     process.exit(1);
   }
   console.log(`  Reconciliation: ${lineageRows.length} + ${totalSkipped} == ${sourceRows} ✓`);
+
+  const anomalyCount = anomalyLog.flush();
+  console.log(`  Wrote ${anomalyCount} anomaly rows to opinions/misspelling-of/anomalies.csv`);
 
   const pgClient = await pg.connect();
   let inserted = 0;

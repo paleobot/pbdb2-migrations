@@ -15,6 +15,7 @@ import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
 import { resolveSecondHand, assertValidAttribution } from '../../lib/attribution.js';
 import { evidenceFromBasis } from '../../lib/evidence.js';
+import { createAnomalyLog } from '../../lib/anomaly-log.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -31,6 +32,8 @@ function makeSampleLogger(label) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting subjective-synonym-of/recombination migration...`);
+
+  const anomalyLog = createAnomalyLog(import.meta.url);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
@@ -89,6 +92,8 @@ async function main() {
       if (!referenceId) {
         orphanReference++;
         logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'orphan_reference', `concept (junior synonym) edge skipped: reference_no=${src.reference_no} not found in migrated refs`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'orphan_reference', `lineage (recombination) edge skipped: reference_no=${src.reference_no} not found in migrated refs`);
         continue;
       }
 
@@ -96,6 +101,8 @@ async function main() {
       if (!childSpellingPermid) {
         childSpellingUnresolved++;
         logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_spelling_unresolved', `concept (junior synonym) edge skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_spelling_unresolved', `lineage (recombination) edge skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
         continue;
       }
 
@@ -109,14 +116,17 @@ async function main() {
       if (!parentSpelling) {
         conceptSkip.parent_spelling_zero++;
         logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_zero', 'concept (junior synonym) edge skipped: parent_spelling_no is 0');
       } else {
         const targetPermid = nameMap.get(parentSpelling);
         if (!targetPermid) {
           conceptSkip.parent_spelling_orphan++;
           logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_orphan', `concept (junior synonym) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
         } else if (childSpelling === parentSpelling) {
           conceptSkip.self_reference++;
           logSkip(`opinion_no=${src.opinion_no} concept_self_reference taxon=${src.child_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `concept (junior synonym) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no})${childNo === Number(src.parent_no) ? ` -- child_no == parent_no (${src.child_no}) too, a same-taxon self-reference opinion` : ''}`);
         } else {
           conceptRows.push({
             permid: uuidv7(),
@@ -137,9 +147,11 @@ async function main() {
       if (!childNoPermid) {
         lineageSkip.child_no_unresolved++;
         logSkip(`opinion_no=${src.opinion_no} lineage_child_no_unresolved child_no=${src.child_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_no_unresolved', `lineage (recombination) edge skipped: child_no=${src.child_no} has no migrated permid`);
       } else if (childNo === childSpelling) {
         lineageSkip.self_reference++;
         logSkip(`opinion_no=${src.opinion_no} lineage_self_reference taxon=${src.child_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `lineage (recombination) edge skipped: child_spelling_no == child_no (${src.child_no}) despite spelling_reason='recombination' -- row carries no actual spelling deviation`);
       } else {
         lineageRows.push({
           permid: uuidv7(),
@@ -179,6 +191,9 @@ async function main() {
   }
   console.log(`  Reconciliation (concept): ${conceptRows.length} + ${totalConceptSkipped} == ${sourceRows} ✓`);
   console.log(`  Reconciliation (lineage): ${lineageRows.length} + ${totalLineageSkipped} == ${sourceRows} ✓`);
+
+  const anomalyCount = anomalyLog.flush();
+  console.log(`  Wrote ${anomalyCount} anomaly rows to opinions/subjective-synonym-of/anomalies.csv`);
 
   const pgClient = await pg.connect();
   let insertedConcept = 0;

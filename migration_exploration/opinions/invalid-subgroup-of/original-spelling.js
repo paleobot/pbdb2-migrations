@@ -11,6 +11,7 @@ import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
 import { resolveSecondHand, assertValidAttribution } from '../../lib/attribution.js';
 import { evidenceFromBasis } from '../../lib/evidence.js';
+import { createAnomalyLog } from '../../lib/anomaly-log.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -27,6 +28,8 @@ function makeSampleLogger(label) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting invalid-subgroup-of/original-spelling migration...`);
+
+  const anomalyLog = createAnomalyLog(import.meta.url);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
@@ -66,16 +69,41 @@ async function main() {
       const parent = Number(src.parent_spelling_no);
 
       const subjectPermid = child ? nameMap.get(child) : undefined;
-      if (!subjectPermid) { skip.child_spelling_unresolved++; logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`); continue; }
+      if (!subjectPermid) {
+        skip.child_spelling_unresolved++;
+        logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_spelling_unresolved', `concept (invalid subgroup) edge skipped: child_spelling_no=${src.child_spelling_no} has no migrated permid`);
+        continue;
+      }
 
-      if (!parent) { skip.parent_spelling_zero++; logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`); continue; }
+      if (!parent) {
+        skip.parent_spelling_zero++;
+        logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_zero', 'concept (invalid subgroup) edge skipped: parent_spelling_no is 0');
+        continue;
+      }
       const targetPermid = nameMap.get(parent);
-      if (!targetPermid) { skip.parent_spelling_orphan++; logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`); continue; }
+      if (!targetPermid) {
+        skip.parent_spelling_orphan++;
+        logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_orphan', `concept (invalid subgroup) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
+        continue;
+      }
 
-      if (child === parent) { skip.self_reference++; logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`); continue; }
+      if (child === parent) {
+        skip.self_reference++;
+        logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `concept (invalid subgroup) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no})${Number(src.child_no) === Number(src.parent_no) ? ` -- child_no == parent_no (${src.child_no}) too, a same-taxon self-reference opinion` : ''}`);
+        continue;
+      }
 
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
-      if (!referenceId) { skip.orphan_reference++; logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`); continue; }
+      if (!referenceId) {
+        skip.orphan_reference++;
+        logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'orphan_reference', `concept (invalid subgroup) edge skipped: reference_no=${src.reference_no} not found in migrated refs`);
+        continue;
+      }
 
       const firstHand = src.ref_has_opinion === 'YES';
       const evidence = evidenceFromBasis(src.basis);
@@ -111,6 +139,9 @@ async function main() {
     process.exit(1);
   }
   console.log(`  Reconciliation: ${concepts.length} + ${totalSkipped} == ${sourceRows} ✓`);
+
+  const anomalyCount = anomalyLog.flush();
+  console.log(`  Wrote ${anomalyCount} anomaly rows to opinions/invalid-subgroup-of/anomalies.csv`);
 
   const pgClient = await pg.connect();
   let inserted = 0;
