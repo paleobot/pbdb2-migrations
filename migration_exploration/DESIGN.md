@@ -145,7 +145,7 @@ phase — a candidate for separate cleanup, not addressed here.
 | nomen vanum | `validity_opinions`, `bars_candidacy=false` | same crosswalk (recombination/misspelling/correction/reassignment; no `rank change` variant) |
 
 `spelling_reason = 'original spelling'` never emits a lineage edge (by definition `child_spelling_no ==
-child_no`), except for the 50-row anomaly noted in §3.
+child_no`), except for the mistagged-anomaly rows noted in §3 (53 rows total, across three pairs).
 
 Live row counts per pair (probed against the Postgres-ported classic mirror, `PG_CLASSIC_*`): 998,565 total
 across 48 pairs, reconciling exactly against `docs/taxa-opinions-migration-mapping.md`'s per-status totals.
@@ -176,6 +176,11 @@ migration_exploration/
   run.js                            not yet written — global orchestrator (§7)
 ```
 
+Each folder's `anomalies.csv` is a generated artifact (gitignored, not checked in) — it's rebuilt by
+running that folder's handlers, which each clean up only their own prior rows via `anomaly-log.js`'s
+`.flush()`. If it's missing, that just means no handler in that folder has run since the last clone;
+running any handler recreates it for that folder (see §7 for what's currently logged there).
+
 Each pair handler: states its exact `(status, spelling_reason)` source filter and row count in a header
 comment; delegates identity/reference/person/attribution/evidence resolution to `lib/`; performs its own
 skip-and-log bookkeeping and reconciliation invariant (`inserted + skipped == source rows`, per emission
@@ -188,7 +193,7 @@ All 48 pairs are implemented and pass `node --check`. Every pair falls into exac
 
 | shape | pairs | example |
 |---|---:|---|
-| single-output, `original spelling`, no lineage — one per status except `nomen oblitum` (its own row below) | 8 | `belongs-to/original-spelling.js` (also carries the 50-row anomaly backfill, §3) |
+| single-output, `original spelling` — one per status except `nomen oblitum` (its own row below); no lineage edge except for the mistagged-anomaly backfill rows carried by 3 of the 8 (`belongs-to`, `replaced-by`, `subjective-synonym-of`; §3) | 8 | `belongs-to/original-spelling.js` |
 | dual-output: primary disposition + lineage edge, for every other `spelling_reason` across those same 8 statuses | 35 | `subjective-synonym-of/recombination.js` |
 | single-output, lineage only (`misspelling of`'s one spelling_reason) | 1 | `misspelling-of/misspelling.js` |
 | per-row targeted/untargeted branch, `nomen oblitum` (all 4 spelling_reason variants; 3 of the 4 also carry a lineage edge, §3) | 4 | `nomen-oblitum/recombination.js` |
