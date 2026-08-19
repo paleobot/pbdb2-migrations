@@ -5,8 +5,11 @@ column maps filled (**§9**, 2026-08-07). Ledger model + root-only identity DECI
 2026-08-17). **Nomen-family / validity routing revised (§5.2, 2026-08-18):** `invalid subgroup of`
 and targeted `nomen oblitum` move to `name_opinions` as concept-class folds; `nomen dubium`,
 `nomen vanum`, `nomen nudum`, and untargeted `nomen oblitum` stay in `validity_opinions`, with
-`nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. Next is starting B4
-(§8).
+`nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. **Rootless `belongs
+to` is migrated, not dropped (§9.6, 2026-08-19):** `assignment_opinions.containing_permid` is now
+nullable; the 332 `parent_spelling_no = 0` rows are inserted with `containing_permid = NULL`
+instead of being skipped — supersedes the exclusion in §9.3 and the disposition in §9.5. Next is
+starting B4 (§8).
 **Scope:** the legacy→new *opinion* migration (OpenSpec change **B4 = `migrate-taxa-opinions`**,
 not yet started). This is the detailed, laid-out successor to the flat
 `payloadSchemas/mappings/collections.txt`, needed because the opinion migration is a
@@ -715,6 +718,10 @@ columns stay `NULL`. `invalid subgroup of` and targeted `nomen oblitum` join thi
 
 ### 9.3 `assignment_opinions` (iterate `opinions` `belongs to`, ~927,178 rows)
 
+*(⚠ The 332-row exclusion below is SUPERSEDED, 2026-08-19, §9.6 — those rows are now migrated with
+`containing_permid = NULL`, not dropped. Left as-is per this doc's decision-log convention; read §9.6
+before relying on the counts in this section.)*
+
 Source: `status = 'belongs to'` = 927,512, **minus 332** with `parent_spelling_no = 0` (no containing
 taxon → rootless in the tree; derive_taxa treats absent containment as a tree root — emit **no** row)
 and **minus 2** self-edges (§9.5). No other status asserts containment (routing §5).
@@ -762,7 +769,7 @@ silently dropped:
 | concept self-edge `child_spelling_no = parent_spelling_no` (synonymy family) | **110** | 2 | skip (would violate `name_opinion_not_self`; self-synonymy is meaningless) |
 | concept self-edge `child_spelling_no = parent_spelling_no` (`invalid subgroup of`) | **1** | 2 | skip, same reason (probed 2026-08-18, §5.2) |
 | assignment self-edge `child_spelling_no = parent_spelling_no` | **2** | 3 | skip (would violate `assignment_not_self`) |
-| `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | emit no assignment row (already in §9.3 count) |
+| `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | ⚠ SUPERSEDED, 2026-08-19, §9.6 — now emitted with `containing_permid = NULL`, not skipped |
 
 `child_spelling_no = 0`: **0 rows** — every opinion has a resolvable subject candidate.
 
@@ -770,6 +777,36 @@ silently dropped:
 dubium`/`nomen nudum`/`nomen vanum`/`nomen oblitum` (routing to §9.2 or dropped per §5.2 as applicable),
 **0** self-edges and **0** unresolvable `parent_spelling_no` — no skip-register entries needed for this
 slice.
+
+### 9.6 Rootless `belongs to` is migrated, not skipped *(DECIDED, 2026-08-19)*
+
+**Supersedes** the 332-row exclusion in §9.3 and the "emit no assignment row" disposition in §9.5.
+`parent_spelling_no = 0` is Classic's own assertion that the opinion's subject has no containing
+taxon — a real, qualifying opinion under the ledger model (§3.2's boundary: migration writes every
+qualifying opinion unconditionally, never deciding one doesn't matter), not unresolvable data like
+`parent_spelling_no ∉ authorities` (§9.5, still skipped).
+
+`assignment_opinions.containing_permid` (`postgresql/create_new.sql`) is now **nullable**. All six
+`belongs to` migration handlers insert these 332 rows with `containing_permid = NULL` instead of
+skipping them. This matters beyond completeness: `assignment_opinions` rows are pooled per concept and
+ranked by `derive_taxa()`'s usual `evidence DESC, pubyr DESC, id DESC` contest (§9.3's per-table note).
+Dropping a rootless opinion outright meant `derive_taxa()` could never let it win that contest against
+an older, worse-evidenced real assignment — silently keeping a taxon under a parent a better-evidenced
+opinion says it doesn't have. Migrating the row lets the ranking decide, same as everywhere else.
+
+`derive_taxa()` (`postgresql/create_new.sql` LAYER 2) needed **no code change**: its containment joins
+(`_dt_assign`, `_dt_node`) are already `LEFT JOIN`s keyed on `containing_permid`, so a NULL value simply
+fails to match and produces `containing_concept_permid = NULL` — the same shape `taxa` already uses for
+"no assignment opinion at all" (`-- NULL = root`, `create_new.sql` ~L4913). The one difference is
+`winning_assignment_opinion_id` is now populated instead of NULL for these permids, which is strictly
+more informative: it distinguishes "explicitly asserted rootless, by this opinion" from "no opinion on
+containment exists at all," a distinction the pre-change behavior erased.
+
+**Invariant, load-bearing:** `containing_permid IS NULL` means "Classic asserted no parent," never "we
+couldn't resolve the parent." An unresolvable/orphaned `parent_spelling_no` (§9.5's 8-row
+`parent_spelling_orphan` case) is always skipped and logged, never written as NULL. If a future change
+ever makes an unresolvable parent migrate as NULL too, this invariant breaks and the two populations
+become indistinguishable by inspecting the table alone.
 
 ### 9.7 Residual column calls (made inline; two flagged for confirmation)
 

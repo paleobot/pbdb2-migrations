@@ -55,7 +55,8 @@ async function main() {
   // child_spelling_unresolved is a shared prerequisite (both outputs' subject) --
   // counted once, not per-output, unlike Pairs 2-4.
   let childSpellingUnresolved = 0;
-  const assignSkip = { parent_spelling_zero: 0, parent_spelling_orphan: 0, self_reference: 0, orphan_reference: 0 };
+  let assignRootless = 0;
+  const assignSkip = { parent_spelling_orphan: 0, self_reference: 0, orphan_reference: 0 };
   const lineageSkip = { child_no_unresolved: 0, self_reference: 0, orphan_reference: 0 };
   const logSkip = makeSampleLogger('skip');
 
@@ -111,10 +112,24 @@ async function main() {
       assertValidAttribution(attribution, `opinion_no=${src.opinion_no}`);
 
       // ---- assignment_opinions: subject = child_spelling_no, containing = parent_spelling_no ----
+      // parent_spelling_no = 0 is Classic's own "no parent asserted" sentinel (a
+      // rootless "belongs to" claim), not unresolvable data -- migrated with
+      // containing_permid = NULL so it can compete in derive()'s usual contest.
+      // Distinct from parent_spelling_orphan below, which is always skipped.
       if (!parentSpelling) {
-        assignSkip.parent_spelling_zero++;
-        logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
-        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'parent_spelling_zero', 'assignment_opinions row skipped: parent_spelling_no is 0');
+        assignRootless++;
+        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'warning', 'asserted_rootless', 'assignment_opinions row inserted with containing_permid = NULL: parent_spelling_no is 0 (Classic asserts no parent)');
+        assignments.push({
+          permid: uuidv7(),
+          authorizerPersonId,
+          entererPersonId,
+          subjectPermid: childSpellingPermid,
+          containingPermid: null,
+          referenceId,
+          publicationYear,
+          attribution,
+          evidence,
+        });
       } else {
         const containingPermid = nameMap.get(parentSpelling);
         if (!containingPermid) {
@@ -175,7 +190,7 @@ async function main() {
   console.log('');
   console.log(`  Source rows read: ${sourceRows}`);
   console.log(`  child_spelling_unresolved (shared, kills both outputs): ${childSpellingUnresolved}`);
-  console.log(`  assignment_opinions to insert: ${assignments.length}, skipped: ${totalAssignSkipped}`);
+  console.log(`  assignment_opinions to insert: ${assignments.length} (of which asserted-rootless, containing_permid=NULL: ${assignRootless}), skipped: ${totalAssignSkipped}`);
   for (const [k, v] of Object.entries(assignSkip)) console.log(`    ${k}: ${v}`);
   console.log(`  name_opinions (lineage) to insert: ${lineageRows.length}, skipped: ${totalLineageSkipped}`);
   for (const [k, v] of Object.entries(lineageSkip)) console.log(`    ${k}: ${v}`);

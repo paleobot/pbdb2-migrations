@@ -91,7 +91,8 @@ async function main() {
   }
 
   let sourceRows = 0;
-  const skip = { child_spelling_unresolved: 0, parent_spelling_zero: 0, parent_spelling_orphan: 0, self_reference: 0, orphan_reference: 0 };
+  let assignRootless = 0;
+  const skip = { child_spelling_unresolved: 0, parent_spelling_orphan: 0, self_reference: 0, orphan_reference: 0 };
   const logSkip = makeSampleLogger('skip');
   let lineageEmitted = 0;
   let lineageUnresolved = 0;
@@ -128,25 +129,29 @@ async function main() {
         continue;
       }
 
-      if (!parent) {
-        skip.parent_spelling_zero++;
-        logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
-        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'parent_spelling_zero', 'assignment_opinions row skipped: parent_spelling_no is 0');
-        continue;
-      }
-      const containingPermid = nameMap.get(parent);
-      if (!containingPermid) {
-        skip.parent_spelling_orphan++;
-        logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
-        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'parent_spelling_orphan', `assignment_opinions row skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
-        continue;
-      }
+      // parent_spelling_no = 0 is Classic's own "no parent asserted" sentinel (a
+      // rootless "belongs to" claim), not unresolvable data -- migrated with
+      // containing_permid = NULL so it can compete in derive()'s usual contest.
+      // Distinct from parent_spelling_orphan below, which is always skipped.
+      let containingPermid = null;
+      if (parent) {
+        containingPermid = nameMap.get(parent);
+        if (!containingPermid) {
+          skip.parent_spelling_orphan++;
+          logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'parent_spelling_orphan', `assignment_opinions row skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
+          continue;
+        }
 
-      if (child === parent) {
-        skip.self_reference++;
-        logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
-        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'self_reference', `assignment_opinions row skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no})${Number(src.child_no) === Number(src.parent_no) ? ` -- child_no == parent_no (${src.child_no}) too, a same-taxon self-reference opinion` : ''}`);
-        continue;
+        if (child === parent) {
+          skip.self_reference++;
+          logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
+          anomalyLog.log(src.opinion_no, 'assignment_opinions', 'skip', 'self_reference', `assignment_opinions row skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no})${Number(src.child_no) === Number(src.parent_no) ? ` -- child_no == parent_no (${src.child_no}) too, a same-taxon self-reference opinion` : ''}`);
+          continue;
+        }
+      } else {
+        assignRootless++;
+        anomalyLog.log(src.opinion_no, 'assignment_opinions', 'warning', 'asserted_rootless', 'assignment_opinions row inserted with containing_permid = NULL: parent_spelling_no is 0 (Classic asserts no parent)');
       }
 
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
@@ -210,7 +215,7 @@ async function main() {
   const totalSkipped = Object.values(skip).reduce((a, b) => a + b, 0);
   console.log('');
   console.log(`  Source rows read:            ${sourceRows}`);
-  console.log(`  assignment_opinions to insert: ${assignments.length}`);
+  console.log(`  assignment_opinions to insert: ${assignments.length} (of which asserted-rootless, containing_permid=NULL: ${assignRootless})`);
   console.log(`  Skipped:                     ${totalSkipped}`);
   for (const [k, v] of Object.entries(skip)) console.log(`    ${k}: ${v}`);
   console.log(`  name_opinions (lineage) to insert: ${lineageEmitted}`);

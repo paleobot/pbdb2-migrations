@@ -81,6 +81,15 @@ tokens are `lineage`-class and `never_accepted`.
 orthogonal to whether that file also emits a lineage edge (which depends on `spelling_reason`, not
 `parent_no`).
 
+**Same-taxon self-reference (`child_no == parent_no`, 113 concept/assignment-edge rows across most
+synonymy/replacement/assignment statuses — heaviest in `belongs-to`, absent in `nomen-oblitum`/
+`nomen-vanum`; 9 of the 113 are the "convergent correction" exception below).** An opinion asserting a
+taxon is a synonym/replaced-by/subgroup/assignment of itself is nonsensical on its face — already treated
+in the pre-existing skip/repair register (`docs/taxa-opinions-migration-mapping.md` §9.5) as "self-synonymy
+is meaningless." **Verdict: bucket 2 (bad data)** — no ambiguity here, unlike the lineage-only
+self-reference case below. Always correctly skipped by the existing `self_reference` checks; no action
+needed beyond the skip already in place.
+
 **The mistagged `original spelling` anomaly.** Not exclusive to one pair: any `spelling_reason =
 'original spelling'` row can, in principle, have `child_spelling_no ≠ child_no` — a real lineage claim
 hiding under a mistrusted label. Each gets its own lineage row regardless, resolved per-pair:
@@ -122,6 +131,74 @@ hiding under a mistrusted label. Each gets its own lineage row regardless, resol
 
 Every other pair checked during validation (§7) came back clean of this anomaly — but absence there is
 only "none found where checked," not proof none exist in pairs not yet re-probed after a code change.
+
+**Rootless `belongs to` (`parent_spelling_no = 0`, 332 rows across all 6 `belongs-to/*.js`).** Decided
+2026-08-19, resolving the anomaly class first flagged in the validation pass (§7): `parent_spelling_no = 0`
+is Classic's own assertion that the opinion's subject has no containing taxon, not unresolvable data — it
+belongs in the ledger like any other qualifying opinion (§2), not silently dropped. `assignment_opinions.
+containing_permid` (`postgresql/create_new.sql`) is now nullable for exactly this case: every `belongs-to`
+handler migrates these rows with `containing_permid = NULL` instead of skipping them, so the claim can win
+or lose `derive_taxa()`'s usual evidence/pubyr/id contest like any other assignment opinion — a later,
+better-evidenced real assignment can still supersede it, or vice versa, which dropping the row outright
+would have made impossible. `derive_taxa()` itself needed no code change: its containment joins are already
+`LEFT JOIN`s that treat an unmatched/NULL `containing_permid` as "no containing concept," identical to how
+a permid with zero assignment opinions already gets `containing_concept_permid = NULL` (`taxa`'s own
+`-- NULL = root` convention). `NULL` is reserved for this asserted case only — an unresolvable/orphaned
+`parent_spelling_no` (`parent_spelling_orphan`) is still always skipped-and-logged, never written as NULL,
+so `containing_permid IS NULL` in the table unambiguously means "Classic asserted none," never "we couldn't
+resolve it." Each handler logs these as `anomalies.csv` `warning`/`asserted_rootless` rows (no longer
+`skip`) for continued visibility.
+
+**`parent_spelling_orphan` / `child_spelling_unresolved` are genuine Classic data defects, not a migration
+gap.** Live-probed 2026-08-19 against `pg_classic`: all 6 distinct orphaned `taxon_no` values (247010,
+306259, 100716, 319663, 161644, 120387 — plus 319671, the `parent_no` concept anchor behind two of the
+`parent_spelling_orphan` rows) are **entirely absent from Classic's own `authorities` table**, not merely
+excluded by this project's separate authorities-migration pass (there is nothing there to have excluded).
+Each sits as a single-id gap inside an otherwise dense, taxonomically coherent id neighborhood — e.g.
+`100716` (referenced by 5 separate `belongs to` opinions) sits directly between real neighbors `100715
+Eschrichtidae` and `100717 Grampidae`, next to its own likely-synonymous concept `42976 Eschrichtiidae` —
+the signature of an `authorities` row that existed and was later deleted, not one that was never entered.
+Classic's schema doesn't cascade such deletes into `opinions`, leaving the referencing rows permanently
+dangling. **Verdict: bucket 2 (bad data)** — worth flagging to Classic's maintainers for cleanup (restore
+the deleted authority rows, or accept the affected opinions — 431131, 541317, 567425–567429, 568292,
+294387, 289111 — as permanently unmigratable). No migration-side fix applies; these rows are correctly
+skipped-and-logged already.
+
+**"Convergent correction" (`replaced-by/correction.js`, 9 of the pair's 50 rows) is a real nomenclatural
+pattern, not an anomaly — confirmed 2026-08-19, no action needed.** Every one of the 9 rows is a genuine
+unavailable/replacement-name event where the corrected spelling of `child_no` and the `replaced by` target
+resolve to the exact same identity — e.g. opinion_no 311631: *Tianchiasaurus* corrected to *Tianchisaurus*,
+which is exactly what this opinion says it's replaced by; opinion_no 722434 even carries the curator's own
+comment ("The name Propithecia proposed by Kay et al. [1998]... is not available"), a textbook
+unavailable-name replacement. The handler's concept-edge and lineage-edge self-reference checks are already
+independent `if` blocks: the concept edge is correctly skipped as a self-loop (`child_spelling_no ==
+parent_spelling_no`, would violate `name_opinion_not_self`), while the lineage edge (`child_no →
+child_spelling_no`, reason `'correction'`) fires normally in all 9 cases, since `child_spelling_no !=
+child_no` there. The skipped concept edge would only have restated the same identity the lineage edge
+already carries — nothing is lost, and no code change applies.
+
+**Lineage self-reference (224 rows: `child_spelling_no == child_no` despite a non-`'original spelling'`
+`spelling_reason`) — root cause genuinely unclear; flagged for Classic, no migration-side action.**
+Live-sampled 2026-08-19 across all five reason tokens (`correction`/`misspelling`/`rank change`/
+`recombination`/`historical misspelling`) with sibling-opinion cross-checks on the same `child_no`. Two
+sub-patterns, neither a simple one-off typo:
+- **Ordinary statuses:** several samples have *other* opinions on the identical `child_no` independently
+  using the *same* reason token against a genuinely different `child_spelling_no` — e.g. opinion_no 9502
+  (`rank change`, no deviation on this row) has six sibling opinions all saying `rank change` with
+  `child_spelling_no=153934`, a real different spelling. One sampled row's `comments` field literally reads
+  `"implicitly"`. This suggests Classic curators sometimes populate `spelling_reason` from the taxon's
+  general nomenclatural history as understood at data-entry time, not strictly from this row's own
+  `child_no`/`child_spelling_no` pair — a real looseness in field semantics, not just careless mistagging.
+- **`misspelling of` specifically:** `misspelling-of/misspelling.js` never reads `parent_spelling_no` (its
+  own header comment: `child_no = parent_no` for all 875 rows, live-confirmed) — but in these anomalous
+  rows `parent_spelling_no` differs from `parent_no`/`child_no` anyway. Most likely a vestigial data-entry
+  artifact (a generic opinion-entry form auto-filling a "current parent spelling" field that's meaningless
+  for this status) rather than a real claim, and inert either way since the handler doesn't consult it.
+
+Neither sub-pattern changes migration behavior: a row with no real `child_spelling_no != child_no`
+deviation correctly emits no lineage edge regardless of why the label says otherwise — the existing skip is
+correct independent of root cause. **Verdict: bucket 3 (needs Classic curatorial/dev explanation)** for the
+"why," purely for their own documentation — not a blocker here.
 
 **Homonyms are not modeled in this migration.** Per the 2.0-native design (distinct from Classic),
 homonymy is an emergent property of the derived `taxa` table (non-unique `taxon_name`), not a curated or
@@ -209,21 +286,11 @@ All 48 pairs are implemented and pass `node --check`. Every pair falls into exac
   finding is logged to a per-status-folder `opinions/<status>/anomalies.csv` (schema:
   `opinion_no,script,target_table,severity,issue,description`; `severity` is `skip` for rows a handler
   excludes entirely from a given target table, `warning` for rows that are written but carry a noteworthy
-  property) — 734 anomaly rows total across all 48 pairs.
-  - **Gaps found and fixed:** two mistagged-`original spelling` backfills were missing and got added —
-    `replaced-by/original-spelling.js` (1 row, hardcoded `MISTAGGED_LINEAGE_REASON` map) and
-    `subjective-synonym-of/original-spelling.js` (2 rows; this one required adding the backfill
-    mechanism to a handler that had never had a lineage-emission path at all, since it's otherwise a
-    pure single-output concept pair). The latter also surfaced the first case where a row hits two
-    independent anomalies at once (opinion_no 912640: same-taxon self-reference on the concept side,
-    *and* mistagged-spelling on the lineage side) — confirming the "resolved and skipped independently"
-    principle actually holds when the two paths' skip conditions overlap, not just when they're disjoint.
-  - **Recurring anomaly patterns:** (1) same-taxon self-reference opinions (`child_no == parent_no`),
-    found across most synonymy/replacement-style statuses (heaviest in `belongs-to`, absent in
-    `nomen-oblitum`/`nomen-vanum`), always correctly skipped by the existing `self_reference` checks;
-    (2) "convergent correction" rows in `replaced-by/correction.js` specifically, where a correction's
-    `child_spelling_no` coincides with the replacement target's identity — the concept edge is correctly
-    dropped as a self-loop while the independent lineage edge still emits.
+  property) — 734 anomaly rows total across all 48 pairs. Every anomaly *class* found — mistagged
+  `original spelling`, same-taxon self-reference, rootless `belongs to`, orphaned parent/child identities,
+  convergent correction, and lineage self-reference — is written up in full in §3, including root-cause
+  findings and bucket verdicts (bad data / needs 2.0 model change / needs Classic explanation) from live
+  `pg_classic` probes; nothing below duplicates that narrative.
 - **`run.js`.** The global orchestrator — run all 48 handlers, aggregate one final reconciliation
   (inserted + skipped == 998,565 across every pair) — has not been written.
 - **Execution testing.** Nothing in this exploration has been run end-to-end. This sandbox's `.env` only
