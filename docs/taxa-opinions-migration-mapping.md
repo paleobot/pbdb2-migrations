@@ -488,7 +488,8 @@ accepted for `status_old` (§4 Q4).
 | `spelling_reason`: reassignment | `assignment` | lineage | — |
 | `spelling_reason`: correction | `correction` | lineage | — |
 | `spelling_reason`: rank change | `reranked` | lineage | — |
-| `spelling_reason`: misspelling | `misspelling` (never_accepted) | lineage | — |
+| `spelling_reason`: misspelling (any status other than `misspelling of`) | `misspelling` (never_accepted) | lineage | — |
+| `status`: misspelling of | `historical misspelling` (never_accepted) | lineage | 875 [see below] |
 | `status`: subjective/objective synonym of | `junior synonym` (`objective` bool) | concept | 52,106 / 1,246 |
 | `status`: replaced by | `replaced by` | concept | 4,020 |
 | `status`: invalid subgroup of | `invalid subgroup` | concept | 1,420 [§5.2] |
@@ -498,6 +499,21 @@ accepted for `status_old` (§4 Q4).
 Dropped legacy-invention token `code` has no source (D7). `invalid subgroup` and `nomen oblitum` carry
 `objective = NULL` — the boolean is the sole carrier of the subjective/objective split and doesn't apply
 to either (§5.2).
+
+**`misspelling` vs. `historical misspelling` (added 2026-08-19, `migration_exploration` pair-24
+discussion).** Classic distinguishes two provenances for a misspelling claim that this crosswalk
+originally collapsed into one token: `spelling_reason = 'misspelling'` is the *curatorial* case — a data
+enterer notices, while entering an opinion about something else, that the current reference happened to
+render the name incorrectly — while `status = 'misspelling of'` is the *dedicated* case — the entire
+opinion, with its own reference and evidence, is a formally published claim that a name is a misspelling
+(the PBDB user guide's own term for this is "historical misspelling"). `evidence` does not reliably
+separate the two (live-probed 2026-08-19: 43.9% of `misspelling of` rows are `stated with evidence` vs.
+28.9% of `spelling_reason='misspelling'` rows — a skew, not a clean split), so the distinction needed its
+own dictionary token rather than being inferable from an existing column. Both are `lineage`-class and
+`never_accepted`; for `misspelling of` rows, live data shows `child_no` and `parent_no` both anchor to the
+correct name (equal in effectively every row) while `child_spelling_no` is the distinct misspelling, so
+it resolves under the same subject/target convention as every other lineage pair
+(`subject = child_spelling_no`, `target = child_no`) with no special-cased fields needed.
 
 ### 6.2 `status` (residual nomen family) → `validity_opinions.status` (`nomenclatural_statuses`)
 
