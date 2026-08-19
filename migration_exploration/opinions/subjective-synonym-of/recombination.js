@@ -3,13 +3,13 @@
 // Per Q3's resolution (2026-08-19): this legacy row collapses two distinct 2.0-model
 // assertions -- a synonymy claim (from status) and a spelling claim (from
 // spelling_reason) -- so it emits TWO name_opinions records, not one. Field mappings
-// confirmed against the Classic UI:
+// confirmed against the Classic UI (corrected 2026-08-19: child_spelling_no is ALWAYS
+// the subject wherever it appears in a lineage insert -- the earlier version had the
+// lineage edge backwards, subject=child_no):
 //   concept (synonym) edge: subject_permid = permid(child_spelling_no), target_permid = permid(parent_spelling_no)
-//   lineage (recombination) edge: subject_permid = permid(child_no), target_permid = permid(child_spelling_no)
-// child_spelling_no plays a different role in each (concept's subject, lineage's
-// target) but is the same shared prerequisite resolution either way; the two
-// emissions are otherwise resolved and skipped independently, same discipline as
-// the dual-output 'belongs to' pairs.
+//   lineage (recombination) edge: subject_permid = permid(child_spelling_no), target_permid = permid(child_no)
+// child_spelling_no is the shared subject of BOTH edges here, resolved once; only
+// the "other end" (parent_spelling_no for concept, child_no for lineage) differs.
 import { mariadb, pg, closeAll } from '../../../db.js';
 import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
@@ -145,8 +145,8 @@ async function main() {
           permid: uuidv7(),
           authorizerPersonId,
           entererPersonId,
-          subjectPermid: childNoPermid,
-          targetPermid: childSpellingPermid,
+          subjectPermid: childSpellingPermid,
+          targetPermid: childNoPermid,
           referenceId,
           publicationYear,
           attribution,

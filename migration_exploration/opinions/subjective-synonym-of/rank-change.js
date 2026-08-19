@@ -2,9 +2,11 @@
 //
 // Per Q3's resolution (2026-08-19): dual emission, same as Pair 8
 // (subjective-synonym-of/recombination) -- one concept edge, one lineage edge, both
-// into name_opinions. Field mappings confirmed against the Classic UI (same as pair 8):
+// into name_opinions. Field mappings confirmed against the Classic UI (corrected
+// 2026-08-19: child_spelling_no is ALWAYS the subject wherever it appears in a
+// lineage insert -- the earlier version had the lineage edge backwards):
 //   concept (synonym) edge: subject_permid = permid(child_spelling_no), target_permid = permid(parent_spelling_no)
-//   lineage (rank change) edge: subject_permid = permid(child_no), target_permid = permid(child_spelling_no)
+//   lineage (rank change) edge: subject_permid = permid(child_spelling_no), target_permid = permid(child_no)
 // Only the lineage reason token differs from pair 8: 'reranked' (§6.1 crosswalk for
 // spelling_reason='rank change').
 import { mariadb, pg, closeAll } from '../../../db.js';
@@ -140,8 +142,8 @@ async function main() {
           permid: uuidv7(),
           authorizerPersonId,
           entererPersonId,
-          subjectPermid: childNoPermid,
-          targetPermid: childSpellingPermid,
+          subjectPermid: childSpellingPermid,
+          targetPermid: childNoPermid,
           referenceId,
           publicationYear,
           attribution,

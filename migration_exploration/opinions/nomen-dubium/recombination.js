@@ -1,19 +1,10 @@
-// Pair: status = 'belongs to', spelling_reason = 'reassignment' (312 rows).
+// Pair: status = 'nomen dubium', spelling_reason = 'recombination' (573 rows).
 //
-// Field mapping confirmed against the Classic UI (2026-08-19, corrected 2026-08-19):
-// child_spelling_no is ALWAYS the subject wherever it appears in a lineage insert --
-// this pair's earlier version had it backwards (subject=child_no); corrected here.
-//   name_opinions:       subject_permid = permid(child_spelling_no), target_permid = permid(child_no)
-//   assignment_opinions: subject_permid = permid(child_spelling_no), containing_permid = permid(parent_spelling_no)
-// child_spelling_no is therefore a SHARED prerequisite for both outputs (it is the
-// subject of both), resolved once; only the "other end" (parent_spelling_no for
-// assignment, child_no for lineage) differs per output.
-//
-// Every row emits BOTH a name_opinions lineage row (reason 'assignment', per the §6.1
-// crosswalk for spelling_reason='reassignment') and an assignment_opinions containment
-// row, unconditionally (ledger model -- no ranking; see the boundary note in
-// taxa-opinions-migration-mapping.md). This is the last of the six 'belongs to'
-// spelling_reason variants.
+// Per Q3's resolution: dual emission -- validity_opinions testimony (subject=
+// child_spelling_no, status='nomen dubium', no target -- §5.2) + name_opinions
+// lineage edge (subject=child_spelling_no, target=child_no, reason='recombination').
+// Two different target tables, resolved and skipped independently; only the shared
+// prerequisites (reference, child_spelling_no) can kill both at once.
 import { mariadb, pg, closeAll } from '../../../db.js';
 import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
@@ -34,30 +25,38 @@ function makeSampleLogger(label) {
 
 async function main() {
   const startTime = new Date();
-  console.log(`[${startTime.toISOString()}] Starting belongs-to/reassignment migration...`);
+  console.log(`[${startTime.toISOString()}] Starting nomen-dubium/recombination migration...`);
 
   const nameMap = await loadNamePermidMap(pg);
   console.log(`  Loaded ${nameMap.size} name identities (oldpbdb_taxon_no -> permid)`);
   const refMap = await loadReferenceIdMap(pg);
   console.log(`  Loaded ${refMap.size} reference ids (reference_no -> refs.id)`);
 
-  const { rows: reasonRows } = await pg.query(
-    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'assignment' AND edge_class = 'lineage'`,
+  const { rows: statusRows } = await pg.query(
+    `SELECT id FROM dictionaries.nomenclatural_statuses WHERE status = 'nomen dubium'`,
   );
-  if (reasonRows.length !== 1) {
-    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='assignment'/edge_class='lineage', got ${reasonRows.length}`);
+  if (statusRows.length !== 1) {
+    console.error(`  FATAL: expected exactly one nomenclatural_statuses row for status='nomen dubium', got ${statusRows.length}`);
     process.exit(1);
   }
-  const assignmentReasonId = reasonRows[0].id;
+  const nomenDubiumStatusId = statusRows[0].id;
+
+  const { rows: lineageReasonRows } = await pg.query(
+    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'recombination' AND edge_class = 'lineage'`,
+  );
+  if (lineageReasonRows.length !== 1) {
+    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='recombination'/edge_class='lineage', got ${lineageReasonRows.length}`);
+    process.exit(1);
+  }
+  const recombinationReasonId = lineageReasonRows[0].id;
 
   let sourceRows = 0;
   let orphanReference = 0;
   let childSpellingUnresolved = 0;
-  const assignSkip = { parent_spelling_zero: 0, parent_spelling_orphan: 0, self_reference: 0 };
   const lineageSkip = { child_no_unresolved: 0, self_reference: 0 };
   const logSkip = makeSampleLogger('skip');
 
-  const assignments = [];
+  const validityRows = [];
   const lineageRows = [];
 
   const conn = await mariadb.getConnection();
@@ -66,7 +65,7 @@ async function main() {
            basis, pubyr, ref_has_opinion, reference_no, authorizer_no, enterer_no,
            author1last, author2last, otherauthors
     FROM opinions
-    WHERE status = 'belongs to' AND spelling_reason = 'reassignment'
+    WHERE status = 'nomen dubium' AND spelling_reason = 'recombination'
     ORDER BY opinion_no ASC
   `).stream();
 
@@ -75,7 +74,6 @@ async function main() {
       sourceRows++;
 
       const childSpelling = Number(src.child_spelling_no);
-      const parentSpelling = Number(src.parent_spelling_no);
       const childNo = Number(src.child_no);
 
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
@@ -85,7 +83,6 @@ async function main() {
         continue;
       }
 
-      // Shared prerequisite: child_spelling_no is the subject of BOTH outputs.
       const childSpellingPermid = childSpelling ? nameMap.get(childSpelling) : undefined;
       if (!childSpellingPermid) {
         childSpellingUnresolved++;
@@ -99,32 +96,12 @@ async function main() {
       const { publicationYear, attribution } = resolveSecondHand(src, firstHand);
       assertValidAttribution(attribution, `opinion_no=${src.opinion_no}`);
 
-      // ---- assignment_opinions: subject = child_spelling_no, containing = parent_spelling_no ----
-      if (!parentSpelling) {
-        assignSkip.parent_spelling_zero++;
-        logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
-      } else {
-        const containingPermid = nameMap.get(parentSpelling);
-        if (!containingPermid) {
-          assignSkip.parent_spelling_orphan++;
-          logSkip(`opinion_no=${src.opinion_no} parent_spelling_orphan parent=${src.parent_spelling_no}`);
-        } else if (childSpelling === parentSpelling) {
-          assignSkip.self_reference++;
-          logSkip(`opinion_no=${src.opinion_no} assign_self_reference taxon=${src.child_spelling_no}`);
-        } else {
-          assignments.push({
-            permid: uuidv7(),
-            authorizerPersonId,
-            entererPersonId,
-            subjectPermid: childSpellingPermid,
-            containingPermid,
-            referenceId,
-            publicationYear,
-            attribution,
-            evidence,
-          });
-        }
-      }
+      // ---- validity_opinions testimony: subject = child_spelling_no, no target ----
+      validityRows.push({
+        permid: uuidv7(), authorizerPersonId, entererPersonId,
+        subjectPermid: childSpellingPermid,
+        referenceId, publicationYear, attribution, evidence,
+      });
 
       // ---- name_opinions lineage: subject = child_spelling_no, target = child_no ----
       const childNoPermid = childNo ? nameMap.get(childNo) : undefined;
@@ -136,16 +113,9 @@ async function main() {
         logSkip(`opinion_no=${src.opinion_no} lineage_self_reference taxon=${src.child_spelling_no}`);
       } else {
         lineageRows.push({
-          permid: uuidv7(),
-          authorizerPersonId,
-          entererPersonId,
-          subjectPermid: childSpellingPermid,
-          targetPermid: childNoPermid,
-          reasonId: assignmentReasonId,
-          referenceId,
-          publicationYear,
-          attribution,
-          evidence,
+          permid: uuidv7(), authorizerPersonId, entererPersonId,
+          subjectPermid: childSpellingPermid, targetPermid: childNoPermid,
+          referenceId, publicationYear, attribution, evidence,
         });
       }
     }
@@ -153,58 +123,55 @@ async function main() {
     conn.release();
   }
 
-  const totalAssignSkipped = orphanReference + childSpellingUnresolved + Object.values(assignSkip).reduce((a, b) => a + b, 0);
+  const totalValiditySkipped = orphanReference + childSpellingUnresolved;
   const totalLineageSkipped = orphanReference + childSpellingUnresolved + Object.values(lineageSkip).reduce((a, b) => a + b, 0);
 
   console.log('');
   console.log(`  Source rows read: ${sourceRows}`);
-  console.log(`  orphan_reference (shared): ${orphanReference}, child_spelling_unresolved (shared): ${childSpellingUnresolved}`);
-  console.log(`  assignment_opinions to insert: ${assignments.length}, skipped: ${totalAssignSkipped}`);
-  for (const [k, v] of Object.entries(assignSkip)) console.log(`    ${k}: ${v}`);
-  console.log(`  name_opinions (lineage) to insert: ${lineageRows.length}, skipped: ${totalLineageSkipped}`);
-  for (const [k, v] of Object.entries(lineageSkip)) console.log(`    ${k}: ${v}`);
+  console.log(`  validity_opinions to insert: ${validityRows.length}, skipped: ${totalValiditySkipped}`);
+  console.log(`  lineage edges to insert: ${lineageRows.length}, skipped: ${totalLineageSkipped}`);
 
-  if (assignments.length + totalAssignSkipped !== sourceRows) {
-    console.error(`  FATAL: assignment reconciliation failed! ${assignments.length} + ${totalAssignSkipped} != ${sourceRows}`);
+  if (validityRows.length + totalValiditySkipped !== sourceRows) {
+    console.error(`  FATAL: validity reconciliation failed! ${validityRows.length} + ${totalValiditySkipped} != ${sourceRows}`);
     process.exit(1);
   }
   if (lineageRows.length + totalLineageSkipped !== sourceRows) {
     console.error(`  FATAL: lineage reconciliation failed! ${lineageRows.length} + ${totalLineageSkipped} != ${sourceRows}`);
     process.exit(1);
   }
-  console.log(`  Reconciliation (assignment): ${assignments.length} + ${totalAssignSkipped} == ${sourceRows} ✓`);
-  console.log(`  Reconciliation (lineage):    ${lineageRows.length} + ${totalLineageSkipped} == ${sourceRows} ✓`);
+  console.log(`  Reconciliation (validity): ${validityRows.length} + ${totalValiditySkipped} == ${sourceRows} ✓`);
+  console.log(`  Reconciliation (lineage):  ${lineageRows.length} + ${totalLineageSkipped} == ${sourceRows} ✓`);
 
   const pgClient = await pg.connect();
-  let insertedAssign = 0;
+  let insertedValidity = 0;
   let insertedLineage = 0;
   try {
     await pgClient.query('BEGIN');
 
-    for (let i = 0; i < assignments.length; i += INSERT_BATCH_SIZE) {
-      const batch = assignments.slice(i, i + INSERT_BATCH_SIZE);
+    for (let i = 0; i < validityRows.length; i += INSERT_BATCH_SIZE) {
+      const batch = validityRows.slice(i, i + INSERT_BATCH_SIZE);
       const values = [];
       const params = [];
       let p = 1;
       for (const r of batch) {
-        values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10})`);
+        values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9})`);
         params.push(
-          r.permid, r.authorizerPersonId, r.entererPersonId, r.subjectPermid, r.containingPermid,
-          false, r.referenceId, r.publicationYear,
+          r.permid, r.authorizerPersonId, r.entererPersonId, r.subjectPermid, nomenDubiumStatusId,
+          r.referenceId, r.publicationYear,
           r.attribution === null ? null : JSON.stringify(r.attribution), r.evidence, false,
         );
-        p += 11;
+        p += 10;
       }
       await pgClient.query(
-        `INSERT INTO assignment_opinions
-           (permid, authorizer_person_id, enterer_person_id, subject_permid, containing_permid,
-            questioned, reference_id, publication_year, attribution, evidence, removed)
+        `INSERT INTO validity_opinions
+           (permid, authorizer_person_id, enterer_person_id, subject_permid, nomenclatural_status_id,
+            reference_id, publication_year, attribution, evidence, removed)
          VALUES ${values.join(',')}`,
         params,
       );
-      insertedAssign += batch.length;
+      insertedValidity += batch.length;
     }
-    console.log(`  Inserted ${insertedAssign} assignment_opinions`);
+    console.log(`  Inserted ${insertedValidity} validity_opinions`);
 
     for (let i = 0; i < lineageRows.length; i += INSERT_BATCH_SIZE) {
       const batch = lineageRows.slice(i, i + INSERT_BATCH_SIZE);
@@ -215,7 +182,7 @@ async function main() {
         values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12},$${p+13},$${p+14},$${p+15},$${p+16})`);
         params.push(
           r.permid, r.authorizerPersonId, r.entererPersonId, null, r.subjectPermid,
-          r.targetPermid, r.reasonId, 'lineage', null, null, null, null,
+          r.targetPermid, recombinationReasonId, 'lineage', null, null, null, null,
           r.referenceId, r.publicationYear,
           r.attribution === null ? null : JSON.stringify(r.attribution), r.evidence, false,
         );
@@ -243,11 +210,11 @@ async function main() {
   }
   pgClient.release();
 
-  await pg.query(`SELECT setval(pg_get_serial_sequence('assignment_opinions','id'), (SELECT MAX(id) FROM assignment_opinions))`);
+  await pg.query(`SELECT setval(pg_get_serial_sequence('validity_opinions','id'), (SELECT MAX(id) FROM validity_opinions))`);
   await pg.query(`SELECT setval(pg_get_serial_sequence('name_opinions','id'), (SELECT MAX(id) FROM name_opinions))`);
 
   const elapsed = ((new Date() - startTime) / 1000).toFixed(1);
-  console.log(`[${new Date().toISOString()}] belongs-to/reassignment migration complete in ${elapsed}s`);
+  console.log(`[${new Date().toISOString()}] nomen-dubium/recombination migration complete in ${elapsed}s`);
 }
 
 const invokedDirectly = import.meta.url === `file://${process.argv[1]}`;

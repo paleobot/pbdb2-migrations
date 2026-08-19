@@ -1,10 +1,11 @@
 # Opinions Migration — Pair-Based Decomposition
 
-**Status:** DRAFT — for discussion before any code is written.
+**Status:** All 48 `(status, spelling_reason)` pairs implemented (`opinions/`), syntax-checked. Not yet
+execution-tested against live data (see §7).
 **Scope:** legacy `opinions` → `name_opinions` / `assignment_opinions` / `validity_opinions` only.
-**Not in scope:** the legacy `authorities` → `name_opinions` (root minting) migration. `migrate-authorities.js`
-and `migrate-name-opinions.js`'s root-minting pass are unchanged and reused as-is from the existing
-root-level scripts.
+**Not in scope:** legacy `authorities` → `name_opinions` (root minting). `migrate-authorities.js` and
+`migrate-name-opinions.js`'s root-minting pass are unchanged, reused as-is from the existing root-level
+scripts.
 **Relationship to existing scripts:** parallel exploratory rewrite. The root-level `migrate-*-opinions.js`
 scripts are untouched and remain the current baseline; nothing here retires them (yet).
 
@@ -12,162 +13,78 @@ scripts are untouched and remain the current baseline; nothing here retires them
 
 ## 1. The philosophy
 
-The existing opinions scripts are organized by **decomposition slice** — one script per target shape
-(`migrate-assignment-opinions.js`, `migrate-synonymy-opinions.js`), each internally filtering on `status`
-and, inconsistently, on `spelling_reason`. That grouping has let variation slip through uncounted: e.g.
-`migrate-synonymy-opinions.js` only ever read `spelling_reason = 'original spelling'` and silently deferred
-every other spelling_reason on a synonym-of opinion to "a later slice" that doesn't exist yet.
+Legacy `opinions` rows are organized by **decomposition slice** in the existing root-level scripts — one
+script per target shape, each filtering on `status` and, inconsistently, on `spelling_reason`. That let
+variation slip through uncounted (e.g. the existing `migrate-synonymy-opinions.js` only ever read
+`spelling_reason = 'original spelling'`, silently deferring every other spelling_reason on a synonym-of
+opinion).
 
-**The new rule:** every unique `(status, spelling_reason)` pair gets its own dedicated import module, with
-its own explicit mapping rule — even when that rule turns out to be identical to a neighboring pair's. The
-legacy `opinions` table crosses exactly two enums to decide a row's fate (mapping doc §1), so the pair *is*
-the natural unit of a mapping decision. Organizing code around it means:
+**The rule here:** every unique `(status, spelling_reason)` pair gets its own dedicated import module, with
+its own explicit mapping — even where the rule is identical to a neighboring pair's. The legacy `opinions`
+table crosses exactly two enums to decide a row's fate, so the pair is the natural unit of a mapping
+decision:
 
 - **Nothing routes by default.** A pair with no explicit handler is a visible gap, not a silent fallthrough.
-- **"any spelling_reason" claims get checked, not assumed.** Several routing calls in the existing mapping
-  doc (§5) say a status routes the same way "any" spelling_reason — invalid subgroup of, replaced by, the
-  whole nomen family. Splitting by pair forces us to actually look at each variant's rows before agreeing.
-- **Duplication is fine.** Where five pairs under one status genuinely share one rule, their five files
-  each declare that rule explicitly and call into a shared `lib/` transform — thin, but not merged away.
+- **Duplication is fine.** Where several pairs under one status share one rule, each file still declares
+  it explicitly and calls into a shared `lib/` transform — thin, but not merged away.
 
-## 2. Live cross-tab (probed 2026-08-18 against the Postgres-ported classic mirror, `PG_CLASSIC_*`)
+## 2. The migration / derivation boundary
 
-48 pairs, 998,565 rows total. Every per-status subtotal below reconciles exactly with the counts already
-recorded in `docs/taxa-opinions-migration-mapping.md` — cross-validates both the probe and the existing
-design doc's numbers.
+Migration writes every qualifying legacy opinion as its own ledger row, **unconditionally**. It never
+compares `evidence`/`pubyr`/`id` across candidate opinions to pick a "winner," and never needs to know
+which opinion currently governs a permid's accepted spelling, classification, or validity — that ranking
+is exclusively `derive_taxa()`'s job, run later, standalone, against the complete ledger
+(`docs/classic-taxa-opinions.md` §9.8.4; see the boundary note at the top of
+`docs/taxa-opinions-migration-mapping.md`). Multiple ledger rows asserting different (or the same) things
+about one subject_permid is normal and expected; nothing here is a contest.
 
-| status | spelling_reason | rows | proposed target (per existing §5/§5.2 routing) |
-|---|---|---:|---|
-| belongs to | original spelling | 743,712 | `assignment_opinions` (containment). **Anomaly:** 50 of these have `child_spelling_no ≠ child_no` (§5.1) — see open question 2. |
-| belongs to | recombination | 146,103 | `assignment_opinions` (containment) **+** `name_opinions` lineage-mint candidate, reason `recombination` |
-| belongs to | rank change | 20,743 | `assignment_opinions` **+** lineage-mint candidate, reason `reranked` |
-| belongs to | correction | 9,659 | `assignment_opinions` **+** lineage-mint candidate, reason `correction` |
-| belongs to | misspelling | 6,983 | `assignment_opinions` **+** lineage-mint candidate, reason `misspelling` (never_accepted) |
-| belongs to | reassignment | 312 | `assignment_opinions` **+** lineage-mint candidate, reason `assignment` |
-| subjective synonym of | original spelling | 47,687 | `name_opinions` concept, `junior synonym` (objective=false) |
-| subjective synonym of | recombination | 2,816 | same — **unverified**, see open question 3 |
-| subjective synonym of | rank change | 880 | same — unverified |
-| subjective synonym of | correction | 399 | same — unverified |
-| subjective synonym of | misspelling | 320 | same — unverified |
-| subjective synonym of | reassignment | 4 | same — unverified |
-| objective synonym of | original spelling | 1,152 | `name_opinions` concept, `junior synonym` (objective=true) |
-| objective synonym of | rank change | 37 | same — unverified |
-| objective synonym of | recombination | 36 | same — unverified |
-| objective synonym of | correction | 15 | same — unverified |
-| objective synonym of | misspelling | 6 | same — unverified |
-| invalid subgroup of | original spelling | 1,316 | `name_opinions` concept, `invalid subgroup` (§5.2) |
-| invalid subgroup of | rank change | 43 | same — unverified |
-| invalid subgroup of | recombination | 28 | same — unverified |
-| invalid subgroup of | correction | 23 | same — unverified |
-| invalid subgroup of | misspelling | 8 | same — unverified |
-| invalid subgroup of | reassignment | 2 | same — unverified |
-| misspelling of | misspelling | 875 | **not emitted directly** — read only as a lineage-mint candidate (§9.0) |
-| replaced by | original spelling | 3,706 | `name_opinions` concept, `replaced by` |
-| replaced by | recombination | 160 | same — unverified |
-| replaced by | rank change | 96 | same — unverified |
-| replaced by | correction | 50 | same — unverified |
-| replaced by | misspelling | 8 | same — unverified |
-| nomen dubium | original spelling | 7,463 | `validity_opinions`, status `nomen dubium`, no derive() effect |
-| nomen dubium | recombination | 573 | same — unverified |
-| nomen dubium | misspelling | 91 | same — unverified |
-| nomen dubium | correction | 73 | same — unverified |
-| nomen dubium | rank change | 8 | same — unverified |
-| nomen nudum | original spelling | 2,393 | `validity_opinions`, status `nomen nudum`, bars_candidacy |
-| nomen nudum | recombination | 91 | same — unverified |
-| nomen nudum | misspelling | 36 | same — unverified |
-| nomen nudum | correction | 11 | same — unverified |
-| nomen nudum | rank change | 2 | same — unverified |
-| nomen oblitum | original spelling | 66 | split by `parent_no≠0`: concept fold vs `validity_opinions` (§5.2) |
-| nomen oblitum | recombination | 6 | same split — unverified |
-| nomen oblitum | correction | 3 | same split — unverified |
-| nomen oblitum | misspelling | 1 | same split — unverified |
-| nomen vanum | original spelling | 509 | `validity_opinions`, status `nomen vanum`, no derive() effect |
-| nomen vanum | recombination | 49 | same — unverified |
-| nomen vanum | misspelling | 6 | same — unverified |
-| nomen vanum | correction | 4 | same — unverified |
-| nomen vanum | reassignment | 1 | same — unverified |
+## 3. Field mapping rules
 
-"unverified" = the existing mapping doc asserts this status routes the same way regardless of
-spelling_reason, but no probe has specifically confirmed these rows behave like their `original spelling`
-siblings (see open question 3). None of this table's dispositions are new decisions — they carry over the
-already-settled §5/§5.2 routing matrix; this doc only re-expresses it at pair granularity.
+**Subject is always `child_spelling_no`.** Every emitted row — `assignment_opinions`, `name_opinions`
+concept edges, `name_opinions` lineage edges, `validity_opinions` — uses
+`subject_permid = permid(child_spelling_no)`. Confirmed against the live Classic UI, not assumed from the
+schema or from probed row data.
 
-## 3. Proposed folder structure
+**The "other end" depends on the row's role:**
 
-```
-migration_exploration/
-  DESIGN.md                        (this file)
-  lib/                             shared transforms, reused by pair handlers, not duplicated:
-    identity.js                      name-permid Map, reference Map, person 0-sentinel fallback
-    attribution.js                   second-hand rule, opinionAttribution builder, "authority unknown" sentinel
-    evidence.js                      basis → evidence boolean
-  opinions/
-    belongs-to/
-      original-spelling.js
-      recombination.js
-      rank-change.js
-      correction.js
-      misspelling.js
-      reassignment.js
-    subjective-synonym-of/           6 files, one per spelling_reason
-    objective-synonym-of/            5 files
-    invalid-subgroup-of/             6 files
-    misspelling-of/
-      misspelling.js                 (candidate-only; emits nothing directly)
-    replaced-by/                     5 files
-    nomen-dubium/                    5 files
-    nomen-nudum/                     5 files
-    nomen-oblitum/                   4 files (each internally splits targeted/untargeted)
-    nomen-vanum/                     5 files
-  lineage-mint.js                    cross-pair winner-selection step (open question 1)
-  run.js                             orchestrator: runs all handlers, aggregates one global
-                                      reconciliation (inserted + skipped == 998,565)
-```
+| row type | field | source |
+|---|---|---|
+| `assignment_opinions` | `containing_permid` | `permid(parent_spelling_no)` |
+| `name_opinions` concept edge | `target_permid` | `permid(parent_spelling_no)` |
+| `name_opinions` lineage edge | `target_permid` | `permid(child_no)` |
+| `validity_opinions` | *(no target column)* | — |
 
-Each pair-handler file's contract:
-- States its exact `(status, spelling_reason)` source filter and row count as a header comment (self-checking
-  against a live re-probe).
-- Declares target table(s) and reason/status token.
-- Delegates identity/reference/person/attribution/evidence resolution to `lib/`.
-- Returns `{sourceRows, inserted, skipped, breakdown}` in a common shape so `run.js` can reconcile across
-  all 48 without each file reimplementing the invariant check.
+**Dual emission.** Whenever a row's `spelling_reason ≠ 'original spelling'`, it carries a **second**,
+independent claim in addition to its status's primary disposition: a `name_opinions` lineage edge
+(`subject = child_spelling_no`, `target = child_no`, reason per §4's crosswalk). This holds for every
+status, not just `belongs to` — a `subjective synonym of`/`recombination` row, for instance, emits both its
+synonymy concept edge and a separate lineage edge. The two emissions are resolved and skipped
+independently; a failure in one does not block the other.
 
-## 4. Process rules established while working these pairs
+**Misspelling has two distinct provenances, and two distinct reason tokens.** Classic distinguishes a
+formally published misspelling claim from an incidental one, and the schema now carries that distinction:
+- `reason = 'misspelling'` — curatorial: a data enterer notices, while entering an opinion about something
+  else (any status, `spelling_reason = 'misspelling'`), that the current reference rendered the name
+  incorrectly. No reference independently argues the point.
+- `reason = 'historical misspelling'` — dedicated: legacy `status = 'misspelling of'`, where the entire
+  opinion (its own reference, its own evidence) is a formally published claim that a name is a misspelling.
+  Named after the PBDB user guide's own term for this case.
 
-**No ranking at migration time.** Migration writes every qualifying legacy opinion as its own ledger row,
-unconditionally. It never compares `evidence`/`pubyr`/`id` across candidate opinions to pick a "winner" —
-that is exclusively `derive_taxa()`'s job, run later against the complete ledger. (This corrects Q1 below,
-which wrongly imported that ranking into migration design; see the boundary note now at the top of
-`taxa-opinions-migration-mapping.md`.)
+`evidence`/`basis` does not reliably separate the two (live-probed: 43.9% of `misspelling of` rows are
+`stated with evidence` vs. 28.9% of `spelling_reason='misspelling'` rows — a skew, not a clean split),
+which is why this needed its own dictionary token rather than being inferable from an existing column. Both
+tokens are `lineage`-class and `never_accepted`.
 
-**Field direction is not assumed from column names.** Classic's opinion-entry UI does not use
-`child_no`/`child_spelling_no`/`parent_no`/`parent_spelling_no` consistently across every status — which
-field is "the subject" vs. "the target" can differ by how that status's form phrases the assertion (e.g. a
-misspelling entry could be phrased either "X is a misspelling of Y" or "Y is misspelled as X" depending on
-the status). Each new pair's subject/target field mapping is confirmed against the live Classic UI before
-being implemented — never inferred from the schema or from probed row data alone. Pair 1's direction
-(`subject = child_spelling_no`, `containing/target = parent_spelling_no`/`child_no`) is confirmed and
-already established by the pre-existing `migrate-assignment-opinions.js` / Q1(a) decision.
+**`nomen oblitum`'s targeted/untargeted split is a per-row branch, not a folder split.** `parent_no ≠ 0`
+(targeted) → `name_opinions` concept fold (`reason='nomen oblitum'`); `parent_no = 0` (untargeted) →
+`validity_opinions` testimony. This branch is decided per row inside each `nomen-oblitum/*.js` file,
+orthogonal to whether that file also emits a lineage edge (which depends on `spelling_reason`, not
+`parent_no`).
 
-**Confirmed empirically, not just theoretically (2026-08-19):** Pair 2 (`belongs to`/`recombination`) uses
-`name_opinions` `subject = child_no`, `target = child_spelling_no` — the reverse of Pair 1's direction and
-of the mapping doc's general Q1(a) "direct-to-original" framing. Each pair's mapping is taken as given by
-the UI check, not reconciled against any other pair's or the mapping doc's general framing.
-
-## 5. Resolved questions
-
-### Q1 (was: lineage-introducing-opinion winner selection) — DISSOLVED, 2026-08-19
-This question assumed migration needed to pick a "canonical winner" among candidate introducing opinions
-for a spelling, the way `derive_taxa()` does. That premise was wrong (see the process rule above): every
-opinion satisfying a lineage edge's structural requirement (`child_spelling_no ≠ child_no`) gets its own
-`name_opinions` lineage row, unconditionally — no comparison across candidates, no shared staging pass, no
-`lineage-mint.js`. Multiple lineage rows asserting different things about the same `subject_permid` is
-normal ledger content; `derive_taxa()` ranks among them later, at read time.
-
-### Q2 — The 50-row `belongs-to`/`original-spelling` anomaly (§5.1) — RESOLVED, 2026-08-19
-Implemented in `opinions/belongs-to/original-spelling.js`. Each of the 50 rows gets its own `lineage`
-`name_opinions` row (in addition to its normal `assignment_opinions` containment row), reason taken from
-the `mistagged-original-spelling.csv` worklist rather than the untrustworthy `original spelling` label:
+**The `belongs-to`/`original-spelling` anomaly.** 50 of the 743,712 rows in this pair are labeled
+`original spelling` but have `child_spelling_no ≠ child_no` — a real lineage claim hiding under a
+mistrusted label. Each gets its own lineage row regardless, with the reason taken from the pre-computed
+`mistagged-original-spelling.csv` worklist:
 
 | inferred reason | rows | `namechange_reasons` token |
 |---|---:|---|
@@ -176,76 +93,86 @@ the `mistagged-original-spelling.csv` worklist rather than the untrustworthy `or
 | correction | 1 | `correction` |
 | duplicate-or-homonym | 22 | `assignment` |
 
-The 22 "duplicate-or-homonym" rows (identical name + rank, different `taxon_no`) are **not** special-cased —
-confirmed this is a legitimate case (e.g. a botanical name re-anchored to a newer authority with no textual
-change) and gets a normal lineage edge like any other. None of the more specific tokens
-(`correction`/`reranked`/`recombination`) describe "same name, same rank, new authority," so these use the
-generic `assignment` token rather than adding a new dictionary token for a 22-row case. The 50th row
-(dangling `child_spelling_no`) needs no special handling — it's already excluded by the standard
-`child_spelling_unresolved` skip, which fires before the lineage check ever runs.
+The 22 "duplicate-or-homonym" rows (identical name + rank, different `taxon_no` — e.g. a name re-anchored
+to a newer authority, common in botanical nomenclature) are not special-cased; none of the more specific
+tokens describe "same name, same rank, new authority," so they use the generic `assignment` token.
 
-Aside, not part of this migration: investigated whether the schema's separate `homonyms` table (non-opinion,
-`create_new.sql` line 4991) should be populated as part of resolving this pair. It shouldn't — per the
-2.0-native design (distinct from Classic), homonymy is an **emergent** property of the derived `taxa` table
-(non-unique `taxon_name`), not a curated/migrated concept. No legacy source table for it exists anyway (the
-mapping doc's Q4 claim that "homonymy migrates from the legacy `homonyms` table" points at a table that
-isn't in the Postgres-ported classic mirror — confirmed absent, 2026-08-19). The `homonyms` table in
-`create_new.sql` and its supporting design notes (`classic-taxa-opinions.md` D10, §9.5.2) look like dead
-schema from an earlier design phase; flagged for a separate cleanup, not addressed here.
+**Homonyms are not modeled in this migration.** Per the 2.0-native design (distinct from Classic),
+homonymy is an emergent property of the derived `taxa` table (non-unique `taxon_name`), not a curated or
+migrated concept. No legacy source table for it exists in the accessible Postgres-ported classic mirror
+either way. `create_new.sql`'s standalone `homonyms` table looks like dead schema from an earlier design
+phase — a candidate for separate cleanup, not addressed here.
 
-### Q3 — Are the "unverified" pairs actually uniform? — RESOLVED, 2026-08-19
-No — and the general shape of the answer is now settled. A `(status, spelling_reason)` pair where
-`spelling_reason ≠ 'original spelling'` on a **non-`belongs-to`** status (synonym-of, invalid subgroup of,
-replaced by, the nomen family) is Classic collapsing two distinct 2.0-model assertions into one legacy row:
-a **concept**-class claim (from `status`) and a **lineage**-class spelling claim (from `spelling_reason`).
-The correct migration is **two `name_opinions` records per matching source row** — one of each class — not
-a single row that picks one disposition over the other. This mirrors the §5.1 backfill (pair 1) and the
-"every opinion becomes its own ledger row, unconditionally" boundary rule: nothing here is a contest,
-each implicit assertion just gets its own row.
+## 4. Per-status disposition and lineage reason crosswalk
 
-This resolves the *shape* of the answer for all 32 "unverified" pairs, but each pair's actual field mapping
-(which of `child_no`/`child_spelling_no`/`parent_no`/`parent_spelling_no` plays which role in the lineage
-half) still needs the same live UI confirmation as every other pair — Q3 removes the need to re-derive
-*whether* a second emission is needed, not the need to confirm *how* to build it.
+| status | primary disposition | lineage reason by `spelling_reason` |
+|---|---|---|
+| belongs to | `assignment_opinions` | recombination→`recombination`, rank change→`reranked`, correction→`correction`, misspelling→`misspelling`, reassignment→`assignment` |
+| subjective synonym of | concept, `junior synonym`, `objective=false` | same crosswalk as above |
+| objective synonym of | concept, `junior synonym`, `objective=true` | same crosswalk |
+| invalid subgroup of | concept, `invalid subgroup`, `objective=NULL` | same crosswalk |
+| replaced by | concept, `replaced by`, `objective=NULL` | same crosswalk (no `reassignment` variant in the data) |
+| misspelling of | *(none — this status IS the lineage claim)* | single reason: `historical misspelling` |
+| nomen dubium | `validity_opinions`, `bars_candidacy=false` | same crosswalk (no `reassignment` variant) |
+| nomen nudum | `validity_opinions`, `bars_candidacy=true` | same crosswalk (no `reassignment` variant) |
+| nomen oblitum | per-row branch (§3) | same crosswalk (no `reassignment`/`rank change` variant) |
+| nomen vanum | `validity_opinions`, `bars_candidacy=false` | same crosswalk (recombination/misspelling/correction/reassignment; no `rank change` variant) |
 
-## 6. Open questions
+`spelling_reason = 'original spelling'` never emits a lineage edge (by definition `child_spelling_no ==
+child_no`), except for the 50-row anomaly noted in §3.
 
-### Q4 — Granularity of `nomen oblitum`'s targeted/untargeted split
-`nomen oblitum` already splits on `parent_no` (not `spelling_reason`) into two totally different target
-tables (§5.2). That split is orthogonal to the pair-based split proposed here. Confirm: does each of the 4
-`nomen-oblitum/*.js` spelling_reason files internally branch on `parent_no`, or does the folder split
-further into `nomen-oblitum/targeted/*.js` + `nomen-oblitum/untargeted/*.js` (8 files total)?
+Live row counts per pair (probed against the Postgres-ported classic mirror, `PG_CLASSIC_*`): 998,565 total
+across 48 pairs, reconciling exactly against `docs/taxa-opinions-migration-mapping.md`'s per-status totals.
 
----
+## 5. Folder structure
 
-## 7. Progress
+```
+migration_exploration/
+  DESIGN.md
+  lib/                             shared transforms, used by every pair handler:
+    identity.js                      name-permid Map, reference Map, person 0-sentinel fallback
+    attribution.js                   second-hand rule, opinionAttribution builder, "authority unknown" sentinel
+    evidence.js                      basis → evidence boolean
+  opinions/
+    belongs-to/                      6 files (one per spelling_reason)
+    subjective-synonym-of/           6 files
+    objective-synonym-of/            5 files
+    invalid-subgroup-of/             6 files
+    misspelling-of/                  1 file
+    replaced-by/                     5 files
+    nomen-dubium/                    5 files
+    nomen-nudum/                     5 files
+    nomen-oblitum/                   4 files (each branches internally on parent_no, §3)
+    nomen-vanum/                     5 files
+  run.js                            not yet written — global orchestrator (§7)
+```
 
-Working the 48 pairs in table order (§2), one at a time: confirm field direction against the Classic UI
-(user-supplied per pair, never inferred) -> resolve any pair-specific data quirks against live probes ->
-write the handler -> move on. `run.js` (the global reconciliation orchestrator) comes last, once all
-handlers exist.
+Each pair handler: states its exact `(status, spelling_reason)` source filter and row count in a header
+comment; delegates identity/reference/person/attribution/evidence resolution to `lib/`; performs its own
+skip-and-log bookkeeping and reconciliation invariant (`inserted + skipped == source rows`, per emission
+type where a pair has more than one).
 
-| # | pair | status |
-|---:|---|---|
-| 1 | belongs to / original spelling | ✅ done — `opinions/belongs-to/original-spelling.js` |
-| 2 | belongs to / recombination | ✅ done — `opinions/belongs-to/recombination.js` (reversed field direction, see §4) |
-| 3 | belongs to / rank change | ✅ done — `opinions/belongs-to/rank-change.js` (same direction as pair 2, reason `reranked`) |
-| 4 | belongs to / correction | ✅ done — `opinions/belongs-to/correction.js` (same direction as pairs 2–3, reason `correction`) |
-| 5 | belongs to / misspelling | ✅ done — `opinions/belongs-to/misspelling.js` (direction reverts to pair 1's, reason `misspelling`) |
-| 6 | belongs to / reassignment | ✅ done — `opinions/belongs-to/reassignment.js` (same direction as pair 2, reason `assignment`) — **all 6 `belongs to` variants complete** |
-| 7 | subjective synonym of / original spelling | ✅ done — `opinions/subjective-synonym-of/original-spelling.js` (concept edge, no assignment_opinions) |
-| 8 | subjective synonym of / recombination | ✅ done — `opinions/subjective-synonym-of/recombination.js` (two `name_opinions` records per row per Q3's resolution: concept + lineage) |
-| 9 | subjective synonym of / rank change | ✅ done — `opinions/subjective-synonym-of/rank-change.js` (same mappings as pair 8, lineage reason `reranked`) |
-| 10 | subjective synonym of / correction | ✅ done — `opinions/subjective-synonym-of/correction.js` (same mappings as pair 8, lineage reason `correction`) |
-| 11–48 | (see §2 table) | pending |
+## 6. Status: complete
 
-`lib/` shared transforms (`identity.js`, `attribution.js`, `evidence.js`) are scaffolded, ported from the
-existing root-level scripts' pure functions unchanged, and used by pairs 1–10.
+All 48 pairs are implemented and pass `node --check`. Every pair falls into exactly one of four shapes
+(strict partition, sums to 48):
 
-## 8. Next steps
-- [ ] Get pair 11's confirmed subject/target field mapping(s) (`subjective synonym of` / `misspelling` —
-      last of the standard four lineage tokens for this status; the remaining `reassignment` variant is pair 12),
-      then implement it.
-- [ ] Live-probe the 32 "unverified" pairs (Q3) as each is reached, rather than up front.
-- [ ] Resolve Q4 (`nomen oblitum` folder granularity) when that status family is reached.
-- [ ] `run.js` last, once all 48 handlers exist.
+| shape | pairs | example |
+|---|---:|---|
+| single-output, `original spelling`, no lineage — one per status except `nomen oblitum` (its own row below) | 8 | `belongs-to/original-spelling.js` (also carries the 50-row anomaly backfill, §3) |
+| dual-output: primary disposition + lineage edge, for every other `spelling_reason` across those same 8 statuses | 35 | `subjective-synonym-of/recombination.js` |
+| single-output, lineage only (`misspelling of`'s one spelling_reason) | 1 | `misspelling-of/misspelling.js` |
+| per-row targeted/untargeted branch, `nomen oblitum` (all 4 spelling_reason variants; 3 of the 4 also carry a lineage edge, §3) | 4 | `nomen-oblitum/recombination.js` |
+
+## 7. Remaining work
+
+- **Validation.** Pairs 1–10 and 24 were each individually confirmed against live query results and
+  spot-checked opinion_nos during development. The remaining 37 pairs were implemented against the rules in
+  §3–§4 but have not each been individually probed the same way — worth a validation pass before treating
+  this as production-ready.
+- **`run.js`.** The global orchestrator — run all 48 handlers, aggregate one final reconciliation
+  (inserted + skipped == 998,565 across every pair) — has not been written.
+- **Execution testing.** Nothing in this exploration has been run end-to-end. This sandbox's `.env` only
+  has `PG_CLASSIC_*` credentials (the Postgres-ported classic mirror, used for live probing); the actual
+  migration scripts need `MARIADB_*` (source) and `PG_*` (target) credentials this environment doesn't
+  have. Every handler is structurally and syntactically validated, not execution-tested.

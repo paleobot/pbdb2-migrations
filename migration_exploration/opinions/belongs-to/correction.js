@@ -1,15 +1,18 @@
 // Pair: status = 'belongs to', spelling_reason = 'correction' (9,659 rows).
 //
-// Field mapping confirmed against the Classic UI (2026-08-19) -- same direction as
-// Pairs 2-3 (belongs-to/recombination, belongs-to/rank-change):
-//   name_opinions:       subject_permid = permid(child_no),        target_permid = permid(child_spelling_no)
+// Field mapping confirmed against the Classic UI (2026-08-19, corrected 2026-08-19):
+// child_spelling_no is ALWAYS the subject wherever it appears in a lineage insert --
+// this pair's earlier version had it backwards (subject=child_no); corrected here.
+//   name_opinions:       subject_permid = permid(child_spelling_no), target_permid = permid(child_no)
 //   assignment_opinions: subject_permid = permid(child_spelling_no), containing_permid = permid(parent_spelling_no)
+// child_spelling_no is therefore a SHARED prerequisite for both outputs (it is the
+// subject of both), resolved once; only the "other end" (parent_spelling_no for
+// assignment, child_no for lineage) differs per output.
 //
 // Every row emits BOTH a name_opinions lineage row (reason 'correction', per the §6.1
 // crosswalk for spelling_reason='correction') and an assignment_opinions containment
 // row, unconditionally (ledger model -- no ranking; see the boundary note in
-// taxa-opinions-migration-mapping.md). The two emissions are resolved and skipped
-// independently, same structure as Pairs 2-3.
+// taxa-opinions-migration-mapping.md).
 import { mariadb, pg, closeAll } from '../../../db.js';
 import { uuidv7 } from '../../../uuidv7.js';
 import { loadNamePermidMap, loadReferenceIdMap, resolvePersons } from '../../lib/identity.js';
@@ -47,8 +50,10 @@ async function main() {
   const correctionReasonId = reasonRows[0].id;
 
   let sourceRows = 0;
-  const assignSkip = { child_spelling_unresolved: 0, parent_spelling_zero: 0, parent_spelling_orphan: 0, self_reference: 0, orphan_reference: 0 };
-  const lineageSkip = { child_spelling_unresolved: 0, child_no_unresolved: 0, self_reference: 0, orphan_reference: 0 };
+  let orphanReference = 0;
+  let childSpellingUnresolved = 0;
+  const assignSkip = { parent_spelling_zero: 0, parent_spelling_orphan: 0, self_reference: 0 };
+  const lineageSkip = { child_no_unresolved: 0, self_reference: 0 };
   const logSkip = makeSampleLogger('skip');
 
   const assignments = [];
@@ -67,7 +72,7 @@ async function main() {
   try {
     for await (const src of stream) {
       sourceRows++;
-      if (sourceRows % 50000 === 0) {
+      if (sourceRows % 5000 === 0) {
         console.log(`  Processed ${sourceRows} rows: ${assignments.length} assignments, ${lineageRows.length} lineage rows so far...`);
       }
 
@@ -75,12 +80,18 @@ async function main() {
       const parentSpelling = Number(src.parent_spelling_no);
       const childNo = Number(src.child_no);
 
-      // Shared prerequisite: neither output can be built without a resolvable reference.
       const referenceId = src.reference_no ? refMap.get(Number(src.reference_no)) : undefined;
       if (!referenceId) {
-        assignSkip.orphan_reference++;
-        lineageSkip.orphan_reference++;
+        orphanReference++;
         logSkip(`opinion_no=${src.opinion_no} orphan_reference reference_no=${src.reference_no}`);
+        continue;
+      }
+
+      // Shared prerequisite: child_spelling_no is the subject of BOTH outputs.
+      const childSpellingPermid = childSpelling ? nameMap.get(childSpelling) : undefined;
+      if (!childSpellingPermid) {
+        childSpellingUnresolved++;
+        logSkip(`opinion_no=${src.opinion_no} child_spelling_unresolved child=${src.child_spelling_no}`);
         continue;
       }
 
@@ -90,13 +101,8 @@ async function main() {
       const { publicationYear, attribution } = resolveSecondHand(src, firstHand);
       assertValidAttribution(attribution, `opinion_no=${src.opinion_no}`);
 
-      const childSpellingPermid = childSpelling ? nameMap.get(childSpelling) : undefined;
-
       // ---- assignment_opinions: subject = child_spelling_no, containing = parent_spelling_no ----
-      if (!childSpellingPermid) {
-        assignSkip.child_spelling_unresolved++;
-        logSkip(`opinion_no=${src.opinion_no} assign_child_spelling_unresolved child=${src.child_spelling_no}`);
-      } else if (!parentSpelling) {
+      if (!parentSpelling) {
         assignSkip.parent_spelling_zero++;
         logSkip(`opinion_no=${src.opinion_no} parent_spelling_zero`);
       } else {
@@ -122,24 +128,21 @@ async function main() {
         }
       }
 
-      // ---- name_opinions lineage: subject = child_no, target = child_spelling_no ----
+      // ---- name_opinions lineage: subject = child_spelling_no, target = child_no ----
       const childNoPermid = childNo ? nameMap.get(childNo) : undefined;
       if (!childNoPermid) {
         lineageSkip.child_no_unresolved++;
         logSkip(`opinion_no=${src.opinion_no} lineage_child_no_unresolved child_no=${src.child_no}`);
-      } else if (!childSpellingPermid) {
-        lineageSkip.child_spelling_unresolved++;
-        logSkip(`opinion_no=${src.opinion_no} lineage_child_spelling_unresolved child=${src.child_spelling_no}`);
-      } else if (childNo === childSpelling) {
+      } else if (childSpelling === childNo) {
         lineageSkip.self_reference++;
-        logSkip(`opinion_no=${src.opinion_no} lineage_self_reference taxon=${src.child_no}`);
+        logSkip(`opinion_no=${src.opinion_no} lineage_self_reference taxon=${src.child_spelling_no}`);
       } else {
         lineageRows.push({
           permid: uuidv7(),
           authorizerPersonId,
           entererPersonId,
-          subjectPermid: childNoPermid,
-          targetPermid: childSpellingPermid,
+          subjectPermid: childSpellingPermid,
+          targetPermid: childNoPermid,
           reasonId: correctionReasonId,
           referenceId,
           publicationYear,
@@ -152,11 +155,12 @@ async function main() {
     conn.release();
   }
 
-  const totalAssignSkipped = Object.values(assignSkip).reduce((a, b) => a + b, 0);
-  const totalLineageSkipped = Object.values(lineageSkip).reduce((a, b) => a + b, 0);
+  const totalAssignSkipped = orphanReference + childSpellingUnresolved + Object.values(assignSkip).reduce((a, b) => a + b, 0);
+  const totalLineageSkipped = orphanReference + childSpellingUnresolved + Object.values(lineageSkip).reduce((a, b) => a + b, 0);
 
   console.log('');
   console.log(`  Source rows read: ${sourceRows}`);
+  console.log(`  orphan_reference (shared): ${orphanReference}, child_spelling_unresolved (shared): ${childSpellingUnresolved}`);
   console.log(`  assignment_opinions to insert: ${assignments.length}, skipped: ${totalAssignSkipped}`);
   for (const [k, v] of Object.entries(assignSkip)) console.log(`    ${k}: ${v}`);
   console.log(`  name_opinions (lineage) to insert: ${lineageRows.length}, skipped: ${totalLineageSkipped}`);
