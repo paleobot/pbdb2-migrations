@@ -85,17 +85,32 @@ INSERT INTO dictionaries.notable_features (name)
 
 -- namechange_reasons covers legacy `spelling_reason` ∪ the synonymy half of legacy
 -- `status` ∪ the fold-shaped half of legacy nomenclatural-status opinions, reconciled
--- to ten tokens (§10.6 D7; extended by the concept-fold decision, mapping doc §5.2,
--- 2026-08-18). edge_class ('root' | 'lineage' | 'concept') tells derive() which of its
--- two union-finds a name_opinions edge feeds; it is denormalized onto each opinion row
--- and FK-pinned to the composite key (id, edge_class) below, so name_opinions'
--- minting-shape rule can be a plain CHECK (Way 2 / A1 / §10.6 D9). 'root' (not NULL) is
--- 'original' — a lineage root with no target; a NULLable composite-FK column could not
--- be enforced. never_accepted marks reasons whose subject can never be a lineage's
--- accepted spelling (a misspelling is folded in for lookup only); derive() step 3
--- excludes these.
+-- to eleven tokens (§10.6 D7; extended by the concept-fold decision, mapping doc §5.2,
+-- 2026-08-18; extended again by the historical-misspelling split, migration_exploration
+-- pair-24 discussion, 2026-08-19). edge_class ('root' | 'lineage' | 'concept') tells
+-- derive() which of its two union-finds a name_opinions edge feeds; it is denormalized
+-- onto each opinion row and FK-pinned to the composite key (id, edge_class) below, so
+-- name_opinions' minting-shape rule can be a plain CHECK (Way 2 / A1 / §10.6 D9). 'root'
+-- (not NULL) is 'original' — a lineage root with no target; a NULLable composite-FK
+-- column could not be enforced. never_accepted marks reasons whose subject can never be
+-- a lineage's accepted spelling (a misspelling is folded in for lookup only); derive()
+-- step 3 excludes these.
 --   * 'code' dropped: redundant with 'correction' (legacy routes code/grammar changes
 --     through spelling_reason 'correction'); had no legacy source.
+--   * 'misspelling' vs 'historical misspelling' — Classic distinguishes two provenances
+--     for a misspelling claim that our model previously collapsed into one token.
+--     'misspelling' is the curatorial case: a data enterer notices, while entering an
+--     opinion about something else (any status, `spelling_reason = 'misspelling'`),
+--     that the current reference happened to render the name incorrectly — no reference
+--     is independently arguing the point. 'historical misspelling' is the dedicated
+--     case: legacy `status = 'misspelling of'`, where the ENTIRE opinion, backed by its
+--     own reference/evidence, is a formally published claim that a name is a
+--     misspelling (the PBDB user guide's own term for this case). Checked against live
+--     data (2026-08-19): `evidence` does not reliably distinguish the two (43.9% of
+--     'misspelling of' rows are `stated with evidence` vs. 28.9% of `spelling_reason =
+--     'misspelling'` rows — a skew, not a clean separator), so the distinction needed
+--     its own token rather than being inferable from existing columns. Both tokens are
+--     'lineage'-class and never_accepted, differing only in how the claim originated.
 --   * 'invalid subgroup' and 'nomen oblitum' are concept-class folds, not synonymy in
 --     the ordinary sense — Classic's own getSeniorSynonym/getMostRecentClassification
 --     (classic/lib/PBDB/TaxonInfo.pm) fold both into the same senior-synonym chase as
@@ -128,7 +143,8 @@ INSERT INTO dictionaries.namechange_reasons (reason, description, edge_class, ne
         ('reranked',         'The taxon has changed rank (from genus to family, implies re-assignment)', 'lineage', false),
         ('recombination',    'Species combined with a different genus',                            'lineage', false),
         ('assignment',       'The assignment of the taxon changed (e.g., new genus for species)',  'lineage', false),
-        ('misspelling',      'The taxon''s name was misspelled',                                   'lineage', true),
+        ('misspelling',      'The taxon''s name was misspelled (noticed incidentally, e.g. while entering a belongs-to opinion; legacy spelling_reason=''misspelling'')', 'lineage', true),
+        ('historical misspelling', 'A formally published opinion whose entire content is the claim that this name is a misspelling (legacy status=''misspelling of'')', 'lineage', true),
         ('junior synonym',   'The taxon is a junior synonym of another taxon',                     'concept', false),
         ('replaced by',      'Name replaced (e.g. homonymy)',                                      'concept', false),
         ('invalid subgroup', 'The taxon is an invalid subgroup, folded into the target''s concept', 'concept', false),
