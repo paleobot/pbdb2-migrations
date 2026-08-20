@@ -223,6 +223,18 @@ edges actually point at as their common target.
   previously silently produced a fanned-out result → **Mitigation:** this is the intended change (fail
   loudly on a real integrity violation instead of silently corrupting output), and no real data has been
   migrated yet (B4 hasn't started) — nothing running today is exposed to this newly-strict check.
+- **[Risk] Coordination with a second, concurrently-drafted change** — `openspec/changes/
+  contest-lineage-concept-edges/` (drafted 2026-08-20, after this change) gives the lineage/concept
+  union-finds a per-subject ranked contest and an explicit negation mechanism, and separately revises
+  the `spelling` CTE's exclusion list and the senior-lineage tie-break's `con_sources` input — all in
+  this same function body, some in the exact CTEs Decisions 1-4 above touch. Concretely: **both changes
+  independently modify the "Accepted spelling is the top-ranked opinion of the senior lineage"
+  requirement** — this change adds `nomen nudum`/eligibility exclusions via the "canonical introducing
+  edge per permid" concept (Decisions 1-2 above); that change adds a `negates`-based exclusion to the
+  same `spelling` CTE's `WHERE` clause. The two are additive and don't touch the same clause, but →
+  **Mitigation:** whichever change lands first, re-run the other's fixtures before merging, and whoever
+  archives second folds both deltas into the main spec together rather than picking one; check that
+  change's own design.md for current status before assuming this function's shape.
 
 ## Migration Plan
 

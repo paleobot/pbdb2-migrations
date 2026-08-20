@@ -8,7 +8,10 @@ and targeted `nomen oblitum` move to `name_opinions` as concept-class folds; `no
 `nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. **Rootless `belongs
 to` is migrated, not dropped (§9.6, 2026-08-19):** `assignment_opinions.containing_permid` is now
 nullable; the 332 `parent_spelling_no = 0` rows are inserted with `containing_permid = NULL`
-instead of being skipped — supersedes the exclusion in §9.3 and the disposition in §9.5. Next is
+instead of being skipped — supersedes the exclusion in §9.3 and the disposition in §9.5. **Concept-axis
+synonymy reversals FLAGGED for B4 (§10, 2026-08-20):** ~6,170 taxa currently resolve as valid/independent
+in Classic despite an unretracted concept-class opinion in their history; migration will not
+auto-synthesize a negation for them — see §10 for the live counts and the deferred worklist. Next is
 starting B4 (§8).
 **Scope:** the legacy→new *opinion* migration (OpenSpec change **B4 = `migrate-taxa-opinions`**,
 not yet started). This is the detailed, laid-out successor to the flat
@@ -871,3 +874,68 @@ basis field, so "the reference's basis" must be derived from the legacy side dur
 candidate: the modal non-NULL `basis` among all `opinions`/`authorities` sharing that `reference_no`,
 falling back to `false` when the reference has no basis anywhere. 298,470 opinions (~30%) depend on it.
 Not a design reopen; an implementation detail B4 must specify and log.
+
+---
+
+## 10. Concept-axis synonymy "reversals" — FLAGGED for B4 (2026-08-20)
+
+**The trigger.** Design work on the OpenSpec change
+`openspec/changes/contest-lineage-concept-edges/` (giving `derive_taxa()` a per-subject ranked contest
+over lineage/concept edges, plus an explicit, targeted `negates` opinion so a later opinion can contest
+an earlier one — see that change's `design.md` D1/D2) surfaced a structural mismatch this doc needs to
+carry forward into B4. Classic ranks **every** opinion about a taxon — `belongs to` and the
+synonymy/spelling family alike — in one pool (`getMostRecentClassification`, `docs/classic-taxa-opinions.md`
+§4.2); whichever wins defines the taxon's current disposition regardless of type. pbdb2 deliberately
+splits classification (`assignment_opinions`) from synonymy (`name_opinions` concept-class) into
+independent per-subject contests (§8/§9.1 of the companion doc — motivated by clean edge-following for
+the tree query and per-edge-type rank rules, not by a considered ranking philosophy). One consequence
+of that split: a `belongs to` opinion can never contest a concept-class claim in the new model, even
+though in Classic it routinely does exactly that — reclassifying a taxon as a valid, independently
+allocated name is how Classic's engine (implicitly) un-synonymizes it, simply because it's the most
+recent, reliable word on that taxon of *any* type.
+
+**Live counts** (probed 2026-08-20 against the Postgres-ported `pbdb_archive` mirror via
+`pg-classic-pool.js`, concept-class opinions only — `subjective synonym of`, `objective synonym of`,
+`replaced by`, `invalid subgroup of`, and targeted `nomen oblitum`; `misspelling of` is lineage-class
+and excluded here, ~875 rows total, small enough to size separately if wanted):
+
+| population | count |
+|---|---|
+| taxa with both a concept-class opinion and a `belongs to` opinion on file | 36,312 |
+| …of those, currently resolved by Classic's own `taxa_tree_cache` (`synonym_no = taxon_no`) as their own senior, not a junior synonym | 6,170 |
+
+The first row is mostly unremarkable — routine junior-synonym classification-borrowing (spec
+requirement "Classification is pooled across the whole concept") produces real `assignment_opinions`
+history for taxa that are stably, uncontestedly synonyms; that's expected, not a gap. The second row is
+the actionable population: for these 6,170 taxa, a naive migration plus the fixed `derive_taxa()` would
+resolve them as synonymous (per their raw, unretracted concept-class opinion), while Classic's live
+engine currently treats them as independent.
+
+**Decision: migration does NOT synthesize a `negates` opinion for any of the 6,170, in B4 or otherwise.**
+Two independent reasons, not one:
+
+1. Deciding *which* `belongs to` opinion "counts" as a reversal of *which* concept-class opinion
+   requires exactly the evidence/pubyr/id ranking this doc's header rule reserves for `derive_taxa()`
+   alone — migration writing every qualifying legacy opinion unconditionally, never comparing candidates
+   to pick a winner, is the entire point of the migration/derivation split.
+2. Even Classic's own resolution can't distinguish a genuine scientific rebuttal from an unrelated,
+   later classification opinion that simply happens to be more reliable — the two are indistinguishable
+   in the data shape (subject, evidence, reference; nothing records whether the classifying author ever
+   engaged with the synonymy question at all). An auto-synthesized negation, attributed to that opinion's
+   own reference, risks putting words in an author's mouth they never said. This is a case where pbdb2's
+   split model is *more* precise than Classic's, not less (see `contest-lineage-concept-edges/design.md`
+   for the fuller discussion) — but that precision means the ambiguity in Classic's historical data can't
+   be losslessly resolved after the fact.
+
+**Disposition.** `belongs to` → `assignment_opinions` and the concept-class family → `name_opinions`
+concept-class rows migrate exactly as §9.2/§9.3 already specify — unconditionally, no inference layered
+on top. The 6,170 taxa will resolve as synonymous immediately post-migration, contra Classic's current
+live state, until a curator reviews and re-enters a real opinion.
+
+**Follow-up (a B4 deliverable, not a schema or `derive_taxa()` change):** produce a dated curatorial
+worklist — the 6,170 `child_no` values, each joined to its currently-asserted senior/synonym target and
+its competing `belongs to` opinion(s) — as a read-only review report, not a ledger write. A curator
+judges each case and, where warranted, enters a genuine, self-attributed `negates` opinion via the
+mechanism `contest-lineage-concept-edges` adds. Same treatment as this project's existing anomaly-log
+ledger pattern for other migration edge cases: a quantified, actionable list handed to a human, not a
+silent gap and not an automated guess.
