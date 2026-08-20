@@ -2,6 +2,10 @@
 
 - [ ] 0.1 Add `negates boolean NOT NULL DEFAULT false` to `name_opinions`.
 - [ ] 0.2 Extend the `name_opinion_shape` CHECK: `edge_class = 'root'` rows must have `negates = false`.
+- [ ] 0.3 Add an inline comment on the `negates` column documenting that it flips the polarity of
+      whatever `reason` names (`reason = 'misspelling', negates = true` reads as "not a misspelling of
+      [target]," not "misspelling") — the Risks section's mitigation for a reader assuming `reason`
+      alone still means what it names.
 
 ## 1. Split identity from edge-candidates (Decision 1)
 
@@ -41,6 +45,7 @@
 - [ ] 6.2 Rewire `lin_undir` to source both directions of its edges from `_dt_lin_winner WHERE negates = false`, instead of unconditionally from every current `lineage`-class `name_opinions` row.
 - [ ] 6.3 Build `_dt_con_winner`: pool `concept`-class `name_opinions` rows by lineage (`ls.lin_rep`, joining `_dt_lin`), rank per `lin_rep` by the canonical `ORDER BY`, carrying the target lineage (`sr`) and `negates`. This is a new computation, not sourced from `_dt_edge_cand` (which is scoped to `root`/`lineage` only).
 - [ ] 6.4 Rewire `con_edge`/`con_undir` to source edges from `_dt_con_winner WHERE negates = false`, instead of unconditionally from every current `concept`-class `name_opinions` row.
+- [ ] 6.5 Add an inline comment at `_dt_lin_winner`/`_dt_con_winner` documenting that a negating winner's `target_permid` is retained for provenance only and is never read by the union-find construction — the Risks section's mitigation for a reader assuming that target is computationally binding.
 
 ## 7. `con_sources` reflects active concept edges (Decision 8)
 
@@ -60,16 +65,17 @@
 - [ ] 8.10 New: two live root rows for the same permid raise an error identifying the permid.
 - [ ] 8.11 New: a subject with two competing `lineage`-class opinions, where the higher-ranked one targets a different permid, is unioned into the higher-ranked target's lineage, not the lower-ranked one's (spec: "A later, higher-ranked opinion redirects a subject's lineage").
 - [ ] 8.12 New: a subject whose higher-ranked current `lineage`-class opinion is negating forms its own lineage instead of joining the target a lower-ranked opinion named (spec: "A winning negation removes a subject from its claimed lineage").
-- [ ] 8.13 New: the concept-level analogs of 8.11/8.12 — a lineage redirected to a different concept by a higher-ranked opinion, and a lineage returned to its own concept by a winning negation (spec: "A later, higher-ranked opinion redirects a lineage's concept" / "A winning negation returns a lineage to its own concept").
-- [ ] 8.14 New: a permid whose own canonical introducing edge has `negates = true` is excluded from `accepted_spelling_permid` eligibility even when it has the highest evidence/year in its lineage (spec: "A negating opinion is never the accepted spelling").
-- [ ] 8.15 New: a lineage whose only `concept`-class opinion is outranked or successfully negated is not deprioritized against a lineage with no `concept`-class history at all, when tied on the other tiebreak criteria (spec: "An outranked or negated concept claim does not deprioritize a lineage's seniority").
-- [ ] 8.16 New: a `name_opinions` insert with `edge_class = 'root'` and `negates = true` is rejected by the minting-shape CHECK (spec: "A root opinion cannot negate").
-- [ ] 8.17 New: a negating opinion inserted with no prior opinion about that specific relationship is accepted and `derive_taxa()` treats the subject exactly as if it had no opinion of that edge_class at all (spec: "A negating row with no antecedent opinion is well-formed").
+- [ ] 8.13 New: a lineage with two current `concept`-class opinions (filed under any of its member permids) targeting different lineages is unioned into the higher-ranked target's concept, not the lower-ranked one's (spec: "A later, higher-ranked opinion redirects a lineage's concept").
+- [ ] 8.14 New: a lineage whose higher-ranked current `concept`-class opinion is negating forms its own concept instead of joining the target a lower-ranked opinion named (spec: "A winning negation returns a lineage to its own concept").
+- [ ] 8.15 New: a permid whose own canonical introducing edge has `negates = true` is excluded from `accepted_spelling_permid` eligibility even when it has the highest evidence/year in its lineage (spec: "A negating opinion is never the accepted spelling").
+- [ ] 8.16 New: a lineage whose only `concept`-class opinion is outranked or successfully negated is not deprioritized against a lineage with no `concept`-class history at all, when tied on the other tiebreak criteria (spec: "An outranked or negated concept claim does not deprioritize a lineage's seniority").
+- [ ] 8.17 New: a `name_opinions` insert with `edge_class = 'root'` and `negates = true` is rejected by the minting-shape CHECK (spec: "A root opinion cannot negate").
+- [ ] 8.18 New: a negating opinion inserted with no prior opinion about that specific relationship is accepted and `derive_taxa()` treats the subject exactly as if it had no opinion of that edge_class at all (spec: "A negating row with no antecedent opinion is well-formed").
 
 ## 9. Verification
 
 - [ ] 9.1 Apply `create_new.sql` to a fresh empty PG16 DB (PostGIS + ltree); confirm the rewritten function (and the new `negates` column/CHECK) builds clean.
 - [ ] 9.2 Run the full fixture suite (group 8); all scenarios pass, including the regression set.
-- [ ] 9.3 Re-run `rebuild_taxa()` / `assert_taxa_invariant()` over the extended fixtures; confirm `derive_taxa(all) ≡ heads`, and confirm `derive_taxa(subset) ≡ derive_taxa(all)` for at least one permid drawn from each new fixture case (8.3-8.17).
+- [ ] 9.3 Re-run `rebuild_taxa()` / `assert_taxa_invariant()` over the extended fixtures; confirm `derive_taxa(all) ≡ heads`, and confirm `derive_taxa(subset) ≡ derive_taxa(all)` for at least one permid drawn from each new fixture case (8.3-8.18).
 - [ ] 9.4 `openspec validate rework-derive-taxa --strict`; reconcile any drift between the delta spec and the final implementation.
 - [ ] 9.5 Confirm this change's only schema-level edit is the `negates` column and its `name_opinion_shape` CHECK clause (task 0) — no other `taxa-opinions-schema` table is touched. If scope expanded beyond that, note the additional schema delta and update `proposal.md`/`design.md`'s Impact section accordingly rather than silently expanding scope.
