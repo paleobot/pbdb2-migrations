@@ -122,6 +122,12 @@ For each subject permid, `derive_taxa()` SHALL select its single top-ranked curr
 - **WHEN** a lineage has two permids that are each never the subject of a lineage edge (two candidate sinks) and no lineage edge distinguishes them
 - **THEN** `derive_taxa()` picks exactly one as `original_permid` via the canonical-order/pubyr/permid fallback, and repeated calls return the same choice
 
+  (Note: given each subject contributes at most one winning lineage edge — see "Lineage grouping
+  collapses spellings of one name" — a lineage's reachability graph is a functional graph, which
+  cannot have two genuine sinks in one weakly-connected component; this case is not currently
+  constructible from live opinions, but the fallback's `ORDER BY` expression is exercised by the
+  cycle scenario below, which shares the identical ranking logic over a different candidate set.)
+
 #### Scenario: A lineage-level cycle has no sink and still resolves deterministically
 
 - **WHEN** every permid in a lineage is the subject of some live lineage edge (a cycle, with no permid ever left unreferenced as a subject)
@@ -158,7 +164,7 @@ For each lineage, `derive_taxa()` SHALL select the single top-ranked current `co
 
 ### Requirement: Accepted spelling is the top-ranked opinion of the senior lineage
 
-Per lineage, `derive_taxa()` SHALL choose `accepted_spelling_permid` as the permid, among those eligible, whose own canonical introducing `name_opinions` edge (the top-ranked edge naming it as subject, by `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`) ranks highest by that same order. A permid SHALL be excluded from eligibility if its own canonical introducing edge's reason is `never_accepted` (misspellings), if that same edge has `negates = true` (it asserts the absence of a relationship, not a spelling), or if its own winning `validity_opinions` row bars candidacy (`nomen nudum`). All three exclusions SHALL be evaluated per permid, using that permid's own canonical introducing edge — not any other edge that happens to name it as subject — so a permid is not made eligible merely because it also carries a `root` mint that is not itself excluded. The accepted rank rides along (the accepted spelling's `rank_id`). Grouping SHALL be resolved before spelling selection, and the concept's accepted name SHALL be scoped to the **senior** lineage only.
+Per lineage, `derive_taxa()` SHALL choose `accepted_spelling_permid` as the permid, among those eligible, whose own canonical introducing `name_opinions` edge (the top-ranked edge naming it as subject, by `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`, considering only edges with `negates = false`) ranks highest by that same order. A negating edge SHALL NOT be eligible to be a permid's canonical introducing edge in the first place — negation rejects a relationship to another permid, it is not an account of this permid's own identity, so it never wins that ranking; since every permid's own `root` row is always a non-negating candidate, this can never by itself leave a permid with no canonical introducing edge. A permid SHALL be excluded from eligibility if its own canonical introducing edge's reason is `never_accepted` (misspellings), or if its own winning `validity_opinions` row bars candidacy (`nomen nudum`). Both exclusions SHALL be evaluated per permid, using that permid's own canonical introducing edge — not any other edge that happens to name it as subject — so a permid is not made eligible merely because it also carries a `root` mint that is not itself excluded. The accepted rank rides along (the accepted spelling's `rank_id`). Grouping SHALL be resolved before spelling selection, and the concept's accepted name SHALL be scoped to the **senior** lineage only.
 
 #### Scenario: A more-recent, higher-evidence spelling wins within a lineage
 
@@ -185,10 +191,10 @@ Per lineage, `derive_taxa()` SHALL choose `accepted_spelling_permid` as the perm
 - **WHEN** a permid's winning `validity_opinions` row has status `nomen nudum` (`bars_candidacy = true`)
 - **THEN** `derive_taxa()` excludes that permid from its lineage's `accepted_spelling_permid` contest, and a later, better-evidenced non-barring validity opinion on the same permid reverses the exclusion
 
-#### Scenario: A negating opinion is never the accepted spelling
+#### Scenario: A negating opinion never wins canonical-introducing-edge ranking, but its permid stays eligible via its own root row
 
-- **WHEN** a permid's own canonical introducing edge has `negates = true`
-- **THEN** `derive_taxa()` excludes it from `accepted_spelling_permid` eligibility, and does not read that edge's `evidence`/`pubyr` as spelling evidence; the accepted spelling is the top-ranked eligible candidate instead
+- **WHEN** a permid's only introducing claim as subject other than its own `root` mint is a `negates = true` lineage edge with higher `evidence`/`pubyr` than that `root` mint
+- **THEN** `derive_taxa()` does not read the negating edge's `evidence`/`pubyr` as spelling evidence; the permid's canonical introducing edge is its own `root` mint instead, so it remains eligible and — if it forms a lineage of one, per the winning negation removing it from any claimed lineage — is its own `accepted_spelling_permid`
 
 ### Requirement: Seniority tiebreak is total and deterministic
 

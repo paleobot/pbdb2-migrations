@@ -82,10 +82,16 @@ Replace the single `_dt_mint` with two temp tables:
   `name_opinions` from scratch).
 
 From `_dt_edge_cand`, compute **`_dt_permid_edge`** — one row per permid, the permid's own canonical
-introducing edge: `row_number() OVER (PARTITION BY permid ORDER BY evidence DESC, yr DESC NULLS LAST,
-opinion_id DESC) = 1`. This row supplies, per permid: `winning_name_opinion_id` (matching
+introducing edge, ranked **only among non-negating candidates**
+(`WHERE negates = false`, then `row_number() OVER (PARTITION BY permid ORDER BY evidence DESC, yr DESC
+NULLS LAST, opinion_id DESC) = 1`). This row supplies, per permid: `winning_name_opinion_id` (matching
 `classic-taxa-opinions.md` §9.8.4.1's "canonical-winner introducing edge, or the root if the permid has
-no lineage edge"), and the `never_accepted`/`negates` flags used by Decision 2.
+no lineage edge"), and the `never_accepted` flag used by Decision 2. Excluding negating rows from this
+ranking pool (not merely from its *result*) is itself a correction — see Decision 2's note — made here
+because this is the one place the exclusion needs to live: a negating row rejects a relationship to
+another permid, it doesn't characterize this permid's own identity, so it must never be eligible to win
+"canonical introducing edge" in the first place. Every permid's own `root` row is always a non-negating
+candidate in `_dt_edge_cand`, so this can never leave a permid with zero candidates.
 
 *Alternative rejected:* keep one `_dt_mint` and add a `DISTINCT ON (permid)` at the final assembly only.
 Rejected because the never-accepted fix (Decision 2) and the accepted-spelling ranking both need the
@@ -101,11 +107,11 @@ one-time act (§9.8.1: "name and rank are immutable attributes of a permid"), no
 every other ranking in this function, there is no principled way to pick a winner among competing root
 rows, and silently picking one would hide real data corruption.
 
-### 2. `never_accepted`, the nomen-nudum bar, and negation are all permid-scoped, evaluated together, before lineage ranking
+### 2. `never_accepted` and the nomen-nudum bar are permid-scoped, evaluated together, before lineage ranking — negation is excluded one level earlier
 
 The `spelling` CTE (inside `_dt_linmeta`) currently ranks `_dt_mint` rows directly and filters
 `WHERE m.never_accepted = false`. Replace its input with **`eligible`** — one row per permid,
-joining `_dt_permid_edge` (for the canonical edge's `never_accepted`, `negates`, and evidence/yr/id) with
+joining `_dt_permid_edge` (for the canonical edge's `never_accepted` and evidence/yr/id) with
 `_dt_valid` (for the winning validity opinion's `bars_candidacy`, sourced from
 `dictionaries.nomenclatural_statuses` — `_dt_valid` needs `bars_candidacy` added to its `SELECT`, not
 just `status_id`):
@@ -116,7 +122,6 @@ eligible AS (
     FROM _dt_permid_edge pe
     LEFT JOIN _dt_valid dv ON dv.permid = pe.permid
     WHERE pe.never_accepted = false
-      AND pe.negates = false
       AND COALESCE(dv.bars_candidacy, false) = false
 )
 ```
@@ -125,22 +130,37 @@ eligible AS (
 near the end, after `_dt_assign`/`_dt_node`) — a real reordering, not just an addition.
 
 The `spelling` CTE then ranks `_dt_lin JOIN eligible` instead of `_dt_lin JOIN _dt_mint WHERE
-never_accepted=false`. This single change fixes the exclusion scoping, implements the nomen-nudum bar,
-and excludes negating opinions from spelling contention, all in one place, since all three are "is this
-permid itself eligible to represent its lineage," just sourced from three different disqualifying facts
-(a never-accepted introducing edge, a `bars_candidacy` validity ruling, or the introducing edge itself
-asserting the *absence* of a relationship rather than a spelling — Decision 5).
+never_accepted=false`. This fixes the exclusion scoping and implements the nomen-nudum bar in one
+place, since both are "is this permid itself eligible to represent its lineage," just sourced from two
+different disqualifying facts (a never-accepted introducing edge, or a `bars_candidacy` validity
+ruling).
 
-**Why negation belongs here, not in a separate patch:** a negating row is a real `lineage`-class row
-with its own `evidence`/`pubyr` — nothing else in this function stops it from being read as a "candidate
-spelling," and it isn't one. Left unexcluded, a negating opinion's evidence/year would flow into
-`acc_ev`/`acc_yr`/`acc_id` (used by the senior-lineage tie-break, Decision 8's `ranked` CTE) as if it were
-evidence *for* that permid's accepted spelling — a category error, not just noise.
+**Corrected during implementation (2026-08-20): negation is NOT a third eligibility exclusion here —
+it's excluded one level earlier, from ever winning "canonical introducing edge" at all (Decision 1's
+`_dt_permid_edge`).** The first draft of this decision added `AND pe.negates = false` to `eligible`,
+treating negation as a peer of `never_accepted`/`nomen nudum`. Building and actually running fixtures
+against it surfaced a real bug: a permid whose only claim other than its own `root` mint is a
+well-evidenced *negation* would have that negation win `_dt_permid_edge`'s ranking (it outranks the
+`root` row on evidence/date), and then get excluded from `eligible` for having `negates = true` on its
+canonical edge — exhausting its own singleton lineage and **deleting it from the ledger entirely**. That
+is exactly backwards: successfully rejecting a false relationship claim should make a permid
+independent, not erase it. The fix moved to Decision 1 — `_dt_permid_edge` never lets a negating row win
+its ranking in the first place, so a permid's canonical introducing edge is always either a genuine
+non-negating claim or, at worst, its own `root` mint — never a negation. `eligible` no longer needs to
+know about `negates` at all; it inherited a wrong assumption from treating negation as symmetric with
+`never_accepted`, when it isn't (misspelling is a claim about the permid's *own* nature; negation is a
+claim about a relationship to *something else*, so it should never be eligible to characterize the
+permid itself).
 
-*Alternative considered:* keep `never_accepted`, the nomen-nudum bar, and negation as three separate
-filter passes. Rejected — all three are the same kind of fact ("is this permid eligible"), and a single
-`eligible` CTE keeps the empty-lineage cascade (Decision 3) working through one exclusion point instead
-of three.
+**Why this still protects the senior-lineage tie-break from misread evidence:** a negating row's
+`evidence`/`pubyr` still never reaches `acc_ev`/`acc_yr`/`acc_id` (used by Decision 8's `ranked` CTE) —
+it simply never becomes any permid's canonical introducing edge, so `eligible`/`spelling` never see it
+at all. Same protection as the first draft intended, achieved one step earlier and without the
+exhaustion bug.
+
+*Alternative considered:* keep `never_accepted` and the nomen-nudum bar as two separate filter passes.
+Rejected — both are the same kind of fact ("is this permid eligible"), and a single `eligible` CTE keeps
+the empty-lineage cascade (Decision 3) working through one exclusion point instead of two.
 
 ### 3. The empty-lineage/-concept cascade requires no new code — it falls out of the existing INNER JOIN chain, once Decision 2's `eligible` set is correct
 
@@ -186,14 +206,20 @@ already falls out of the existing joins.
 Replace the `roots` CTE's earliest-year-root method with:
 
 ```sql
--- a permid is a lineage-sink iff no live lineage edge has it as subject
+-- a permid is a lineage-sink iff it has no ACTIVE (winning, non-negating) outgoing lineage edge —
+-- checked against Decision 7's _dt_lin_winner, not raw name_opinions existence (corrected
+-- 2026-08-20, during implementation: this needs the exact same fix con_sources (Decision 8) got,
+-- and for the same reason — Decision 7 makes "has an opinion" and "has an active one" diverge, and
+-- the original draft of this CTE predates Decision 7. A permid whose only lineage-class opinion is
+-- a winning negation still has a raw name_opinions row naming it as subject, so the raw-existence
+-- check would wrongly deny it sink status; checking the winner instead correctly treats a winning
+-- negation as "no active outgoing edge," consistent with everywhere else negation is handled.
 sinks AS (
     SELECT l.lin_rep, l.permid
     FROM _dt_lin l
     WHERE NOT EXISTS (
-        SELECT 1 FROM name_opinions n
-        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
-          AND n.edge_class = 'lineage' AND n.subject_permid = l.permid
+        SELECT 1 FROM _dt_lin_winner w
+        WHERE w.negates = false AND w.permid = l.permid
     )
 ),
 sink_counts AS (
@@ -239,6 +265,23 @@ wrong post-inversion, and confirmed live: every permid now has its own root row,
 in the lineage" no longer identifies anything meaningful about topological position — it would pick
 whichever spelling happened to have the earliest authorities citation, unrelated to which one the lineage
 edges actually point at as their common target.
+
+**Found while building fixtures, 2026-08-20: the `sc.n >= 2` (two-or-more-sinks) branch is now
+structurally unreachable, given Decision 7.** This decision predates Decision 7 (per-subject ranking)
+and was written when *every* current lineage-class edge fed the union-find — under that model, a
+single subject with two competing, simultaneously-active lineage claims could genuinely fork a lineage
+into two disconnected sinks. Decision 7 makes each subject contribute **at most one** outgoing edge
+(its winner), so a lineage's reachability graph is always a functional graph (out-degree ≤ 1 per node):
+following edges from any node deterministically reaches either a cycle (the `sc.n = 0` case, still very
+real — see the fixture below) or exactly one sink — never two, in one weakly-connected component. A
+genuine two-sink tie can no longer be constructed. The `sc.n >= 2` branch is kept as defensive code
+(harmless if it never fires, and correct if some future change ever reintroduces multi-edge lineage
+membership), but the "two-way tie between candidate originals" fixture is unconstructable as literally
+specified — its `ORDER BY` fallback expression is the *same* code path the `sc.n = 0` cycle fixture
+already exercises (both branches share the identical ranking logic over a candidate set gathered from
+`_dt_lin`/`_dt_permid_edge`; only the candidate-gathering `WHERE` differs), so the cycle fixture is the
+available substitute, not a gap in coverage. The corresponding spec scenario and fixture task are
+annotated below rather than silently dropped.
 
 ### 5. Negation is targeted, not a targetless "independence" flag — and is NOT pinned to the dictionary
 
@@ -360,9 +403,12 @@ a permid" query Decision 1 already does.
 `con_sources` (inside `_dt_conmeta`) currently checks whether *any* `concept`-class opinion exists in
 `name_opinions` for a lineage's members — win, lose, or now-negated, it doesn't matter. It feeds the
 senior-lineage tie-break as the first sort key (prefer, as senior, a lineage that was never proposed as
-anyone's junior). Redefine it as the lineages appearing as a source in Decision 7's winning `con_edge`
-output — i.e., a lineage counts as "a source" only if its current ranked-contest winner is a
-non-negating concept edge that's actually active in this round's union-find. This is simpler than the
+anyone's junior). Redefine it as the lineages with a winning, non-negating row in Decision 7's
+`_dt_con_winner` (`SELECT DISTINCT jr FROM _dt_con_winner WHERE negates = false` — not `con_edge`
+itself, which only exists as a CTE inside `_dt_con`'s own statement and isn't visible to a later one;
+same set, read from the table that persists) — i.e., a lineage counts as "a source" only if its current
+ranked-contest winner is a non-negating concept edge that's actually active in this round's union-find.
+This is simpler than the
 existing query, not just more correct.
 
 **Rationale:** before Decisions 5-7, "has a concept-class opinion" and "has an *active* one" were the
@@ -412,6 +458,16 @@ undocumented implementation detail a step further out of sync with the code.
   clause to `name_opinions` itself → **Mitigation:** it's one additive column and one additive CHECK
   clause, not a restructuring; no existing column is dropped, renamed, or retyped, and no other table is
   touched.
+- **[Found during implementation, 2026-08-20] Two pre-existing bugs, unrelated to any decision here,
+  found by actually applying and running the function against a real database (not just reading it):**
+  (1) every ranking CTE in the original `derive_taxa()` referenced `n.pubyr`/`a.pubyr`/`v.pubyr`, but
+  the actual columns on `name_opinions`/`assignment_opinions`/`validity_opinions` are named
+  `publication_year`; (2) `_dt_valid` referenced `v.status_id`, but the actual `validity_opinions`
+  column is `nomenclatural_status_id`. Both would have failed at execution time against the real
+  schema — confirmed by actually running the rewritten function during fixture-building, which is what
+  surfaced (2) after (1) was already fixed by inspection alone. Fixed by renaming all references to
+  match the real schema (task 5.4's sweep). Not design decisions — straightforward corrections, called
+  out here so they aren't mistaken for silent behavior changes.
 
 ## Migration Plan
 
@@ -422,10 +478,12 @@ Same shape as the original change, extended for the merged scope:
    applied before the function rewrite.
 2. Rewrite `derive_taxa()` in `postgresql/create_new.sql` per Decisions 1-4 and 7-8, in dependency order
    (Decision 1 first — everything else assumes deduplicated, per-permid identity and edge-candidate
-   tables, now including `negates`; Decisions 2 and 4 are independent of each other; Decision 3 requires
-   no new code once Decision 2 is correct; Decision 7's union-find ranking can be implemented alongside
-   Decision 1 since it reuses `_dt_edge_cand`; Decision 8 is independent and can land any time after
-   Decision 7's `con_edge` exists).
+   tables, now including `negates`; Decision 3 requires no new code once Decision 2 is correct;
+   Decision 7's union-find ranking can be implemented alongside Decision 1 since it reuses
+   `_dt_edge_cand`; Decision 2 is independent of Decision 4/7-8. **Decision 4 depends on Decision 7,
+   not independent of it as an earlier draft of this plan said** — its `sinks` CTE needs
+   `_dt_lin_winner` to exist first (the correction above); Decision 8 similarly needs Decision 7's
+   `_dt_con_winner` to exist first).
 3. Extend the existing fixture suite (from the archived change) with cases for: a permid with multiple
    competing lineage-introducing edges (exercises Decision 1's dedup and Decision 2's canonical-edge
    selection), a nomen-nudum-barred permid whose lineage still has an eligible sibling (Decision 2/3), a

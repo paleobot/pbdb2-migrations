@@ -4727,6 +4727,14 @@ CREATE TABLE name_opinions (
     edge_class text NOT NULL,              -- pinned copy of the reason's edge_class (Way 2 / A1). Lets the
                                            -- shape CHECK run as a plain same-row CHECK; the composite FK
                                            -- below guarantees it equals the dictionary's value for reason_id.
+    negates boolean NOT NULL DEFAULT false, -- flips the polarity of `reason` rather than naming its own
+                                           -- reason: `reason = 'misspelling', negates = true` reads as
+                                           -- "not a misspelling of [target]," not "misspelling." NOT
+                                           -- pinned to the dictionary (unlike edge_class) — polarity is a
+                                           -- fact about this opinion, not a permanent property of the
+                                           -- reason token. `edge_class = 'root'` rows are never negated
+                                           -- (see name_opinion_shape). See taxa-opinions spec, "An opinion
+                                           -- can assert the negation of a lineage or concept relationship."
     objective boolean,                     -- 'junior synonym' edges only: objective (true) vs subjective (false).
                                            -- SOLE carrier of the split (D7): no separate synonym reason tokens.
 
@@ -4766,7 +4774,7 @@ CREATE TABLE name_opinions (
     --   'lineage' (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
     --   'concept' (synonymy edge) ⇒ target set; NO identity     (new_name, rank_id NULL)
     CONSTRAINT name_opinion_shape CHECK (
-           (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL)
+           (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL AND negates = false)
         OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
         OR (edge_class = 'concept' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
     )
@@ -5075,76 +5083,222 @@ RETURNS TABLE (
 ) LANGUAGE plpgsql AS $fn$
 #variable_conflict use_column
 BEGIN
-    -- ---- head-only opinion snapshots + minting rows -----------------------
-    DROP TABLE IF EXISTS _dt_mint;
-    CREATE TEMP TABLE _dt_mint AS
-    SELECT n.subject_permid AS permid, n.id AS opinion_id, n.new_name, n.rank_id,
-           n.authority_id, n.reason_id, n.edge_class, n.evidence,
-           COALESCE(n.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
-           nr.never_accepted
+    -- ---- identity: one row per minted permid, from its own root row only ---
+    DROP TABLE IF EXISTS _dt_identity;
+    CREATE TEMP TABLE _dt_identity AS
+    SELECT n.subject_permid AS permid, n.id AS opinion_id, n.new_name, n.rank_id, n.authority_id
+    FROM name_opinions n
+    WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
+      AND n.edge_class = 'root';
+
+    -- root minting is a one-time act (§9.8.1), not a ranking contest: more than
+    -- one live root row for a permid is an integrity violation to raise on, not
+    -- a candidate set to silently pick a winner from.
+    IF EXISTS (SELECT 1 FROM _dt_identity GROUP BY permid HAVING count(*) > 1) THEN
+        RAISE EXCEPTION 'derive_taxa: permid % has more than one live root row (identity re-minted)',
+            (SELECT permid FROM _dt_identity GROUP BY permid HAVING count(*) > 1 LIMIT 1);
+    END IF;
+
+    -- ---- candidate introducing edges: one row per (permid, opinion) --------
+    DROP TABLE IF EXISTS _dt_edge_cand;
+    CREATE TEMP TABLE _dt_edge_cand AS
+    SELECT n.subject_permid AS permid, n.id AS opinion_id, n.edge_class, n.target_permid,
+           n.evidence,
+           COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+           nr.never_accepted, n.negates
     FROM name_opinions n
     JOIN dictionaries.namechange_reasons nr ON nr.id = n.reason_id
     LEFT JOIN refs r ON r.id = n.reference_id
     WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
       AND n.edge_class IN ('root','lineage');
 
-    -- ---- lineage union-find (connected components over lineage edges) ------
+    -- each permid's own canonical introducing edge (root or lineage, whichever
+    -- ranks highest) -- feeds eligibility (below), never union-find membership.
+    -- Negating rows are excluded from this ranking pool entirely (not merely
+    -- filtered afterward): a negation rejects a RELATIONSHIP to something else,
+    -- it doesn't introduce or characterize this permid's own identity, so it
+    -- must never win "canonical introducing edge" -- if it did, a permid whose
+    -- only claim is a successful negation would lose eligibility and its own
+    -- (now-singleton) lineage would wrongly exhaust, when it should simply
+    -- stand on its own. Every permid's own root row is always a non-negating
+    -- candidate, so excluding negating rows here can never itself exhaust a
+    -- permid's eligibility.
+    DROP TABLE IF EXISTS _dt_permid_edge;
+    CREATE TEMP TABLE _dt_permid_edge AS
+    WITH ranked AS (
+        SELECT permid, opinion_id, evidence, yr, never_accepted,
+               row_number() OVER (PARTITION BY permid
+                   ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+        FROM _dt_edge_cand
+        WHERE negates = false
+    )
+    SELECT permid, opinion_id, evidence, yr, never_accepted FROM ranked WHERE rn = 1;
+
+    -- each subject's own top-ranked LINEAGE-class opinion only (root rows have
+    -- no target and can never contribute a union-find edge, so _dt_permid_edge
+    -- is the wrong source here even though it uses the same ranking). When the
+    -- winner negates, target_permid is retained on the row for provenance only
+    -- (which relationship this opinion rejects) -- it is never read below;
+    -- lin_undir only ever draws edges from non-negating winners.
+    DROP TABLE IF EXISTS _dt_lin_winner;
+    CREATE TEMP TABLE _dt_lin_winner AS
+    WITH ranked AS (
+        SELECT permid, target_permid, negates,
+               row_number() OVER (PARTITION BY permid
+                   ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+        FROM _dt_edge_cand
+        WHERE edge_class = 'lineage'
+    )
+    SELECT permid, target_permid, negates FROM ranked WHERE rn = 1;
+
+    -- ---- lineage union-find (connected components over each subject's own -
+    -- winning, non-negating lineage edge only -- not every current one) ------
     DROP TABLE IF EXISTS _dt_lin;
     CREATE TEMP TABLE _dt_lin AS
     WITH RECURSIVE
     lin_undir AS (
-        SELECT subject_permid AS a, target_permid AS b
-        FROM name_opinions
-        WHERE removed IS NOT TRUE AND succeeded_by_id IS NULL AND edge_class='lineage'
+        SELECT permid AS a, target_permid AS b FROM _dt_lin_winner WHERE negates = false
         UNION
-        SELECT target_permid, subject_permid
-        FROM name_opinions
-        WHERE removed IS NOT TRUE AND succeeded_by_id IS NULL AND edge_class='lineage'
+        SELECT target_permid, permid FROM _dt_lin_winner WHERE negates = false
     ),
     reach(src, node) AS (
-        SELECT permid, permid FROM _dt_mint
+        SELECT permid, permid FROM _dt_identity
         UNION
         SELECT r.src, u.b FROM reach r JOIN lin_undir u ON u.a = r.node
     )
     SELECT src AS permid, min(node::text)::uuid AS lin_rep FROM reach GROUP BY src;
 
-    -- original_permid per lineage: the 'root' member (canonical if >1)
+    -- ---- validity per permid (moved up: eligibility below depends on it) ---
+    DROP TABLE IF EXISTS _dt_valid;
+    CREATE TEMP TABLE _dt_valid AS
+    WITH cand AS (
+        SELECT v.subject_permid AS permid, v.nomenclatural_status_id, v.id AS opinion_id,
+               v.evidence,
+               COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+               ns.bars_candidacy,
+               row_number() OVER (PARTITION BY v.subject_permid
+                   ORDER BY v.evidence DESC,
+                            COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                            v.id DESC) AS rn
+        FROM validity_opinions v
+        JOIN dictionaries.nomenclatural_statuses ns ON ns.id = v.nomenclatural_status_id
+        LEFT JOIN refs r ON r.id = v.reference_id
+        WHERE v.removed IS NOT TRUE AND v.succeeded_by_id IS NULL
+    )
+    SELECT permid, nomenclatural_status_id, opinion_id AS winning_validity_opinion_id,
+           bars_candidacy
+    FROM cand WHERE rn = 1;
+
+    -- ---- per-lineage: eligibility, topological original_permid, accepted --
+    -- spelling ----------------------------------------------------------------
     DROP TABLE IF EXISTS _dt_linmeta;
     CREATE TEMP TABLE _dt_linmeta AS
-    WITH roots AS (
-        SELECT l.lin_rep,
-               (array_agg(m.permid ORDER BY m.yr NULLS LAST, m.permid))[1] AS original_permid
-        FROM _dt_lin l JOIN _dt_mint m ON m.permid = l.permid AND m.edge_class='root'
-        GROUP BY l.lin_rep
+    WITH
+    -- a permid may represent its lineage in the accepted-spelling contest
+    -- unless its own canonical introducing edge is never_accepted
+    -- (misspelling), or its winning validity opinion bars candidacy (nomen
+    -- nudum). Negation is not a third exclusion here -- _dt_permid_edge
+    -- already excludes negating rows from ever being the canonical
+    -- introducing edge in the first place (see its own definition above).
+    eligible AS (
+        SELECT pe.permid, pe.evidence, pe.yr, pe.opinion_id
+        FROM _dt_permid_edge pe
+        LEFT JOIN _dt_valid dv ON dv.permid = pe.permid
+        WHERE pe.never_accepted = false
+          AND COALESCE(dv.bars_candidacy, false) = false
+    ),
+    -- a permid is a lineage-sink iff it has no ACTIVE (winning, non-negating)
+    -- outgoing lineage edge -- checked against _dt_lin_winner, not raw
+    -- name_opinions existence: a winning negation still has a raw row naming
+    -- the permid as subject but contributes no edge, so raw existence would
+    -- wrongly deny it sink status
+    sinks AS (
+        SELECT l.lin_rep, l.permid
+        FROM _dt_lin l
+        WHERE NOT EXISTS (
+            SELECT 1 FROM _dt_lin_winner w
+            WHERE w.negates = false AND w.permid = l.permid
+        )
+    ),
+    sink_counts AS (
+        SELECT lin_rep, count(*) AS n FROM sinks GROUP BY lin_rep
+    ),
+    roots AS (
+        -- unique sink: that's original_permid, no ranking needed
+        SELECT sc.lin_rep, s.permid AS original_permid
+        FROM sink_counts sc JOIN sinks s ON s.lin_rep = sc.lin_rep
+        WHERE sc.n = 1
+        UNION ALL
+        -- 0 or 2+ sinks (degenerate: a lineage cycle, or a genuine tie): fall
+        -- back to the canonical tiebreak, over the candidate set for that case
+        -- (all lineage members for 0 sinks, since there is no "sink" to
+        -- prefer; the sinks themselves for 2+, since they are the only
+        -- legitimate candidates)
+        SELECT sc.lin_rep,
+               (array_agg(cand.permid ORDER BY cand.evidence DESC, cand.yr DESC NULLS LAST,
+                          cand.opinion_id DESC, cand.permid))[1]
+        FROM sink_counts sc
+        JOIN LATERAL (
+            SELECT pe.permid, pe.evidence, pe.yr, pe.opinion_id
+            FROM (SELECT permid FROM sinks WHERE lin_rep = sc.lin_rep
+                  UNION ALL
+                  SELECT l.permid FROM _dt_lin l WHERE l.lin_rep = sc.lin_rep AND sc.n = 0) c
+            JOIN _dt_permid_edge pe ON pe.permid = c.permid
+        ) cand ON true
+        WHERE sc.n != 1
+        GROUP BY sc.lin_rep
     ),
     spelling AS (
-        SELECT l.lin_rep, m.permid, m.rank_id,
+        SELECT l.lin_rep, e.permid, di.rank_id,
                row_number() OVER (PARTITION BY l.lin_rep
-                   ORDER BY m.evidence DESC, m.yr DESC NULLS LAST, m.opinion_id DESC) AS rn,
-               m.evidence AS acc_ev, m.yr AS acc_yr, m.opinion_id AS acc_id
-        FROM _dt_lin l JOIN _dt_mint m ON m.permid = l.permid
-        WHERE m.never_accepted = false
+                   ORDER BY e.evidence DESC, e.yr DESC NULLS LAST, e.opinion_id DESC) AS rn,
+               e.evidence AS acc_ev, e.yr AS acc_yr, e.opinion_id AS acc_id
+        FROM _dt_lin l
+        JOIN eligible e ON e.permid = l.permid
+        JOIN _dt_identity di ON di.permid = e.permid
     )
     SELECT s.lin_rep,
-           COALESCE(r.original_permid, s.permid) AS original_permid,
+           r.original_permid,
            s.permid AS accepted_spelling_permid,
            s.rank_id AS accepted_rank_id,
            s.acc_ev, s.acc_yr, s.acc_id,
-           (SELECT COALESCE(m2.yr, 999999) FROM _dt_mint m2
-             WHERE m2.permid = COALESCE(r.original_permid, s.permid)) AS original_yr
-    FROM spelling s LEFT JOIN roots r ON r.lin_rep = s.lin_rep
+           (SELECT COALESCE(pe2.yr, 999999) FROM _dt_permid_edge pe2
+             WHERE pe2.permid = r.original_permid) AS original_yr
+    FROM spelling s JOIN roots r ON r.lin_rep = s.lin_rep
     WHERE s.rn = 1;
 
-    -- ---- concept union-find (components over concept edges, lineage-level) -
+    -- each lineage's own top-ranked CONCEPT-class opinion, pooled across all
+    -- of that lineage's member permids (concept membership is a property of
+    -- the whole lineage, not of whichever spelling happened to carry the
+    -- opinion). As with _dt_lin_winner above, a negating winner's target (sr)
+    -- is provenance only and is never read by the union-find below.
+    DROP TABLE IF EXISTS _dt_con_winner;
+    CREATE TEMP TABLE _dt_con_winner AS
+    WITH cand AS (
+        SELECT ls.lin_rep AS jr, lt.lin_rep AS sr, n.evidence,
+               COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+               n.id AS opinion_id, n.negates
+        FROM name_opinions n
+        JOIN _dt_lin ls ON ls.permid = n.subject_permid
+        JOIN _dt_lin lt ON lt.permid = n.target_permid
+        LEFT JOIN refs r ON r.id = n.reference_id
+        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class = 'concept'
+    ),
+    ranked AS (
+        SELECT jr, sr, negates,
+               row_number() OVER (PARTITION BY jr
+                   ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+        FROM cand
+    )
+    SELECT jr, sr, negates FROM ranked WHERE rn = 1;
+
+    -- ---- concept union-find (components over each lineage's own winning, --
+    -- non-negating concept edge only -- not every current one) --------------
     DROP TABLE IF EXISTS _dt_con;
     CREATE TEMP TABLE _dt_con AS
     WITH RECURSIVE
     con_edge AS (
-        SELECT ls.lin_rep AS jr, lt.lin_rep AS sr
-        FROM name_opinions n
-        JOIN _dt_lin ls ON ls.permid = n.subject_permid
-        JOIN _dt_lin lt ON lt.permid = n.target_permid
-        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class='concept'
+        SELECT jr, sr FROM _dt_con_winner WHERE negates = false
     ),
     con_undir AS (
         SELECT jr AS a, sr AS b FROM con_edge UNION SELECT sr, jr FROM con_edge
@@ -5160,10 +5314,12 @@ BEGIN
     DROP TABLE IF EXISTS _dt_conmeta;
     CREATE TEMP TABLE _dt_conmeta AS
     WITH con_sources AS (
-        SELECT DISTINCT ls.lin_rep AS jr
-        FROM name_opinions n
-        JOIN _dt_lin ls ON ls.permid = n.subject_permid
-        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class='concept'
+        -- a lineage counts as "a source" (ever proposed junior) only if its
+        -- current winning concept-class opinion is active -- not merely
+        -- whether some concept-class opinion, win or lose or negated, exists
+        -- (con_edge itself is a CTE local to _dt_con's own statement above and
+        -- isn't visible here; _dt_con_winner is the same set, persisted)
+        SELECT DISTINCT jr FROM _dt_con_winner WHERE negates = false
     ),
     ranked AS (
         SELECT c.con_rep, c.lin_rep,
@@ -5191,7 +5347,7 @@ BEGIN
     WITH cand AS (
         SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
                a.evidence,
-               COALESCE(a.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr
+               COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr
         FROM assignment_opinions a
         JOIN _dt_lin sl ON sl.permid = a.subject_permid
         JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
@@ -5261,24 +5417,6 @@ BEGIN
     )
     SELECT con_rep, classification_path FROM p;
 
-    -- ---- validity per permid ----------------------------------------------
-    DROP TABLE IF EXISTS _dt_valid;
-    CREATE TEMP TABLE _dt_valid AS
-    WITH cand AS (
-        SELECT v.subject_permid AS permid, v.status_id, v.id AS opinion_id,
-               v.evidence,
-               COALESCE(v.pubyr, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
-               row_number() OVER (PARTITION BY v.subject_permid
-                   ORDER BY v.evidence DESC,
-                            COALESCE(v.pubyr, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
-                            v.id DESC) AS rn
-        FROM validity_opinions v
-        LEFT JOIN refs r ON r.id = v.reference_id
-        WHERE v.removed IS NOT TRUE AND v.succeeded_by_id IS NULL
-    )
-    SELECT permid, status_id AS nomenclatural_status_id, opinion_id AS winning_validity_opinion_id
-    FROM cand WHERE rn = 1;
-
     -- ---- assemble one row per minted permid -------------------------------
     RETURN QUERY
     SELECT
@@ -5292,10 +5430,11 @@ BEGIN
         nd.containing_concept_permid,
         pth.classification_path,
         vv.nomenclatural_status_id,
-        m.opinion_id AS winning_name_opinion_id,
+        pe.opinion_id AS winning_name_opinion_id,
         nd.winning_assignment_opinion_id,
         vv.winning_validity_opinion_id
-    FROM _dt_mint m
+    FROM _dt_identity m
+    JOIN _dt_permid_edge pe ON pe.permid = m.permid
     JOIN _dt_lin      l   ON l.permid = m.permid
     JOIN _dt_linmeta  lm  ON lm.lin_rep = l.lin_rep
     JOIN _dt_con      c   ON c.lin_rep = l.lin_rep
