@@ -79,3 +79,16 @@
 - [x] 9.3 Re-run `rebuild_taxa()` / `assert_taxa_invariant()` over the extended fixtures; confirm `derive_taxa(all) ≡ heads`, and confirm `derive_taxa(subset) ≡ derive_taxa(all)` for at least one permid drawn from each new fixture case (8.3-8.18). Confirmed: `rebuild_taxa()` inserted 30 rows then 0 on immediate re-call (no-op re-derivation appends no versions); `assert_taxa_invariant()` raised nothing; subset equivalence held across 10 sampled permids spanning the new fixture cases.
 - [x] 9.4 `openspec validate rework-derive-taxa --strict`; reconcile any drift between the delta spec and the final implementation. Valid, no drift.
 - [x] 9.5 Confirm this change's only schema-level edit is the `negates` column and its `name_opinion_shape` CHECK clause (task 0) — no other `taxa-opinions-schema` table is touched. Confirmed via `git diff` — zero added/removed `CREATE TABLE`/`ALTER TABLE` statements; the only structural change is inside the existing `name_opinions` definition.
+
+## 10. Versioning/retraction robustness (2026-08-20, added after 9.1-9.5 — group 8's fixtures never exercised `succeeded_by_id`/`removed`, an existing spec requirement — "derive_taxa() is a pure function of the opinions" / "superseded and removed opinions are ignored" — this rewrite substantially touches every CTE that requirement depends on)
+
+- [x] 10.1 A `lineage`-class version chain (superseded row with a higher, wrong `publication_year`; head row with the corrected, lower one) does not let the superseded row win the per-subject ranking over an unversioned competing opinion.
+- [x] 10.2 A `removed = true` `lineage`-class opinion with higher evidence/pubyr does not win the per-subject ranking over an active, lower-ranked one.
+- [x] 10.3 Retracting a negation (`removed = true` on the negating row, itself unversioned) restores the underlying claim the negation had displaced — confirms retraction and negation compose correctly, not just independently.
+- [x] 10.4 A `root`-class version chain: `derive_taxa()` reports the head's `new_name`, not the superseded one, and the superseded row does **not** trip the duplicate-live-root-row integrity check (task 1.4) — confirms that check is itself version-aware.
+- [x] 10.5 A `concept`-class version chain (mirroring 10.1) does not let a superseded, higher-pubyr concept edge win over an unversioned competing one.
+- [x] 10.6 An `assignment_opinions` version chain: classification follows the head's `containing_permid`, not a superseded row with a misleadingly high pubyr.
+- [x] 10.7 A `validity_opinions` version chain where a superseded `nomen nudum` ruling is succeeded by a non-barring status does not bar candidacy.
+- [x] 10.8 A `removed = true` `nomen nudum` ruling (retracted, unversioned) does not bar candidacy.
+
+All 9 checks passed against the same `PG_PLAY` database used for groups 8-9 (added alongside the existing fixtures, not a fresh reset); `rebuild_taxa()`/`assert_taxa_invariant()` re-confirmed over the combined set (17 new rows inserted, 0 on immediate re-call, invariant holds).
