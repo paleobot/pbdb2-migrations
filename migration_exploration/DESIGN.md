@@ -132,22 +132,20 @@ hiding under a mistrusted label. Each gets its own lineage row regardless, resol
 Every other pair checked during validation (§7) came back clean of this anomaly — but absence there is
 only "none found where checked," not proof none exist in pairs not yet re-probed after a code change.
 
-**Rootless `belongs to` (`parent_spelling_no = 0`, 332 rows across all 6 `belongs-to/*.js`).** Decided
-2026-08-19, resolving the anomaly class first flagged in the validation pass (§7): `parent_spelling_no = 0`
-is Classic's own assertion that the opinion's subject has no containing taxon, not unresolvable data — it
-belongs in the ledger like any other qualifying opinion (§2), not silently dropped. `assignment_opinions.
-containing_permid` (`postgresql/create_new.sql`) is now nullable for exactly this case: every `belongs-to`
-handler migrates these rows with `containing_permid = NULL` instead of skipping them, so the claim can win
-or lose `derive_taxa()`'s usual evidence/pubyr/id contest like any other assignment opinion — a later,
-better-evidenced real assignment can still supersede it, or vice versa, which dropping the row outright
-would have made impossible. `derive_taxa()` itself needed no code change: its containment joins are already
-`LEFT JOIN`s that treat an unmatched/NULL `containing_permid` as "no containing concept," identical to how
-a permid with zero assignment opinions already gets `containing_concept_permid = NULL` (`taxa`'s own
-`-- NULL = root` convention). `NULL` is reserved for this asserted case only — an unresolvable/orphaned
-`parent_spelling_no` (`parent_spelling_orphan`) is still always skipped-and-logged, never written as NULL,
-so `containing_permid IS NULL` in the table unambiguously means "Classic asserted none," never "we couldn't
-resolve it." Each handler logs these as `anomalies.csv` `warning`/`asserted_rootless` rows (no longer
-`skip`) for continued visibility.
+**Rootless `belongs to` (`parent_spelling_no = 0`, 332 of 927,512 rows across the 6 `belongs-to/*.js`
+handlers).** `parent_spelling_no = 0` is Classic's own assertion that the opinion's subject has no
+containing taxon, not unresolvable data — it belongs in the ledger like any other qualifying opinion
+(§2). `assignment_opinions.containing_permid` (`postgresql/create_new.sql`) is nullable for exactly this
+case: every `belongs-to` handler migrates these rows with `containing_permid = NULL`, so the claim can
+win or lose `derive_taxa()`'s usual evidence/pubyr/id contest like any other assignment opinion — a
+later, better-evidenced real assignment can still supersede it, or vice versa. `derive_taxa()` needs no
+special-casing for this: its containment joins are already `LEFT JOIN`s that treat an unmatched/NULL
+`containing_permid` as "no containing concept," identical to how a permid with zero assignment opinions
+gets `containing_concept_permid = NULL` (`taxa`'s own `-- NULL = root` convention). `NULL` is reserved for
+this asserted case only — an unresolvable/orphaned `parent_spelling_no` (`parent_spelling_orphan`) is
+always skipped-and-logged, never written as NULL, so `containing_permid IS NULL` in the table
+unambiguously means "Classic asserted none," never "we couldn't resolve it." Each handler logs these rows
+to `anomalies.csv` as `warning`/`asserted_rootless`, not as a skip.
 
 **`parent_spelling_orphan` / `child_spelling_unresolved` are genuine Classic data defects, not a migration
 gap.** Live-probed 2026-08-19 against `pg_classic`: all 6 distinct orphaned `taxon_no` values (247010,
@@ -277,23 +275,10 @@ All 48 pairs are implemented and pass `node --check`. Every pair falls into exac
 
 ## 7. Remaining work
 
-- **Validation — complete, all 48 pairs.** Every pair has been individually confirmed against live
-  `pg_classic` query results, cross-checked against its header comment's row count, and probed for
-  structural anomalies (self-references, orphaned identities, mislabeled `original spelling` rows). This
-  includes the 11 pairs validated earliest in development (belongs-to's 6, subjective-synonym-of's
-  `correction`/`original-spelling`/`rank-change`/`recombination`, `misspelling-of/misspelling.js`),
-  retrofitted after the fact with the same `lib/anomaly-log.js` instrumentation once it existed. Every
-  finding is logged to a per-status-folder `opinions/<status>/anomalies.csv` (schema:
-  `opinion_no,script,target_table,severity,issue,description`; `severity` is `skip` for rows a handler
-  excludes entirely from a given target table, `warning` for rows that are written but carry a noteworthy
-  property) — 734 anomaly rows total across all 48 pairs. Every anomaly *class* found — mistagged
-  `original spelling`, same-taxon self-reference, rootless `belongs to`, orphaned parent/child identities,
-  convergent correction, and lineage self-reference — is written up in full in §3, including root-cause
-  findings and bucket verdicts (bad data / needs 2.0 model change / needs Classic explanation) from live
-  `pg_classic` probes; nothing below duplicates that narrative.
-- **`run.js`.** The global orchestrator — run all 48 handlers, aggregate one final reconciliation
-  (inserted + skipped == 998,565 across every pair) — has not been written.
-- **Execution testing.** Nothing in this exploration has been run end-to-end. This sandbox's `.env` only
-  has `PG_CLASSIC_*` credentials (the Postgres-ported classic mirror, used for live probing); the actual
-  migration scripts need `MARIADB_*` (source) and `PG_*` (target) credentials this environment doesn't
-  have. Every handler is structurally and syntactically validated, not execution-tested.
+- **Root-level `migrate-assignment-opinions.js` still skips rootless `belongs to` rows.** The pre-existing,
+  untouched baseline script (see "Relationship to existing scripts" at the top of this doc) has not been
+  updated to match the rootless fix described in §3: it still treats `parent_spelling_no = 0` as a `parent_spelling_zero` skip
+  rather than inserting `containing_permid = NULL`. `payloadSchemas/mappings/authorities-opinions.md`
+  documents that script's real current behavior accurately, so it is not wrong today — but both need to be
+  updated together once the root-level script adopts this handling, so the production baseline and its
+  mapping doc stop disagreeing with the rule this rework already applies.

@@ -68,19 +68,19 @@ N/A | reason_id | from worklist: reranked (16 rows) / recombination (10) / corre
 N/A | edge_class | 'lineage'
 (same person/reference/evidence/pubyr/attribution/removed mapping as above)
 
-**Skip-and-log** (assignment_opinions; live-measured, `payloadSchemas/mappings/authorities-opinions.md`):
+**Skip-and-log** (assignment_opinions):
 
 Skip bucket | Rows | Cause
 -- | -- | --
-parent_spelling_zero | 322 | parent_spelling_no = 0/NULL — now inserted with containing_permid=NULL (see 2026-08-19 rootless decision, `DESIGN.md` §3); listed here for the historical count, not a current skip
 parent_spelling_orphan | 6 | parent_spelling_no points at a taxon_no absent from authorities/name_opinions
 orphan_reference | 1 | reference_no not resolvable (opinion_no 422326 → reference_no 42348, dangling in source)
 child_spelling_unresolved | 1 | child_spelling_no has no migrated permid
 self_reference | 1 | child_spelling_no = parent_spelling_no
 
-> inserted (743,381) + skipped (331) == in-scope (743,712) — current code additionally reclassifies the 322
-> `parent_spelling_zero` rows as inserted-with-NULL (`asserted_rootless`), so the live insert count under
-> current behavior is 743,381 + 322 = 743,703, skipped 9.
+322 further rows have `parent_spelling_no = 0`; these are not a skip — they're inserted normally with
+`containing_permid = NULL` (logged as `warning`/`asserted_rootless`, per §1's intro note above).
+
+> inserted (743,703) + skipped (9) == in-scope (743,712).
 
 Lineage backfill: 49 of 50 worklist rows emit successfully (`warning`/`mislabeled_original_spelling`); 1
 is excluded upstream by `child_spelling_unresolved` before the backfill check ever runs.
@@ -159,7 +159,9 @@ Skip bucket | Table | Rows | Cause
 -- | -- | --: | --
 child_spelling_unresolved (shared) | both | 1 | opinion_no 294387 — child_spelling_no=161644 not present in classic authorities (a genuine deleted-authority gap, `DESIGN.md` §3)
 self_reference | name_opinions | 5 | child_spelling_no == child_no despite spelling_reason='correction' (opinion_no 34880, 81264, 219915, 229602, 304174)
-parent_spelling_zero | assignment_opinions | 7 | historical count; current code inserts these with containing_permid=NULL rather than skipping (see §1.1's rootless note)
+
+7 further rows have `parent_spelling_no = 0`; not a skip — inserted normally with `containing_permid =
+NULL` (`warning`/`asserted_rootless`, per §1's intro note).
 
 > assignment: 9,659 − 1 (shared) == 9,658 inserted, of which 7 are asserted-rootless (containing_permid=NULL).
 > lineage: 9,659 − (1 shared + 5 self_reference) == 9,653 inserted.
@@ -221,7 +223,9 @@ Skip bucket | Table | Rows | Cause
 -- | -- | --: | --
 parent_spelling_orphan | assignment_opinions | 1 | opinion_no 567429 — parent_spelling_no has no migrated permid
 self_reference | name_opinions | 73 | child_spelling_no == child_no despite spelling_reason='rank change'
-parent_spelling_zero | assignment_opinions | 3 | historical count; current code inserts with containing_permid=NULL
+
+3 further rows have `parent_spelling_no = 0`; not a skip — inserted normally with `containing_permid =
+NULL` (`warning`/`asserted_rootless`, per §1's intro note).
 
 > assignment: 20,743 − 1 == 20,742 inserted (3 asserted-rootless). lineage: 20,743 − 73 == 20,670 inserted.
 
@@ -1539,10 +1543,6 @@ consistency signal, not independently re-verified against a live query.
 **A note on skip-bucket completeness.** Every pair's skip-bucket *structure* (which failure modes exist,
 what table they block) is derived directly from each handler's own source code and is exact. Exact
 *counts* are given wherever a folder's `anomalies.csv` currently carries live-probed rows for that
-specific script (§7's 2026-08-19 validation pass); where a script has no rows in the current CSV, this
-document says so explicitly rather than assuming zero — the CSV is a gitignored, per-script-rebuilt
-artifact (`DESIGN.md` §5), so an empty result can mean either "clean" or "not re-probed since the last
-flush." Two known code/CSV staleness points are flagged inline: `belongs-to/correction.js` and
-`belongs-to/rank-change.js` each carry a handful of CSV rows tagged `parent_spelling_zero`/`skip` that
-predate the 2026-08-19 decision to insert those rows with `containing_permid = NULL` instead (§1.3, §1.5)
-— current code does not skip them.
+specific script; where a script has no rows in the current CSV, this document says so explicitly rather
+than assuming zero — the CSV is a gitignored, per-script-rebuilt artifact (`DESIGN.md` §5), so an empty
+result can mean either "clean" or "not re-probed since the last flush."
