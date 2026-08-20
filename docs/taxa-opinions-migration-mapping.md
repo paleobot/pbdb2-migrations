@@ -879,11 +879,12 @@ Not a design reopen; an implementation detail B4 must specify and log.
 
 ## 10. Concept-axis synonymy "reversals" — FLAGGED for B4 (2026-08-20)
 
-**The trigger.** Design work on the OpenSpec change
-`openspec/changes/contest-lineage-concept-edges/` (giving `derive_taxa()` a per-subject ranked contest
-over lineage/concept edges, plus an explicit, targeted `negates` opinion so a later opinion can contest
-an earlier one — see that change's `design.md` D1/D2) surfaced a structural mismatch this doc needs to
-carry forward into B4. Classic ranks **every** opinion about a taxon — `belongs to` and the
+**The trigger.** Design work on the OpenSpec change `openspec/changes/rework-derive-taxa/` (which, since
+2026-08-20, also covers what was drafted as a separate `contest-lineage-concept-edges` change — folded
+in once the two turned out to touch the same `derive_taxa()` body too closely to keep apart) — giving
+`derive_taxa()` a per-subject ranked contest over lineage/concept edges, plus an explicit, targeted
+`negates` opinion so a later opinion can contest an earlier one — see that change's `design.md`
+Decisions 5-7 — surfaced a structural mismatch this doc needs to carry forward into B4. Classic ranks **every** opinion about a taxon — `belongs to` and the
 synonymy/spelling family alike — in one pool (`getMostRecentClassification`, `docs/classic-taxa-opinions.md`
 §4.2); whichever wins defines the taxon's current disposition regardless of type. pbdb2 deliberately
 splits classification (`assignment_opinions`) from synonymy (`name_opinions` concept-class) into
@@ -923,9 +924,9 @@ Two independent reasons, not one:
    in the data shape (subject, evidence, reference; nothing records whether the classifying author ever
    engaged with the synonymy question at all). An auto-synthesized negation, attributed to that opinion's
    own reference, risks putting words in an author's mouth they never said. This is a case where pbdb2's
-   split model is *more* precise than Classic's, not less (see `contest-lineage-concept-edges/design.md`
-   for the fuller discussion) — but that precision means the ambiguity in Classic's historical data can't
-   be losslessly resolved after the fact.
+   split model is *more* precise than Classic's, not less (see `rework-derive-taxa/design.md`'s Context
+   and Decisions 5-6 for the fuller discussion) — but that precision means the ambiguity in Classic's
+   historical data can't be losslessly resolved after the fact.
 
 **Disposition.** `belongs to` → `assignment_opinions` and the concept-class family → `name_opinions`
 concept-class rows migrate exactly as §9.2/§9.3 already specify — unconditionally, no inference layered
@@ -936,6 +937,6 @@ live state, until a curator reviews and re-enters a real opinion.
 worklist — the 6,170 `child_no` values, each joined to its currently-asserted senior/synonym target and
 its competing `belongs to` opinion(s) — as a read-only review report, not a ledger write. A curator
 judges each case and, where warranted, enters a genuine, self-attributed `negates` opinion via the
-mechanism `contest-lineage-concept-edges` adds. Same treatment as this project's existing anomaly-log
-ledger pattern for other migration edge cases: a quantified, actionable list handed to a human, not a
-silent gap and not an automated guess.
+mechanism `rework-derive-taxa` adds. Same treatment as this project's existing anomaly-log ledger
+pattern for other migration edge cases: a quantified, actionable list handed to a human, not a silent
+gap and not an automated guess.

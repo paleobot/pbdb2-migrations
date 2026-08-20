@@ -1,28 +1,26 @@
-Rework of `derive_taxa()` in `postgresql/create_new.sql` (~L5050-5298), on top of the schema from
-`taxa-opinions-schema`. Not a data migration — exercised by SQL fixtures, same verification bar as the
-original `taxa-opinion-derivation` change. Design in `design.md`; requirement deltas in
-`specs/taxa-opinions/spec.md`. **Note:** the original change's fixture SQL lived in `.scratch/` (gitignored)
-and no longer exists on disk, so group 6 below rebuilds the full fixture harness, not just the new cases —
-this also serves as the regression check that nothing here breaks the 23 already-correct scenarios.
+## 0. Schema change: add `negates` (Decision 5)
+
+- [ ] 0.1 Add `negates boolean NOT NULL DEFAULT false` to `name_opinions`.
+- [ ] 0.2 Extend the `name_opinion_shape` CHECK: `edge_class = 'root'` rows must have `negates = false`.
 
 ## 1. Split identity from edge-candidates (Decision 1)
 
 - [ ] 1.1 Replace `_dt_mint` with `_dt_identity` — one row per permid, `WHERE edge_class = 'root'` only, carrying `permid, opinion_id, new_name, rank_id, authority_id`.
-- [ ] 1.2 Add `_dt_edge_cand` — one row per (permid, introducing opinion), `WHERE edge_class IN ('root','lineage')` (same filter the old `_dt_mint` used), carrying `evidence`/`yr`/`never_accepted`.
-- [ ] 1.3 Compute `_dt_permid_edge` from `_dt_edge_cand` — one row per permid, its own canonical introducing edge via `row_number() OVER (PARTITION BY permid ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) = 1`.
+- [ ] 1.2 Add `_dt_edge_cand` — one row per (permid, introducing opinion), `WHERE edge_class IN ('root','lineage')` (same filter the old `_dt_mint` used), carrying `evidence`/`yr`/`never_accepted`, and `negates` (needed by task 2.3 and reused by task 6.1).
+- [ ] 1.3 Compute `_dt_permid_edge` from `_dt_edge_cand` — one row per permid, its own canonical introducing edge via `row_number() OVER (PARTITION BY permid ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) = 1`, carrying `negates` through.
 - [ ] 1.4 Add the duplicate-root-mint integrity check: `RAISE EXCEPTION` identifying the permid if `_dt_identity`'s underlying root-row count for any permid is more than 1.
 
-## 2. Permid-scoped eligibility: never_accepted + nomen-nudum bar (Decision 2)
+## 2. Permid-scoped eligibility: never_accepted + nomen-nudum + negation bar (Decision 2)
 
 - [ ] 2.1 Move `_dt_valid`'s `CREATE TEMP TABLE` earlier in the function body, before `_dt_linmeta` (it currently runs near the end).
 - [ ] 2.2 Extend `_dt_valid`'s `SELECT` to include `bars_candidacy` via a join to `dictionaries.nomenclatural_statuses` (currently selects only `status_id`).
-- [ ] 2.3 Build an `eligible` CTE: `_dt_permid_edge` filtered `WHERE never_accepted = false`, `LEFT JOIN _dt_valid` filtered `WHERE COALESCE(bars_candidacy, false) = false`.
+- [ ] 2.3 Build an `eligible` CTE: `_dt_permid_edge` filtered `WHERE never_accepted = false AND negates = false`, `LEFT JOIN _dt_valid` filtered `WHERE COALESCE(bars_candidacy, false) = false`.
 - [ ] 2.4 Rewire `_dt_linmeta`'s `spelling` CTE to rank `_dt_lin JOIN eligible` (by the canonical `ORDER BY`) instead of `_dt_lin JOIN _dt_mint WHERE m.never_accepted = false`.
 
 ## 3. Confirm the empty-lineage/-concept cascade needs no new code (Decision 3)
 
 - [ ] 3.1 Audit every join reading from `_dt_linmeta` — `_dt_conmeta`'s `ranked` CTE and the final `RETURN QUERY` — and confirm each stays a plain `JOIN` (inner), never a `LEFT JOIN`, so a lineage/concept with zero eligible candidates naturally drops out rather than needing bespoke exclusion logic.
-- [ ] 3.2 No new SQL expected from this section beyond what group 2 already produces — verified by the fixtures in group 6 (6.5, 6.6), not by additional code here.
+- [ ] 3.2 No new SQL expected from this section beyond what group 2 already produces — verified by the fixtures in group 8 (8.6, 8.7), not by additional code here.
 
 ## 4. Topological `original_permid` (Decision 4)
 
@@ -37,23 +35,41 @@ this also serves as the regression check that nothing here breaks the 23 already
 - [ ] 5.3 Re-verify `_dt_lin`'s seeding (`reach(src, node) AS (SELECT permid, permid FROM _dt_mint ...)`) is re-pointed at the right source (`_dt_identity`, since every valid permid has exactly one root row) and still reaches every permid that should participate in lineage grouping.
 - [ ] 5.4 Sweep the full function body for any other reference to the old `_dt_mint` name; rename or remove consistently — no stale references left.
 
-## 6. Fixtures (rebuild the harness; regression + new scenarios)
+## 6. Union-find ranking feeds lineage/concept grouping, with negation (Decisions 5-7)
 
-- [ ] 6.1 Rebuild the fixtures harness (minimal persons/refs + opinion sets, analogous to the archived change's group 8) since `.scratch/` no longer has the original SQL on disk.
-- [ ] 6.2 Regression: re-run all 23 originally-passing scenarios (spec sections: grouping, accepted spelling recency/misspelling/senior-scoping, junior-synonym borrowing, seniority tiebreak, cycles, subset equivalence, totality, path, rebuild/invariant) — confirm no behavior changed for the already-correct cases.
-- [ ] 6.3 New: a permid with a root mint plus two competing `lineage`-class edges naming it as subject still gets exactly one output row (spec: "A permid with competing lineage claims still gets exactly one row").
-- [ ] 6.4 New: a permid whose only introducing claim is a `never_accepted` edge is excluded from `accepted_spelling_permid` eligibility even though it also has an unexcluded `root` mint (spec: "A permid is not made eligible by an unexcluded root mint alone").
-- [ ] 6.5 New: a permid barred by a winning `nomen nudum` validity opinion is excluded from its lineage's contest, and a later non-barring validity opinion on the same permid reverses the exclusion.
-- [ ] 6.6 New: a concept with one fully-exhausted lineage and one eligible sibling lineage emits no rows for the exhausted lineage's permids, while the concept's other members still resolve normally.
-- [ ] 6.7 New: a concept where every lineage is exhausted emits no rows for any of its permids.
-- [ ] 6.8 New: a two-way tie between candidate lineage originals (two sinks) resolves `original_permid` deterministically and repeatably.
-- [ ] 6.9 New: a lineage-level cycle (zero sinks) resolves `original_permid` deterministically via the fallback.
-- [ ] 6.10 New: two live root rows for the same permid raise an error identifying the permid.
+- [ ] 6.1 Build `_dt_lin_winner` from `_dt_edge_cand` (task 1.2) filtered `WHERE edge_class = 'lineage'`, re-ranked per permid over that narrower set: `row_number() OVER (PARTITION BY permid ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) = 1`, carrying `target_permid` and `negates`. (Not a reuse of `_dt_permid_edge` itself — that ranking pool includes `root` rows, which is correct for eligibility (group 2) but wrong here, since a `root` row has no target and can never contribute a union-find edge.)
+- [ ] 6.2 Rewire `lin_undir` to source both directions of its edges from `_dt_lin_winner WHERE negates = false`, instead of unconditionally from every current `lineage`-class `name_opinions` row.
+- [ ] 6.3 Build `_dt_con_winner`: pool `concept`-class `name_opinions` rows by lineage (`ls.lin_rep`, joining `_dt_lin`), rank per `lin_rep` by the canonical `ORDER BY`, carrying the target lineage (`sr`) and `negates`. This is a new computation, not sourced from `_dt_edge_cand` (which is scoped to `root`/`lineage` only).
+- [ ] 6.4 Rewire `con_edge`/`con_undir` to source edges from `_dt_con_winner WHERE negates = false`, instead of unconditionally from every current `concept`-class `name_opinions` row.
 
-## 7. Verification
+## 7. `con_sources` reflects active concept edges (Decision 8)
 
-- [ ] 7.1 Apply `create_new.sql` to a fresh empty PG16 DB (PostGIS + ltree); confirm the rewritten function builds clean.
-- [ ] 7.2 Run the full fixture suite (group 6); all scenarios pass, including the regression set.
-- [ ] 7.3 Re-run `rebuild_taxa()` / `assert_taxa_invariant()` over the extended fixtures; confirm `derive_taxa(all) ≡ heads`, and confirm `derive_taxa(subset) ≡ derive_taxa(all)` for at least one permid drawn from each new fixture case (6.3-6.10).
-- [ ] 7.4 `openspec validate rework-derive-taxa --strict`; reconcile any drift between the delta spec and the final implementation.
-- [ ] 7.5 Confirm this change required no edits to the `taxa-opinions-schema` tables themselves (function-only rework) — if it did, note the schema delta and update `proposal.md`/`design.md`'s Impact section accordingly rather than silently expanding scope.
+- [ ] 7.1 Redefine `con_sources` as `SELECT DISTINCT jr FROM con_edge` (task 6.4's winning-edge output), replacing the raw existence check against `name_opinions`.
+
+## 8. Fixtures (rebuild the harness; regression + new scenarios)
+
+- [ ] 8.1 Rebuild the fixtures harness (minimal persons/refs + opinion sets, analogous to the archived change's group 8) since `.scratch/` no longer has the original SQL on disk.
+- [ ] 8.2 Regression: re-run all 23 originally-passing scenarios (spec sections: grouping, accepted spelling recency/misspelling/senior-scoping, junior-synonym borrowing, seniority tiebreak, cycles, subset equivalence, totality, path, rebuild/invariant) — confirm no behavior changed for the already-correct cases.
+- [ ] 8.3 New: a permid with a root mint plus two competing `lineage`-class edges naming it as subject still gets exactly one output row (spec: "A permid with competing lineage claims still gets exactly one row").
+- [ ] 8.4 New: a permid whose only introducing claim is a `never_accepted` edge is excluded from `accepted_spelling_permid` eligibility even though it also has an unexcluded `root` mint (spec: "A permid is not made eligible by an unexcluded root mint alone").
+- [ ] 8.5 New: a permid barred by a winning `nomen nudum` validity opinion is excluded from its lineage's contest, and a later non-barring validity opinion on the same permid reverses the exclusion.
+- [ ] 8.6 New: a concept with one fully-exhausted lineage and one eligible sibling lineage emits no rows for the exhausted lineage's permids, while the concept's other members still resolve normally.
+- [ ] 8.7 New: a concept where every lineage is exhausted emits no rows for any of its permids.
+- [ ] 8.8 New: a two-way tie between candidate lineage originals (two sinks) resolves `original_permid` deterministically and repeatably.
+- [ ] 8.9 New: a lineage-level cycle (zero sinks) resolves `original_permid` deterministically via the fallback.
+- [ ] 8.10 New: two live root rows for the same permid raise an error identifying the permid.
+- [ ] 8.11 New: a subject with two competing `lineage`-class opinions, where the higher-ranked one targets a different permid, is unioned into the higher-ranked target's lineage, not the lower-ranked one's (spec: "A later, higher-ranked opinion redirects a subject's lineage").
+- [ ] 8.12 New: a subject whose higher-ranked current `lineage`-class opinion is negating forms its own lineage instead of joining the target a lower-ranked opinion named (spec: "A winning negation removes a subject from its claimed lineage").
+- [ ] 8.13 New: the concept-level analogs of 8.11/8.12 — a lineage redirected to a different concept by a higher-ranked opinion, and a lineage returned to its own concept by a winning negation (spec: "A later, higher-ranked opinion redirects a lineage's concept" / "A winning negation returns a lineage to its own concept").
+- [ ] 8.14 New: a permid whose own canonical introducing edge has `negates = true` is excluded from `accepted_spelling_permid` eligibility even when it has the highest evidence/year in its lineage (spec: "A negating opinion is never the accepted spelling").
+- [ ] 8.15 New: a lineage whose only `concept`-class opinion is outranked or successfully negated is not deprioritized against a lineage with no `concept`-class history at all, when tied on the other tiebreak criteria (spec: "An outranked or negated concept claim does not deprioritize a lineage's seniority").
+- [ ] 8.16 New: a `name_opinions` insert with `edge_class = 'root'` and `negates = true` is rejected by the minting-shape CHECK (spec: "A root opinion cannot negate").
+- [ ] 8.17 New: a negating opinion inserted with no prior opinion about that specific relationship is accepted and `derive_taxa()` treats the subject exactly as if it had no opinion of that edge_class at all (spec: "A negating row with no antecedent opinion is well-formed").
+
+## 9. Verification
+
+- [ ] 9.1 Apply `create_new.sql` to a fresh empty PG16 DB (PostGIS + ltree); confirm the rewritten function (and the new `negates` column/CHECK) builds clean.
+- [ ] 9.2 Run the full fixture suite (group 8); all scenarios pass, including the regression set.
+- [ ] 9.3 Re-run `rebuild_taxa()` / `assert_taxa_invariant()` over the extended fixtures; confirm `derive_taxa(all) ≡ heads`, and confirm `derive_taxa(subset) ≡ derive_taxa(all)` for at least one permid drawn from each new fixture case (8.3-8.17).
+- [ ] 9.4 `openspec validate rework-derive-taxa --strict`; reconcile any drift between the delta spec and the final implementation.
+- [ ] 9.5 Confirm this change's only schema-level edit is the `negates` column and its `name_opinion_shape` CHECK clause (task 0) — no other `taxa-opinions-schema` table is touched. If scope expanded beyond that, note the additional schema delta and update `proposal.md`/`design.md`'s Impact section accordingly rather than silently expanding scope.
