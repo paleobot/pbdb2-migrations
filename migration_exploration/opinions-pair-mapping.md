@@ -777,9 +777,12 @@ SELECT * FROM opinions WHERE status = 'misspelling of' AND spelling_reason = 'mi
 ```
 
 The only `spelling_reason` this status ever takes. Live-confirmed: `child_no = parent_no` for all 875
-rows — both anchor to the correct name, while `child_spelling_no` alone is the distinct, separately-minted
-misspelling. **Single-output pair: no `assignment_opinions` row** — this status asserts a spelling
-relationship, not containment, so there is no primary/lineage split to make.
+rows, but both are just same-name anchors (a misspelling isn't a distinct taxonomic concept) — **not
+the target**. The real target is `parent_spelling_no`, the specific correct spelling this opinion
+asserts `child_spelling_no` is a misspelling of; it differs from `child_no` in 104 of 875 rows
+(corrected 2026-08-21, `docs/taxa-opinions-migration-mapping.md` §11 — real examples there, e.g.
+`Caulastraea` misspelling of `Caulastrea`). **Single-output pair: no `assignment_opinions` row** — this
+status asserts a spelling relationship, not containment, so there is no primary/lineage split to make.
 
 Classic opinions | name_opinions (lineage) | Notes
 -- | -- | --
@@ -790,7 +793,7 @@ enterer_no | enterer_person_id | FK to persons.legacyIDs.oldpbdbid = enterer_no.
 N/A | oldpbdb_taxon_no | NA
 N/A | reason_id | 'historical misspelling' — the dedicated token for a formally published misspelling claim (own reference, own evidence), distinct from the curatorial `'misspelling'` token used elsewhere
 child_spelling_no | subject_permid | permid of the name_opinions record with oldpbdb_taxon_no = child_spelling_no
-child_no | target_permid | permid of the name_opinions record with oldpbdb_taxon_no = child_no
+parent_spelling_no | target_permid | permid of the name_opinions record with oldpbdb_taxon_no = parent_spelling_no — **corrected 2026-08-21, was wrongly `child_no`, see above**
 N/A | edge_class | 'lineage'
 N/A | objective / new_name / rank_id / authority_id | NA
 reference_no | reference_id | fk to refs.legacyIDs.oldpbdbid = reference_no.
@@ -801,15 +804,24 @@ N/A | removed | false
 
 **Skip-and-log** (live-probed, `misspelling-of/anomalies.csv`):
 
+> ⚠ **SUPERSEDED, 2026-08-21.** The table below described the *old, wrong* `target = child_no`
+> mapping. `child_spelling_no` is never equal to `parent_spelling_no` (0 of 875, live-confirmed), so
+> under the corrected `target = parent_spelling_no` mapping **none of the 29 rows below are actually
+> self-references** — they migrate as real lineage edges instead. See
+> `docs/taxa-opinions-migration-mapping.md` §11 and `DESIGN.md` §3's corrected "lineage self-reference"
+> writeup. Left in place per this project's decision-log convention; do not rely on the counts below.
+
 Skip bucket | Rows | Cause
 -- | --: | --
-self_reference | 29 | child_spelling_no == child_no despite status='misspelling of' — row carries no actual spelling deviation (`DESIGN.md` §3's "lineage self-reference" anomaly class — root cause traced to two sub-patterns: curators sometimes populate `spelling_reason`/status from the taxon's general nomenclatural history rather than this row's own pair, and this handler never even reads `parent_spelling_no`, which differs from `parent_no`/`child_no` on these rows anyway but is inert either way)
+self_reference | 29 (**stale, see above**) | child_spelling_no == child_no despite status='misspelling of' — row carries no actual spelling deviation (`DESIGN.md` §3's "lineage self-reference" anomaly class — root cause traced to two sub-patterns: curators sometimes populate `spelling_reason`/status from the taxon's general nomenclatural history rather than this row's own pair, and this handler never even reads `parent_spelling_no`, which differs from `parent_no`/`child_no` on these rows anyway but is inert either way)
 child_spelling_unresolved | ≥1 | child_spelling_no has no migrated permid
 child_no_unresolved | — | child_no has no migrated permid
 orphan_reference | — | reference_no not resolvable
 
-> inserted + skipped(≥30, dominated by the 29 self_reference rows) == 875. No action applies per
-> `DESIGN.md` §3 — the skip is correct independent of the anomaly's unclear root cause.
+> inserted + skipped(≥30, dominated by the 29 self_reference rows) == 875. **Stale per the note above** —
+> the corrected handler re-checks `child_spelling_no == parent_spelling_no` (always false, live-confirmed),
+> so `self_reference` is now expected to be 0 and `child_no_unresolved` is replaced by
+> `parent_spelling_unresolved`. Re-run `misspelling-of/misspelling.js` to regenerate real counts.
 
 ---
 

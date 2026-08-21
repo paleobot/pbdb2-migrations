@@ -1,11 +1,12 @@
 // Pair: status = 'misspelling of', spelling_reason = 'misspelling' (875 rows).
 //
-// The only spelling_reason value this status ever takes. Live-confirmed (2026-08-19):
-// child_no = parent_no for all 875 rows -- both anchor to the correct name, while
-// child_spelling_no alone is the distinct, separately-minted misspelling. So this
-// resolves under the same universal lineage rule as every other pair, with no
-// special-cased fields:
-//   name_opinions: subject_permid = permid(child_spelling_no), target_permid = permid(child_no)
+// The only spelling_reason value this status ever takes. Live-confirmed (2026-08-21):
+// child_no = parent_no for all 875 rows -- but both are just same-name anchors (a
+// misspelling isn't a distinct taxonomic concept), not the target. The actual target
+// is parent_spelling_no -- the specific correct spelling this opinion asserts
+// child_spelling_no is a misspelling of -- which differs from child_no in 104 of 875
+// rows (see docs/taxa-opinions-migration-mapping.md §11):
+//   name_opinions: subject_permid = permid(child_spelling_no), target_permid = permid(parent_spelling_no)
 // reason = 'historical misspelling' -- the dedicated dictionary token (added
 // 2026-08-19) for a formally published misspelling claim, distinct from the
 // 'misspelling' token used when spelling_reason='misspelling' is noticed
@@ -52,7 +53,7 @@ async function main() {
   const historicalMisspellingReasonId = reasonRows[0].id;
 
   let sourceRows = 0;
-  const skip = { child_spelling_unresolved: 0, child_no_unresolved: 0, self_reference: 0, orphan_reference: 0 };
+  const skip = { child_spelling_unresolved: 0, parent_spelling_unresolved: 0, self_reference: 0, orphan_reference: 0 };
   const logSkip = makeSampleLogger('skip');
 
   const lineageRows = [];
@@ -72,7 +73,7 @@ async function main() {
       sourceRows++;
 
       const childSpelling = Number(src.child_spelling_no);
-      const childNo = Number(src.child_no);
+      const parentSpelling = Number(src.parent_spelling_no);
 
       const subjectPermid = childSpelling ? nameMap.get(childSpelling) : undefined;
       if (!subjectPermid) {
@@ -82,18 +83,18 @@ async function main() {
         continue;
       }
 
-      const targetPermid = childNo ? nameMap.get(childNo) : undefined;
+      const targetPermid = parentSpelling ? nameMap.get(parentSpelling) : undefined;
       if (!targetPermid) {
-        skip.child_no_unresolved++;
-        logSkip(`opinion_no=${src.opinion_no} child_no_unresolved child_no=${src.child_no}`);
-        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'child_no_unresolved', `lineage (historical misspelling) edge skipped: child_no=${src.child_no} has no migrated permid`);
+        skip.parent_spelling_unresolved++;
+        logSkip(`opinion_no=${src.opinion_no} parent_spelling_unresolved parent_spelling_no=${src.parent_spelling_no}`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'parent_spelling_unresolved', `lineage (historical misspelling) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
         continue;
       }
 
-      if (childSpelling === childNo) {
+      if (childSpelling === parentSpelling) {
         skip.self_reference++;
         logSkip(`opinion_no=${src.opinion_no} self_reference taxon=${src.child_spelling_no}`);
-        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `lineage (historical misspelling) edge skipped: child_spelling_no == child_no (${src.child_spelling_no}) despite status='misspelling of' -- row carries no actual spelling deviation`);
+        anomalyLog.log(src.opinion_no, 'name_opinions', 'skip', 'self_reference', `lineage (historical misspelling) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no}) despite status='misspelling of' -- row asserts no actual spelling deviation`);
         continue;
       }
 

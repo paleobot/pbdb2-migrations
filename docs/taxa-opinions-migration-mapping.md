@@ -11,8 +11,11 @@ nullable; the 332 `parent_spelling_no = 0` rows are inserted with `containing_pe
 instead of being skipped — supersedes the exclusion in §9.3 and the disposition in §9.5. **Concept-axis
 synonymy reversals FLAGGED for B4 (§10, 2026-08-20):** ~6,170 taxa currently resolve as valid/independent
 in Classic despite an unretracted concept-class opinion in their history; migration will not
-auto-synthesize a negation for them — see §10 for the live counts and the deferred worklist. Next is
-starting B4 (§8).
+auto-synthesize a negation for them — see §10 for the live counts and the deferred worklist.
+**`misspelling of` target column corrected (§11, 2026-08-21):** dedicated `status = 'misspelling of'`
+opinions target `parent_spelling_no`, not `child_no` — supersedes the §6.1 aside and the LINEAGE
+column of §9.1 for this one status; `child_no`/`parent_no` are both just same-name anchors, not the
+target. Next is starting B4 (§8).
 **Scope:** the legacy→new *opinion* migration (OpenSpec change **B4 = `migrate-taxa-opinions`**,
 not yet started). This is the detailed, laid-out successor to the flat
 `payloadSchemas/mappings/collections.txt`, needed because the opinion migration is a
@@ -517,9 +520,17 @@ separate the two (live-probed 2026-08-19: 43.9% of `misspelling of` rows are `st
 28.9% of `spelling_reason='misspelling'` rows — a skew, not a clean split), so the distinction needed its
 own dictionary token rather than being inferable from an existing column. Both are `lineage`-class and
 `never_accepted`; for `misspelling of` rows, live data shows `child_no` and `parent_no` both anchor to the
-correct name (equal in effectively every row) while `child_spelling_no` is the distinct misspelling, so
-it resolves under the same subject/target convention as every other lineage pair
-(`subject = child_spelling_no`, `target = child_no`) with no special-cased fields needed.
+correct name (equal in **all** 875 rows, live-probed 2026-08-21) while `child_spelling_no` is the distinct
+misspelling. ~~so it resolves under the same subject/target convention as every other lineage pair
+(`subject = child_spelling_no`, `target = child_no`) with no special-cased fields needed.~~
+
+> ⚠ **SUPERSEDED, 2026-08-21, §11.** The struck sentence's target column is wrong for dedicated
+> `status = 'misspelling of'` opinions. `child_no`/`parent_no` being equal only proves the opinion is
+> about one name-group — it is not the target. The actual target is `parent_spelling_no`, which is a
+> *different* specific spelling than `child_no` in 104 of 875 rows (12%) — live examples and the
+> corrected mapping are in §11. This does **not** change the curatorial case
+> (`spelling_reason = 'misspelling'` on a `belongs to` opinion), where `target = child_no` (Q1(a)) is
+> still correct — see §11 for why the two cases differ.
 
 ### 6.2 `status` (residual nomen family) → `validity_opinions.status` (`nomenclatural_statuses`)
 
@@ -690,7 +701,7 @@ One row per `authorities.taxon_no`. ~~**Shape** is decided by the **top-ranked i
 | target column | ROOT (404,229: 403,559 originals + 670 orphans) | LINEAGE (113,058, refined by winning intro opinion `w`) |
 |---|---|---|
 | `subject_permid` | `permid(taxon_no)` | `permid(taxon_no)` (= `w.child_spelling_no`) |
-| `target_permid` | `NULL` | `permid(w.child_no)` — direct-to-original, Q1(a) |
+| `target_permid` | `NULL` | `permid(w.child_no)` — direct-to-original, Q1(a). **Exception: `permid(w.parent_spelling_no)` when `w.status = 'misspelling of'` — §11, 2026-08-21.** |
 | `reason_id` | `'original'` | `map(w.spelling_reason)` via §6.1 (`recombination`/`assignment`/`correction`/`reranked`/`misspelling`) |
 | `edge_class` | `'root'` | `'lineage'` (pinned; FK-composite with `reason_id`) |
 | `objective` | `NULL` | `NULL` (only concept junior-synonym rows carry it) |
@@ -940,3 +951,62 @@ judges each case and, where warranted, enters a genuine, self-attributed `negate
 mechanism `rework-derive-taxa` adds. Same treatment as this project's existing anomaly-log ledger
 pattern for other migration edge cases: a quantified, actionable list handed to a human, not a silent
 gap and not an automated guess.
+
+---
+
+## 11. `misspelling of` target column corrected: `parent_spelling_no`, not `child_no` (2026-08-21)
+
+**The trigger.** A review question challenged the §6.1/§9.1 claim that a dedicated `status =
+'misspelling of'` opinion's lineage target is `permid(w.child_no)`, on the grounds that it doesn't
+match the general `child <status> parent` construction used everywhere else in `opinions` (`belongs
+to`, `synonym of`, `replaced by`) — under that construction, a `misspelling of` opinion should read as
+"`child_spelling_no` is a misspelling **of** `parent_spelling_no`," making `parent_spelling_no` the
+target, not `child_no`.
+
+**Live-probed 2026-08-21** (Postgres-ported `pbdb_archive` mirror via `pg-classic-pool.js`, all 875
+`status = 'misspelling of'` rows):
+
+| comparison | result |
+|---|---|
+| `parent_no` vs `child_no` | equal in **all 875** rows (0 mismatches) |
+| `parent_spelling_no` vs `child_no` | differ in **104** rows (11.9%) |
+| `child_spelling_no` vs `parent_spelling_no` | **never** equal (0 of 875) |
+| `child_spelling_no` vs `child_no` | equal in 29 rows (3.3%) |
+
+`child_no`/`parent_no` being equal in every row does not make `child_no` the target — it only proves
+the opinion is about one name-group (a misspelling isn't a distinct taxonomic concept, unlike
+synonymy). The real target is `parent_spelling_no`, which is a specific spelling of that name-group —
+usually the original combination (hence 88% agreement with `child_no`), but in 104 rows a *different,
+non-original* correct spelling, which only `parent_spelling_no` captures.
+
+**Confirmed against real names** (the 104 divergent rows), joining `child_spelling_no` and
+`parent_spelling_no` through `authorities.taxon_name`:
+
+| `child_spelling_no` name (the misspelling) | `parent_spelling_no` name (the correct spelling) |
+|---|---|
+| `Betyokites` | `Betiokytes` |
+| `Padragosiceras` | `Padagrosites` |
+| `Euscelesaurus` | `Euskelosaurus` |
+| `Caulastraea` | `Caulastrea` |
+| `Delphinus brochii` | `Delphinus brocchii` |
+| `Syncylonema travisanus` | `Syncyclonema travisanus` |
+
+`Caulastraea`/`Caulastrea` is an independently verifiable real-world case — `Caulastrea` is the
+accepted coral genus spelling — confirming the direction: `child_spelling_no` is asserted as the
+misspelling *of* `parent_spelling_no`, not the reverse, and not of `child_no`.
+
+**Corrected mapping** for the LINEAGE case of §9.1, when the winning introducing opinion `w` has
+`w.status = 'misspelling of'`:
+
+| target column | value |
+|---|---|
+| `subject_permid` | `permid(w.child_spelling_no)` — unchanged |
+| `target_permid` | **`permid(w.parent_spelling_no)`** — corrected; was `permid(w.child_no)` |
+
+**Scope: this does not touch the curatorial case.** `spelling_reason = 'misspelling'` on an ordinary
+`belongs to` opinion is structurally different — there, `parent_no`/`parent_spelling_no` point to the
+*classification* parent (e.g. the genus), a genuinely different taxon, not an alternate spelling of
+the same name. `child_no` there is the only sensible target (Q1(a), direct-to-original), and that
+reasoning is untouched by this correction. The distinguishing signal is exactly the one probed above:
+for dedicated `misspelling of`, `parent_no = child_no` always; for an ordinary `belongs to` opinion,
+it generally does not.

@@ -51,8 +51,20 @@ schema or from probed row data.
 |---|---|---|
 | `assignment_opinions` | `containing_permid` | `permid(parent_spelling_no)` |
 | `name_opinions` concept edge | `target_permid` | `permid(parent_spelling_no)` |
-| `name_opinions` lineage edge | `target_permid` | `permid(child_no)` |
+| `name_opinions` lineage edge | `target_permid` | `permid(child_no)` — **except `misspelling of`, see below** |
 | `validity_opinions` | *(no target column)* | — |
+
+**Exception: `misspelling of`'s lineage target is `parent_spelling_no`, not `child_no` (corrected
+2026-08-21).** `child_no = parent_no` for all 875 `misspelling of` rows, but that only proves the
+opinion is about one name-group (a misspelling isn't a distinct taxonomic concept, unlike synonymy) —
+it does not make `child_no` the target. The real target is `parent_spelling_no`, the specific correct
+spelling this opinion asserts `child_spelling_no` is a misspelling of; it differs from `child_no` in
+104 of 875 rows (live-confirmed against real names, e.g. `Caulastraea` → `Caulastrea`). See
+`docs/taxa-opinions-migration-mapping.md` §11 for the full investigation and
+`opinions/misspelling-of/misspelling.js` for the corrected handler. This exception applies only to the
+dedicated `status = 'misspelling of'`; the curatorial case (`spelling_reason = 'misspelling'` on any
+other status) still targets `child_no` correctly, since there `parent_no`/`parent_spelling_no` point to
+a genuinely different classification taxon, not an alternate spelling of the same name.
 
 **Dual emission.** Whenever a row's `spelling_reason ≠ 'original spelling'`, it carries a **second**,
 independent claim in addition to its status's primary disposition: a `name_opinions` lineage edge
@@ -176,7 +188,8 @@ child_no` there. The skipped concept edge would only have restated the same iden
 already carries — nothing is lost, and no code change applies.
 
 **Lineage self-reference (224 rows: `child_spelling_no == child_no` despite a non-`'original spelling'`
-`spelling_reason`) — root cause genuinely unclear; flagged for Classic, no migration-side action.**
+`spelling_reason`) — root cause genuinely unclear for the ordinary-status sub-pattern; the
+`misspelling of` sub-pattern below is CORRECTED, 2026-08-21 (was wrongly dismissed as inert).**
 Live-sampled 2026-08-19 across all five reason tokens (`correction`/`misspelling`/`rank change`/
 `recombination`/`historical misspelling`) with sibling-opinion cross-checks on the same `child_no`. Two
 sub-patterns, neither a simple one-off typo:
@@ -187,16 +200,20 @@ sub-patterns, neither a simple one-off typo:
   `"implicitly"`. This suggests Classic curators sometimes populate `spelling_reason` from the taxon's
   general nomenclatural history as understood at data-entry time, not strictly from this row's own
   `child_no`/`child_spelling_no` pair — a real looseness in field semantics, not just careless mistagging.
-- **`misspelling of` specifically:** `misspelling-of/misspelling.js` never reads `parent_spelling_no` (its
-  own header comment: `child_no = parent_no` for all 875 rows, live-confirmed) — but in these anomalous
-  rows `parent_spelling_no` differs from `parent_no`/`child_no` anyway. Most likely a vestigial data-entry
-  artifact (a generic opinion-entry form auto-filling a "current parent spelling" field that's meaningless
-  for this status) rather than a real claim, and inert either way since the handler doesn't consult it.
-
-Neither sub-pattern changes migration behavior: a row with no real `child_spelling_no != child_no`
-deviation correctly emits no lineage edge regardless of why the label says otherwise — the existing skip is
-correct independent of root cause. **Verdict: bucket 3 (needs Classic curatorial/dev explanation)** for the
-"why," purely for their own documentation — not a blocker here.
+  **Verdict: bucket 3 (needs Classic curatorial/dev explanation)** for the "why," purely for their own
+  documentation — not a blocker here; migration behavior is unaffected (a row with no real
+  `child_spelling_no != child_no` deviation correctly emits no lineage edge for these statuses, where
+  `child_no` genuinely is the target).
+- **`misspelling of` specifically — CORRECTED, 2026-08-21.** The original writeup here claimed
+  `misspelling-of/misspelling.js` never reads `parent_spelling_no`, and that it "differs from
+  `parent_no`/`child_no` on these rows anyway but is inert either way." That's wrong: `parent_spelling_no`
+  is the actual lineage target for this status (§3's exception, above), not an inert field. These 29
+  rows (`child_spelling_no == child_no`) are **not** true self-references — `child_spelling_no` is never
+  equal to `parent_spelling_no` for any of the 875 rows (live-confirmed), so every one of these 29 has a
+  real, distinct target and should migrate as a genuine lineage edge. The handler
+  (`opinions/misspelling-of/misspelling.js`) now checks `child_spelling_no == parent_spelling_no` instead
+  of `== child_no`, so this skip bucket is expected to be empty going forward. See
+  `docs/taxa-opinions-migration-mapping.md` §11 for the full investigation.
 
 **Homonyms are not modeled in this migration.** Per the 2.0-native design (distinct from Classic),
 homonymy is an emergent property of the derived `taxa` table (non-unique `taxon_name`), not a curated or
