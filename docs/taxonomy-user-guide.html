@@ -500,7 +500,7 @@
       </div>
     </div>
     <div class="prose" style="margin-top:26px;">
-      <p>Placement notes are read a little differently from the other two. A synonym doesn't lose its own placement claims just because it's no longer the "main" name — the system pools placement notes across <em>every</em> name judged to be the same taxon, and lets the best-evidenced one win, even if it happens to be filed under a junior synonym. That mirrors how a working taxonomist actually reasons about where something belongs.</p>
+      <p>Placement notes are read a little differently from the other two — but only above the species level. For a genus or higher, a synonym doesn't lose its own placement claims just because it's no longer the "main" name — the system pools placement notes across <em>every</em> name judged to be the same taxon, and lets the best-evidenced one win, even if it happens to be filed under a junior synonym. That mirrors how a working taxonomist actually reasons about where something belongs. At the species level, though, only the accepted name's own placement notes are read; a junior synonym's containment claims stay filed under that synonym and are never borrowed.</p>
     </div>
   </section>
 
@@ -527,7 +527,7 @@
       </div>
     </div>
     <div class="prose" style="margin-top:26px;">
-      <p>That's it — the same three questions, asked in the same order, for spelling, for placement, and for status, independently. There's no special-case logic hiding anywhere else, and no daily batch job: the moment a new note is entered, this ranking runs and the ledger is brought current. There's no overnight wait to see whether a name's classification changed.</p>
+      <p>That's it — the same three questions, asked in the same order, for spelling, for placement, and for status, independently. Merging two names into one concept (Case 3, next) runs the identical three questions too, just with one extra check ahead of them: whichever name was never itself accused of being the junior one gets first refusal, before evidence even gets asked. There's no other special-case logic hiding anywhere, and no daily batch job: the moment a new note is entered, this ranking runs and the ledger is brought current. There's no overnight wait to see whether a name's classification changed.</p>
     </div>
   </section>
 
@@ -565,7 +565,8 @@
         <h3><span class="latin">Taeniolabis scalper</span> is a junior synonym of <span class="latin">Taeniolabis sulcatus</span></h3>
         <div class="cite">Cope named the same specimen twice: sulcatus in 1882, then scalper in 1884.</div>
         <p>These aren't the same spelling of one name — they're two entirely different, independently published names that turned out to describe the same animal. A "same taxon as" note merges their two lineages into one group the system calls a <strong>concept</strong>.</p>
-        <p>Merging doesn't pick a winner by evidence or recency here — it picks the <em>senior</em> name, the one published first, exactly as the nomenclature rules require. 1882 beats 1884, so <span class="latin">sulcatus</span> becomes the concept's name, and <span class="latin">scalper</span> folds in permanently as a recorded junior synonym.</p>
+        <p>Merging picks a winner with one extra rule ahead of the usual three: whichever name was never itself accused of being the junior side of a currently-standing synonymy note gets first refusal. Here the note runs "<span class="latin">scalper</span> is a junior synonym of <span class="latin">sulcatus</span>" — never the reverse — so <span class="latin">sulcatus</span> wins outright on that check alone, before evidence, recency, or even publication year are ever consulted. <span class="latin">sulcatus</span> becomes the concept's name, and <span class="latin">scalper</span> folds in permanently as a recorded junior synonym.</p>
+        <p>(When several names are tangled in a genuine three-or-more-way synonymy and no single one is unambiguously "the senior," the same evidence-then-recency contest from the previous section breaks the tie — publication year only gets the final word if evidence and recency are exactly equal too.)</p>
 
         <figure class="diagram" style="margin-top:8px;">
           <svg viewBox="0 0 640 210" role="img" aria-label="Two separately published names merge into one concept; the senior, 1882 name wins the concept's identity, and the junior 1884 name folds in as a recorded synonym.">
@@ -604,7 +605,7 @@
             <text x="320" y="173" text-anchor="middle" font-size="12.5" font-weight="600">Concept: sulcatus</text>
             <text x="320" y="190" text-anchor="middle" font-size="10" fill="var(--ink-faint)">scalper kept as a recorded synonym</text>
           </svg>
-          <figcaption>Two independently published names merge into one concept. Seniority — not evidence, not recency — decides which name the merged concept is known by.</figcaption>
+          <figcaption>Two independently published names merge into one concept. <span class="latin">sulcatus</span> was never named anyone's junior — that alone decides the merged concept's name here, before evidence or recency are even asked.</figcaption>
         </figure>
 
         <div class="takeaway"><strong>The point:</strong> a lineage groups spellings of <em>one</em> published name. A concept groups <em>multiple, separately published</em> names that turned out to be the same taxon. They're different groupings, decided by different rules.</div>
@@ -617,8 +618,9 @@
         <h3>Un-merging <span class="latin">Myliobatus</span> and <span class="latin">Myliobatis</span></h3>
         <div class="cite hypo">Continuing Case 2 — a specialist re-examines the type material and disagrees with the misspelling claim.</div>
         <p>Say a later, more thorough study argues Case 2 had it backwards: <span class="latin">Myliobatus</span> isn't a misspelling at all, but a distinct, valid genus. In the old system, undoing a merge like this meant walking back through the ledger's history to find the last state before the bad claim took hold — a genuinely difficult piece of code, prone to breaking on edge cases.</p>
-        <p>Here, undoing is just <em>doing</em>: the new note is entered like any other, and the whole thing recomputes from scratch. The grouping step no longer sees a reason to merge the two lineages, so they simply come back apart — not because anything walked backward, but because the answer was never stored as a standalone fact to begin with. It's rebuilt fresh, every time, from every note that currently exists.</p>
-        <div class="takeaway"><strong>The point:</strong> because the ledger is never anything but a recomputation, there's no separate "undo" mechanism to write or to get wrong. Reversing a claim is just adding one more note.</div>
+        <p>Here, undoing is just <em>doing</em> — but it takes a specific kind of note, not just any new one. The specialist's paper is entered as a direct rejection of the earlier claim — "<span class="latin">Myliobatus</span> is <em>not</em> a misspelling of <span class="latin">Myliobatis</span>," with its own evidence and year — rather than a free-floating comment that the two are unrelated. That note competes in the exact same evidence-then-recency-then-entry-order contest as every other note about <span class="latin">Myliobatus</span>'s spelling. If it wins, the 1990 misspelling note simply loses that round's contest: since "not a misspelling of" asserts no relationship at all, <span class="latin">Myliobatus</span>'s card contributes nothing to the grouping step this time, and the two lineages come back apart on their own the next time anything recomputes.</p>
+        <p>Nothing walks backward and nothing is un-written — the 1990 note stays on the record exactly as published. It's simply no longer the top-ranked note about what <span class="latin">Myliobatus</span> is.</p>
+        <div class="takeaway"><strong>The point:</strong> because the ledger is never anything but a recomputation, there's no separate "undo" mechanism to write or to get wrong. Reversing a claim is just adding one more note — as long as that note directly rejects the specific relationship being undone, rather than merely asserting something unrelated.</div>
       </div>
     </div>
   </section>
@@ -657,7 +659,7 @@
       </div>
       <div class="compare-row">
         <div class="old"><p><em>nomen dubium</em>, <em>nomen nudum</em>, and similar status calls all competed in the same reliability-ranked pool as ordinary placement and synonymy opinions — the system couldn't tell doubt about a name apart from an act that actually invalidates it.</p></div>
-        <div class="new"><p><em>Nomen dubium</em> and <em>nomen vanum</em> are recorded but never move anything — doubt, not invalidation. <em>Nomen nudum</em> is the one status that can actually disqualify a card from winning its lineage's accepted spelling.</p></div>
+        <div class="new"><p><em>Nomen dubium</em> and <em>nomen vanum</em> are recorded but never move anything — doubt, not invalidation. <em>Nomen nudum</em> is the one status that can actually disqualify a card from winning its lineage's accepted spelling — and if every card in a lineage ends up disqualified this way (all nomen nudum, or all misspellings, with nothing left standing), that lineage produces no "current name" at all, rather than crowning an unavailable one by default. The same rule cascades one level up: a synonym group with no eligible member anywhere simply doesn't appear in the ledger either. Nothing is deleted — the notes are still all there — there's just nothing available to call current belief.</p></div>
       </div>
     </div>
 
