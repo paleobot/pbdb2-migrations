@@ -1,0 +1,687 @@
+<title>The Taxonomy Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600&family=Libre+Franklin:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* ================= TOKENS ================= */
+  :root {
+    --ground:        #E4E1D3;
+    --surface:        #F7F5ED;
+    --surface-raised: #FCFBF6;
+    --ink:            #262319;
+    --ink-soft:       #5D5847;
+    --ink-faint:      #8C876F;
+    --rule:           #CBC4AA;
+    --rule-strong:    #A9A184;
+    --accent:         #35635C;
+    --accent-soft:    #C9DCD6;
+    --accent-warm:    #A96F2A;
+    --accent-warm-soft: #EBD9B8;
+    --flag:           #954234;
+    --flag-soft:      #E9CFC6;
+    --shadow:         rgba(38, 35, 25, 0.10);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #1A1C17;
+      --surface:        #232620;
+      --surface-raised: #2A2D25;
+      --ink:            #ECE7D8;
+      --ink-soft:       #B3AC93;
+      --ink-faint:      #837C63;
+      --rule:           #3B3D33;
+      --rule-strong:    #4F5142;
+      --accent:         #7FC2B6;
+      --accent-soft:    #29423D;
+      --accent-warm:    #DCA857;
+      --accent-warm-soft: #4A3B22;
+      --flag:           #DA8E7C;
+      --flag-soft:      #4A2E27;
+      --shadow:         rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #1A1C17;
+    --surface:        #232620;
+    --surface-raised: #2A2D25;
+    --ink:            #ECE7D8;
+    --ink-soft:       #B3AC93;
+    --ink-faint:      #837C63;
+    --rule:           #3B3D33;
+    --rule-strong:    #4F5142;
+    --accent:         #7FC2B6;
+    --accent-soft:    #29423D;
+    --accent-warm:    #DCA857;
+    --accent-warm-soft: #4A3B22;
+    --flag:           #DA8E7C;
+    --flag-soft:      #4A2E27;
+    --shadow:         rgba(0, 0, 0, 0.35);
+  }
+
+  /* ================= BASE ================= */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  h1, h2, h3 {
+    font-family: "Fraunces", ui-serif, Georgia, serif;
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--ink);
+    margin: 0;
+  }
+  .latin { font-style: italic; font-family: "Fraunces", ui-serif, Georgia, serif; }
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+  img, svg { max-width: 100%; }
+
+  /* ================= HERO ================= */
+  .hero {
+    padding: 76px 0 56px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .eyebrow { display: block; margin-bottom: 18px; }
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    line-height: 1.06;
+    letter-spacing: -0.01em;
+  }
+  .hero .dek {
+    margin-top: 18px;
+    font-size: 1.2rem;
+    color: var(--ink-soft);
+    max-width: 34ch;
+    line-height: 1.5;
+  }
+  .hero .lede {
+    margin-top: 28px;
+    max-width: 62ch;
+    font-size: 1.02rem;
+  }
+  .hero .lede + .lede { margin-top: 14px; }
+
+  /* ================= SECTIONS ================= */
+  section.block {
+    padding: 56px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  section.block:last-of-type { border-bottom: none; }
+  .block .eyebrow { display: block; margin-bottom: 14px; }
+  .block h2 {
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    max-width: 24ch;
+  }
+  .block .standfirst {
+    margin-top: 10px;
+    font-size: 1.06rem;
+    color: var(--ink-soft);
+    max-width: 56ch;
+  }
+  .prose { max-width: 62ch; margin-top: 22px; }
+  .prose p { margin: 0 0 16px; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose strong { color: var(--ink); font-weight: 600; }
+
+  /* ================= ASIDE / CLASSIC NOTE ================= */
+  .classic-note {
+    margin: 22px 0 0;
+    padding: 14px 18px;
+    background: var(--accent-warm-soft);
+    border-left: 3px solid var(--accent-warm);
+    border-radius: 2px;
+    font-size: 0.94rem;
+    max-width: 56ch;
+  }
+  .classic-note .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-warm);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  /* ================= DIAGRAM FIGURES ================= */
+  figure.diagram {
+    margin: 30px 0 0;
+    padding: 24px 20px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  figure.diagram svg { display: block; width: 100%; height: auto; color: var(--ink-soft); }
+  figure.diagram svg text { fill: currentColor; font-family: "IBM Plex Mono", monospace; }
+  figcaption {
+    margin-top: 14px;
+    font-size: 0.88rem;
+    color: var(--ink-faint);
+    max-width: 56ch;
+  }
+
+  /* ================= LINEAGE CARD ROW (simple CSS, non-SVG) ================= */
+  .card-chain {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-top: 26px;
+    flex-wrap: wrap;
+  }
+  .spec-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    padding: 12px 16px;
+    min-width: 168px;
+    box-shadow: 0 1px 0 var(--shadow);
+  }
+  .spec-card .label { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+  .spec-card .name { font-family: "Fraunces", serif; font-style: italic; font-size: 1.08rem; margin-top: 4px; color: var(--ink); }
+  .spec-card .rank { font-size: 0.82rem; color: var(--ink-soft); margin-top: 2px; }
+  .chain-arrow {
+    padding: 0 12px;
+    font-size: 1.3rem;
+    color: var(--ink-faint);
+    line-height: 1;
+  }
+  .chain-arrow .via { display:block; font-family:"IBM Plex Mono",monospace; font-size: 9.5px; letter-spacing:.06em; text-transform:uppercase; color: var(--accent); text-align:center; margin-top:2px; }
+
+  /* ================= NOTE-TYPE GRID ================= */
+  .note-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 26px;
+  }
+  @media (max-width: 640px) { .note-grid { grid-template-columns: 1fr; } }
+  .note-type {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 18px 18px 20px;
+  }
+  .note-type .glyph {
+    font-family: "Fraunces", serif;
+    font-size: 1.6rem;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .note-type h3 { font-size: 1.02rem; margin-top: 10px; font-weight: 600; }
+  .note-type p { font-size: 0.92rem; color: var(--ink-soft); margin: 8px 0 0; }
+  .note-type .eg { margin-top: 10px; font-size: 0.82rem; font-family: "IBM Plex Mono", monospace; color: var(--ink-faint); }
+
+  /* ================= RANKING STRIP ================= */
+  .rank-strip {
+    display: flex;
+    gap: 0;
+    margin-top: 26px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  .rank-step {
+    flex: 1;
+    min-width: 140px;
+    padding: 16px 16px 18px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .rank-step:last-child { border-right: none; }
+  .rank-step .n { font-family:"IBM Plex Mono",monospace; font-size: 11px; color: var(--accent); letter-spacing: .06em; }
+  .rank-step h4 { font-size: 0.98rem; font-weight: 600; margin: 6px 0 4px; font-family:"Libre Franklin",sans-serif; }
+  .rank-step p { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
+
+  /* ================= CASE FILES ================= */
+  .case {
+    margin-top: 34px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .case:first-of-type { margin-top: 28px; }
+  .case-tab {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--rule);
+    padding: 12px 20px;
+  }
+  .case-tab .num { font-family:"IBM Plex Mono",monospace; font-size: 11.5px; letter-spacing:.1em; color: var(--accent-warm); text-transform: uppercase; }
+  .case-tab .kind { font-family:"IBM Plex Mono",monospace; font-size: 11.5px; color: var(--ink-faint); }
+  .case-body { padding: 20px 22px 24px; }
+  .case-body h3 { font-size: 1.18rem; margin-bottom: 4px; }
+  .case-body .cite { font-size: 0.86rem; color: var(--ink-faint); font-style: italic; margin-bottom: 14px; }
+  .case-body .cite.hypo::before { content: "hypothetical — "; font-style: normal; color: var(--accent-warm); }
+  .case-body p { margin: 0 0 14px; max-width: 60ch; }
+  .case-body p:last-child { margin-bottom: 0; }
+  .takeaway {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border-radius: 2px;
+    font-size: 0.92rem;
+    max-width: 58ch;
+  }
+  .takeaway strong { color: var(--accent); }
+  .never { color: var(--flag); font-weight: 600; }
+
+  /* ================= COMPARE TABLE ================= */
+  .compare {
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .compare-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: var(--rule);
+    gap: 1px;
+  }
+  @media (max-width: 640px) { .compare-row { grid-template-columns: 1fr; } }
+  .compare-row > div { background: var(--surface); padding: 16px 18px; }
+  .compare-row .old { }
+  .compare-row .new { }
+  .compare-head { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 0; }
+  @media (max-width: 640px) { .compare-head { grid-template-columns: 1fr; } }
+  .compare-head > div {
+    padding: 10px 18px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .compare-head .old { color: var(--ink-faint); background: var(--surface); }
+  .compare-head .new { color: var(--accent); background: var(--surface); }
+  .compare-row p { margin: 0; font-size: 0.94rem; }
+  .compare-row .old { color: var(--ink-soft); }
+  .compare-row .new { color: var(--ink); }
+
+  /* ================= GLOSSARY ================= */
+  .glossary {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+  }
+  @media (max-width: 640px) { .glossary { grid-template-columns: 1fr; } }
+  .gterm {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.9rem;
+  }
+  .gterm .old { color: var(--ink-faint); font-family:"IBM Plex Mono",monospace; font-size: 0.82rem; white-space: nowrap; }
+  .gterm .new { text-align: right; color: var(--ink-soft); }
+
+  /* ================= FOOTER ================= */
+  footer {
+    padding: 40px 0 64px;
+  }
+  footer .status {
+    padding: 16px 18px;
+    border: 1px dashed var(--rule-strong);
+    border-radius: 3px;
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+    max-width: 58ch;
+  }
+  footer .status .tag {
+    display:block; font-family:"IBM Plex Mono",monospace; font-size: 11px; letter-spacing:.08em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px;
+  }
+  footer .colophon {
+    margin-top: 22px;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">A field guide to pbdb2</span>
+    <h1>The Taxonomy Ledger</h1>
+    <p class="dek">How the next Paleobiology Database keeps track of fossil names — and decides, on its own, what everyone currently believes.</p>
+    <p class="lede">In the old system, a curator typed in a paper's opinion about a name, and once a day a slow background job re-read every opinion ever entered and rebuilt its best guess at "the" classification. The new system does the same job — but the bookkeeping is simpler, the answer is always current, and nothing is ever silently overwritten.</p>
+    <p class="lede">This page walks through the idea from scratch. No screenshots, no click-by-click steps — the data-entry screens for this system haven't been built yet. What follows is the model those screens will eventually sit on top of.</p>
+  </header>
+
+  <!-- ============ THE BIG IDEA ============ -->
+  <section class="block">
+    <span class="eyebrow">The big idea</span>
+    <h2>Notes go in. A ledger comes out. Nobody edits the ledger.</h2>
+    <p class="standfirst">Everything in this system rests on keeping two things strictly separate: what a published paper <em>said</em>, and what the database currently <em>believes</em>.</p>
+    <div class="prose">
+      <p>Think of every published taxonomic claim — "this species belongs in that genus," "these two names are the same animal," "this name was misspelled" — as a small note clipped to an index card. Nobody ever deletes a note, even a note from a hundred years ago that everyone now disagrees with. It's part of the historical record: someone, somewhere, published that claim.</p>
+      <p>A separate, unwritten-on ledger holds the current answer for every name: is it accepted, what does it belong to, is it a synonym of something else. Nobody fills the ledger in by hand. It's entirely <strong>recomputed</strong> from the notes — the same way a librarian re-derives "the current consensus" by reading through a card's whole file rather than trusting whatever's scrawled on the outside of the folder.</p>
+      <p>That's the whole trick. If the ledger and the notes ever disagree, the notes win, and the ledger gets rebuilt. There is no "correct" version living only in someone's head or in a value nobody wrote down where it came from.</p>
+    </div>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 640 210" role="img" aria-label="Three kinds of notes feed a recompute step, which is the only thing that writes to the ledger.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+          </marker>
+          <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+          </marker>
+        </defs>
+
+        <!-- note boxes -->
+        <g>
+          <rect x="16" y="18" width="150" height="40" rx="2" fill="none" stroke="currentColor"></rect>
+          <text x="91" y="42" text-anchor="middle" font-size="12">Spelling note</text>
+
+          <rect x="16" y="85" width="150" height="40" rx="2" fill="none" stroke="currentColor"></rect>
+          <text x="91" y="109" text-anchor="middle" font-size="12">Placement note</text>
+
+          <rect x="16" y="152" width="150" height="40" rx="2" fill="none" stroke="currentColor"></rect>
+          <text x="91" y="176" text-anchor="middle" font-size="12">Status note</text>
+        </g>
+
+        <!-- converging lines to recompute -->
+        <path d="M166,38 L 250,95" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <path d="M166,105 L 250,105" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#arrow)"></path>
+        <path d="M166,172 L 250,115" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#arrow)"></path>
+        <path d="M166,38 L 240,90" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#arrow)"></path>
+
+        <!-- recompute box -->
+        <rect x="252" y="72" width="140" height="66" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"></rect>
+        <text x="322" y="99" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--accent)">RECOMPUTE</text>
+        <text x="322" y="118" text-anchor="middle" font-size="10.5" fill="var(--accent)">evidence → year → order</text>
+
+        <!-- arrow to ledger -->
+        <path d="M392,105 L 466,105" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arrow-accent)"></path>
+        <text x="429" y="96" text-anchor="middle" font-size="10.5" fill="var(--accent)">writes</text>
+
+        <!-- ledger box -->
+        <rect x="468" y="60" width="156" height="90" rx="2" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.4"></rect>
+        <text x="546" y="98" text-anchor="middle" font-size="13" font-weight="600">LEDGER</text>
+        <text x="546" y="118" text-anchor="middle" font-size="10.5">current belief</text>
+        <text x="546" y="134" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">— one row per name —</text>
+      </svg>
+      <figcaption>Every note — about spelling, placement, or status — flows through one recompute step. That step is the <em>only</em> thing allowed to write to the ledger; there's no separate path for hand-editing today's answer.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ WHAT A NAME IS ============ -->
+  <section class="block">
+    <span class="eyebrow">The unit of identity</span>
+    <h2>Every exact spelling gets its own card, forever</h2>
+    <p class="standfirst">The single most important rule in the new system: a card's name and rank never change. If either changes, that's a <em>different</em> card.</p>
+    <div class="prose">
+      <p>Once a card is written — say, <span class="latin">Roveacrinus alata</span>, species — nobody ever edits its name field. If a later paper decides the ending should be <span class="latin">-us</span> instead of <span class="latin">-a</span> to match Latin grammar, that correction doesn't touch the old card. It creates a brand-new card, <span class="latin">Roveacrinus alatus</span>, and a note links the two together: "this is a corrected form of that."</p>
+      <p>Follow enough of those linking notes — corrections, regenderings, rank changes, genus reassignments — and you get a whole chain of cards that are all, at bottom, the same published name going through its history of respellings. The system calls that a <strong>lineage</strong>, and it picks one card from the chain to be the one currently in use.</p>
+    </div>
+    <div class="card-chain">
+      <div class="spec-card">
+        <div class="label">card</div>
+        <div class="name">Roveacrinus alata</div>
+        <div class="rank">species · as first published</div>
+      </div>
+      <div class="chain-arrow">→<span class="via">correction</span></div>
+      <div class="spec-card" style="border-color: var(--accent);">
+        <div class="label">card</div>
+        <div class="name">Roveacrinus alatus</div>
+        <div class="rank">species · corrected spelling, now in use</div>
+      </div>
+    </div>
+    <div class="classic-note">
+      <span class="tag">If you know Classic</span>
+      Classic's <span class="mono">taxon_no</span> did two jobs at once: it named one exact spelling, <em>and</em> it was supposed to trace back to "the" original combination — a distinction that got blurry in practice. The new system splits those apart cleanly: a card (<span class="mono">permid</span>) is always one exact spelling. Which spelling is "the original one" for a lineage is worked out separately, automatically, from the correction notes — never stored as a fact on the card itself.
+    </div>
+  </section>
+
+  <!-- ============ THREE KINDS OF NOTES ============ -->
+  <section class="block">
+    <span class="eyebrow">What gets clipped to a card</span>
+    <h2>Three kinds of notes, three different jobs</h2>
+    <p class="standfirst">Every published taxonomic claim is one of exactly three kinds. Keeping them apart is what makes the recompute step tractable.</p>
+    <div class="note-grid">
+      <div class="note-type">
+        <div class="glyph">≡</div>
+        <h3>Spelling &amp; sameness</h3>
+        <p>Is this card a corrected, respelled, or renamed form of another card? Or is it a wholly different name for the <em>same animal</em> — a synonym?</p>
+        <p class="eg">e.g. "alata is a correction of alatus" · "scalper is a synonym of sulcatus"</p>
+      </div>
+      <div class="note-type">
+        <div class="glyph">⊂</div>
+        <h3>Placement</h3>
+        <p>What higher group does this name belong to? A species in a genus, a genus in a family — one card containing another.</p>
+        <p class="eg">e.g. "<span class="latin">Dorudon</span> belongs to <span class="latin">Basilosauridae</span>"</p>
+      </div>
+      <div class="note-type">
+        <div class="glyph">?</div>
+        <h3>Status</h3>
+        <p>A note purely about the name's own standing — is it too poorly known to use, or was it published without following the rules?</p>
+        <p class="eg">e.g. "nomen dubium" · "nomen nudum"</p>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:26px;">
+      <p>Placement notes are read a little differently from the other two. A synonym doesn't lose its own placement claims just because it's no longer the "main" name — the system pools placement notes across <em>every</em> name judged to be the same taxon, and lets the best-evidenced one win, even if it happens to be filed under a junior synonym. That mirrors how a working taxonomist actually reasons about where something belongs.</p>
+    </div>
+  </section>
+
+  <!-- ============ HOW IT DECIDES ============ -->
+  <section class="block">
+    <span class="eyebrow">Breaking ties</span>
+    <h2>When notes disagree, three questions settle it</h2>
+    <p class="standfirst">Two papers can make opposite claims about the same name. The recompute step needs one deterministic way to pick a winner — every time, for every kind of note.</p>
+    <div class="rank-strip">
+      <div class="rank-step">
+        <div class="n">FIRST</div>
+        <h4>Was evidence given?</h4>
+        <p>A claim backed by an argument — a described character, an analysis — outranks a claim that's just asserted.</p>
+      </div>
+      <div class="rank-step">
+        <div class="n">THEN</div>
+        <h4>Which is newer?</h4>
+        <p>Among equally well-argued claims, the most recently published one reflects the current state of the science.</p>
+      </div>
+      <div class="rank-step">
+        <div class="n">FINALLY</div>
+        <h4>Which was entered later?</h4>
+        <p>A last-resort tiebreaker for the rare case where evidence and year both tie exactly.</p>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:26px;">
+      <p>That's it — the same three questions, asked in the same order, for spelling, for placement, and for status, independently. There's no special-case logic hiding anywhere else, and no daily batch job: the moment a new note is entered, this ranking runs and the ledger is brought current. There's no overnight wait to see whether a name's classification changed.</p>
+    </div>
+  </section>
+
+  <!-- ============ CASE FILES ============ -->
+  <section class="block">
+    <span class="eyebrow">Worked examples</span>
+    <h2>Case files</h2>
+    <p class="standfirst">Four examples, each adding one more piece of the mechanism. The first two are drawn from real published names; the last two use a well-known genus-confusion case to walk through what a reversal looks like.</p>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 1</span><span class="kind">spelling · correction</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Roveacrinus alata</span> → <span class="latin">alatus</span></h3>
+        <div class="cite">A grammatical correction, matching the species epithet's ending to standard Latin usage.</div>
+        <p>A card exists for <span class="latin">Roveacrinus alata</span>. A later paper corrects the ending to <span class="latin">-us</span>. That correction is entered as its own card, linked back to the original with a "correction of" note — not an edit to the first card.</p>
+        <p>Both cards are eligible to be the lineage's current spelling. Since the corrected form is the newer, better-argued claim, it wins the ranking and becomes the name actually shown as current — while the original spelling stays on record, permanently, as part of the same lineage.</p>
+        <div class="takeaway"><strong>The point:</strong> a correction is a competition between two eligible cards. The newer one usually wins, but it has to <em>earn</em> that — nothing about "being a correction" makes it automatic.</div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 2</span><span class="kind">spelling · misspelling</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Myliobatus</span> vs. <span class="latin">Myliobatis</span></h3>
+        <div class="cite hypo">Illustrative — a classic textbook case of a one-letter genus confusion in eagle rays.</div>
+        <p>Suppose a paper introduces the spelling <span class="latin">Myliobatus</span>. A later paper points out this is simply a misspelling of the already-established genus <span class="latin">Myliobatis</span> — not a new name, not a correction of a typo in the Latin grammar, just an error.</p>
+        <p>That note links the two cards, exactly like Case 1's correction note does. But it's flagged differently: a misspelling is marked so that it can <span class="never">never</span> win the "current spelling" ranking, no matter how much evidence or how many years pass in its favor. A correction is a fair competitor; a misspelling is disqualified from the race entirely.</p>
+        <div class="takeaway"><strong>The point:</strong> not every linking note makes its card eligible to become the accepted name. Misspellings are linked into the lineage — so searches and downloads still find them — but they can't win it.</div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 3</span><span class="kind">sameness · synonymy</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Taeniolabis scalper</span> is a junior synonym of <span class="latin">Taeniolabis sulcatus</span></h3>
+        <div class="cite">Cope named the same specimen twice: sulcatus in 1882, then scalper in 1884.</div>
+        <p>These aren't the same spelling of one name — they're two entirely different, independently published names that turned out to describe the same animal. A "same taxon as" note merges their two lineages into one group the system calls a <strong>concept</strong>.</p>
+        <p>Merging doesn't pick a winner by evidence or recency here — it picks the <em>senior</em> name, the one published first, exactly as the nomenclature rules require. 1882 beats 1884, so <span class="latin">sulcatus</span> becomes the concept's name, and <span class="latin">scalper</span> folds in permanently as a recorded junior synonym.</p>
+
+        <figure class="diagram" style="margin-top:8px;">
+          <svg viewBox="0 0 640 210" role="img" aria-label="Two separately published names merge into one concept; the senior, 1882 name wins the concept's identity, and the junior 1884 name folds in as a recorded synonym.">
+            <defs>
+              <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+              </marker>
+              <marker id="arrow2-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+              </marker>
+            </defs>
+
+            <!-- senior box -->
+            <rect x="30" y="18" width="250" height="56" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"></rect>
+            <text x="155" y="42" text-anchor="middle" font-size="13" font-style="italic" fill="var(--accent)">Taeniolabis sulcatus</text>
+            <text x="155" y="60" text-anchor="middle" font-size="10.5" fill="var(--accent)">1882 — senior</text>
+
+            <!-- junior box -->
+            <rect x="360" y="18" width="250" height="56" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+            <text x="485" y="42" text-anchor="middle" font-size="13" font-style="italic">Taeniolabis scalper</text>
+            <text x="485" y="60" text-anchor="middle" font-size="10.5" fill="var(--ink-faint)">1884 — junior</text>
+
+            <!-- label between them -->
+            <text x="320" y="14" text-anchor="middle" font-size="10" fill="var(--ink-faint)">same taxon as (objective synonym)</text>
+            <path d="M280,46 L 360,46" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3,3"></path>
+
+            <!-- arrows down to concept -->
+            <path d="M155,74 L 200,148" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arrow2-accent)"></path>
+            <text x="130" y="112" font-size="10" fill="var(--accent)">becomes the name</text>
+
+            <path d="M485,74 L 380,148" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow2)"></path>
+            <text x="440" y="112" font-size="10" fill="var(--ink-faint)">folds in</text>
+
+            <!-- concept box -->
+            <rect x="170" y="150" width="300" height="52" rx="2" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.4"></rect>
+            <text x="320" y="173" text-anchor="middle" font-size="12.5" font-weight="600">Concept: sulcatus</text>
+            <text x="320" y="190" text-anchor="middle" font-size="10" fill="var(--ink-faint)">scalper kept as a recorded synonym</text>
+          </svg>
+          <figcaption>Two independently published names merge into one concept. Seniority — not evidence, not recency — decides which name the merged concept is known by.</figcaption>
+        </figure>
+
+        <div class="takeaway"><strong>The point:</strong> a lineage groups spellings of <em>one</em> published name. A concept groups <em>multiple, separately published</em> names that turned out to be the same taxon. They're different groupings, decided by different rules.</div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 4</span><span class="kind">sameness · reversal</span></div>
+      <div class="case-body">
+        <h3>Un-merging <span class="latin">Myliobatus</span> and <span class="latin">Myliobatis</span></h3>
+        <div class="cite hypo">Continuing Case 2 — a specialist re-examines the type material and disagrees with the misspelling claim.</div>
+        <p>Say a later, more thorough study argues Case 2 had it backwards: <span class="latin">Myliobatus</span> isn't a misspelling at all, but a distinct, valid genus. In the old system, undoing a merge like this meant walking back through the ledger's history to find the last state before the bad claim took hold — a genuinely difficult piece of code, prone to breaking on edge cases.</p>
+        <p>Here, undoing is just <em>doing</em>: the new note is entered like any other, and the whole thing recomputes from scratch. The grouping step no longer sees a reason to merge the two lineages, so they simply come back apart — not because anything walked backward, but because the answer was never stored as a standalone fact to begin with. It's rebuilt fresh, every time, from every note that currently exists.</p>
+        <div class="takeaway"><strong>The point:</strong> because the ledger is never anything but a recomputation, there's no separate "undo" mechanism to write or to get wrong. Reversing a claim is just adding one more note.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WHAT CHANGED FROM CLASSIC ============ -->
+  <section class="block">
+    <span class="eyebrow">For readers who know the old system</span>
+    <h2>What's actually different from Classic</h2>
+    <p class="standfirst">The underlying philosophy — publish an opinion, let the database derive belief — carries over unchanged. What changed is how faithfully the machinery lives up to that philosophy.</p>
+
+    <div class="compare">
+      <div class="compare-head"><div class="old">Classic</div><div class="new">2.0</div></div>
+      <div class="compare-row">
+        <div class="old"><p>A name's identity conflated "this exact spelling" with "the original combination it traces back to" — two different questions, one column.</p></div>
+        <div class="new"><p>A card is always exactly one spelling, one rank, forever. Which spelling is "original" is worked out separately, on demand.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p>The classification tree was rebuilt by a background daemon polling for changes every couple of seconds, with a full rebuild "weekly, to be safe." New opinions could take until the next day to show up correctly.</p></div>
+        <div class="new"><p>The ledger recomputes as part of entering the note. There's nothing to wait for overnight.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p>Reading a taxon's current classification could <em>itself</em> trigger a write to the cache — a "read" that silently mutated the database.</p></div>
+        <div class="new"><p>Reads only ever look at the ledger as it currently stands. Nothing about looking something up changes what's stored.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p>Undoing a synonymy or a misspelling call meant walking back through cached history to find the last clean state — logic that had to handle its own edge cases (loops, partial updates) separately from everything else.</p></div>
+        <div class="new"><p>There is no walk-back logic. A reversal is a new note; the next recompute produces the reverted state as a side effect of being correct.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p>Evidence was graded on a four-step scale — stated with evidence, stated without, implied, second-hand — read off a hand-written SQL <span class="mono">CASE</span> expression repeated in several places.</p></div>
+        <div class="new"><p>Evidence is simply yes or no: was a supporting argument given. The three middle Classic grades collapse into "no" — a deliberate simplification, with publication year doing correspondingly more of the tie-breaking work.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p>A rootless "belongs to" opinion — no containing group given — was effectively dropped; there was nowhere clean for it to live.</p></div>
+        <div class="new"><p>A rootless placement note is kept as a real, ranked claim: "this reference asserted no containing group," which can still win or lose against a later, better opinion.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p><em>nomen dubium</em>, <em>nomen nudum</em>, and similar status calls all competed in the same reliability-ranked pool as ordinary placement and synonymy opinions — the system couldn't tell doubt about a name apart from an act that actually invalidates it.</p></div>
+        <div class="new"><p><em>Nomen dubium</em> and <em>nomen vanum</em> are recorded but never move anything — doubt, not invalidation. <em>Nomen nudum</em> is the one status that can actually disqualify a card from winning its lineage's accepted spelling.</p></div>
+      </div>
+    </div>
+
+    <div class="prose" style="margin-top:30px;">
+      <h3 style="font-size:1.05rem; margin-bottom: 10px;">A quick term-swap reference</h3>
+    </div>
+    <div class="glossary">
+      <div class="gterm"><span class="old">taxon_no</span><span class="new">a card (one exact spelling)</span></div>
+      <div class="gterm"><span class="old">orig_no</span><span class="new">worked out from correction notes, not stored</span></div>
+      <div class="gterm"><span class="old">synonym_no</span><span class="new">the concept's accepted name</span></div>
+      <div class="gterm"><span class="old">spelling_no</span><span class="new">the lineage's accepted spelling</span></div>
+      <div class="gterm"><span class="old">child taxon / parent taxon</span><span class="new">subject / containing group</span></div>
+      <div class="gterm"><span class="old">basis of opinion (4 levels)</span><span class="new">evidence given? (yes / no)</span></div>
+      <div class="gterm"><span class="old">taxa_tree_cache</span><span class="new">the ledger</span></div>
+      <div class="gterm"><span class="old">nightly rebuild</span><span class="new">recomputed on entry</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="status">
+      <span class="tag">Where this stands today</span>
+      This describes the target design for the taxonomic system — the database structure and the rules for deciding "current belief" are settled. The data-entry screens curators will eventually type into don't exist yet. Everything above is how the system will think, not a tour of a tool you can open right now.
+    </div>
+    <p class="colophon">Grounded in <span class="mono">docs/classic-taxa-opinions.md</span>, <span class="mono">postgresql/create_new.sql</span>, and the Classic PBDB User Guide (Uhen et al., PaleoBios 2023) — real citations (Cases 1 &amp; 3) drawn from that guide's own worked examples.</p>
+  </footer>
+
+</div>
