@@ -1,9 +1,18 @@
 -- Test-only patched copy of derive_taxa() (postgresql/create_new.sql lines
--- 5068-5447), byte-for-byte identical except for ANALYZE added right after
--- every CREATE TEMP TABLE ... AS ... statement -- isolating exactly one
--- variable (missing planner statistics on derive_taxa()'s own ~13 chained
--- temp tables) to test the hypothesis that this, not the union-find recursive
--- CTEs' data volume, is what makes a full derive(all) slow.
+-- 5068-5447), with two classes of change from the original, both isolated as
+-- test variables rather than a rewrite:
+--   1. ANALYZE (+ a few indexes) added right after every CREATE TEMP TABLE.
+--   2. Every genuine non-recursive CTE marked AS MATERIALIZED, so Postgres
+--      plans/executes each stage independently instead of inlining them into
+--      one combined plan. CONFIRMED root cause for _dt_linmeta specifically
+--      (6+ min -> 3.06s with this alone, isolated in
+--      test-materialized-linmeta.js) -- applied here to every other
+--      multi-CTE block with the same shape (_dt_con_winner, _dt_conmeta,
+--      _dt_assign) plus the smaller single-CTE ones for consistency
+--      (_dt_permid_edge, _dt_lin_winner, _dt_valid). The RECURSIVE CTEs
+--      themselves (reach, p, walk) are left unmarked -- they can't be inlined
+--      regardless of the hint, since they self-reference -- but their plain
+--      non-recursive helper CTEs (lin_undir, con_edge, con_undir) are marked.
 --
 -- Deployed as a separate function name (derive_taxa_analyzed) so the original
 -- derive_taxa() is untouched. Not meant to be kept -- drop after benchmarking.
@@ -57,7 +66,7 @@ BEGIN
 
     DROP TABLE IF EXISTS _dt_permid_edge;
     CREATE TEMP TABLE _dt_permid_edge AS
-    WITH ranked AS (
+    WITH ranked AS MATERIALIZED (
         SELECT permid, opinion_id, evidence, yr, never_accepted,
                row_number() OVER (PARTITION BY permid
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -70,7 +79,7 @@ BEGIN
 
     DROP TABLE IF EXISTS _dt_lin_winner;
     CREATE TEMP TABLE _dt_lin_winner AS
-    WITH ranked AS (
+    WITH ranked AS MATERIALIZED (
         SELECT permid, target_permid, negates,
                row_number() OVER (PARTITION BY permid
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -85,7 +94,7 @@ BEGIN
     DROP TABLE IF EXISTS _dt_lin;
     CREATE TEMP TABLE _dt_lin AS
     WITH RECURSIVE
-    lin_undir AS (
+    lin_undir AS MATERIALIZED (
         SELECT permid AS a, target_permid AS b FROM _dt_lin_winner WHERE negates = false
         UNION
         SELECT target_permid, permid FROM _dt_lin_winner WHERE negates = false
@@ -103,7 +112,7 @@ BEGIN
     -- ---- validity per permid ------------------------------------------------
     DROP TABLE IF EXISTS _dt_valid;
     CREATE TEMP TABLE _dt_valid AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT v.subject_permid AS permid, v.nomenclatural_status_id, v.id AS opinion_id,
                v.evidence,
                COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
@@ -125,17 +134,22 @@ BEGIN
 
     -- ---- per-lineage: eligibility, topological original_permid, accepted ---
     -- spelling ----------------------------------------------------------------
+    -- CONFIRMED: this statement alone took 6+ min with plain CTEs and 3.06s
+    -- with all five marked MATERIALIZED (test-materialized-linmeta.js), with
+    -- ZERO changes to the query logic. Root cause was CTE inlining, not the
+    -- LATERAL degenerate-group branch (which fires on 0 of 400,113 groups in
+    -- the real data -- diagnose-sink-degeneracy.js) and not missing stats.
     DROP TABLE IF EXISTS _dt_linmeta;
     CREATE TEMP TABLE _dt_linmeta AS
     WITH
-    eligible AS (
+    eligible AS MATERIALIZED (
         SELECT pe.permid, pe.evidence, pe.yr, pe.opinion_id
         FROM _dt_permid_edge pe
         LEFT JOIN _dt_valid dv ON dv.permid = pe.permid
         WHERE pe.never_accepted = false
           AND COALESCE(dv.bars_candidacy, false) = false
     ),
-    sinks AS (
+    sinks AS MATERIALIZED (
         SELECT l.lin_rep, l.permid
         FROM _dt_lin l
         WHERE NOT EXISTS (
@@ -143,10 +157,10 @@ BEGIN
             WHERE w.negates = false AND w.permid = l.permid
         )
     ),
-    sink_counts AS (
+    sink_counts AS MATERIALIZED (
         SELECT lin_rep, count(*) AS n FROM sinks GROUP BY lin_rep
     ),
-    roots AS (
+    roots AS MATERIALIZED (
         SELECT sc.lin_rep, s.permid AS original_permid
         FROM sink_counts sc JOIN sinks s ON s.lin_rep = sc.lin_rep
         WHERE sc.n = 1
@@ -165,7 +179,7 @@ BEGIN
         WHERE sc.n != 1
         GROUP BY sc.lin_rep
     ),
-    spelling AS (
+    spelling AS MATERIALIZED (
         SELECT l.lin_rep, e.permid, di.rank_id,
                row_number() OVER (PARTITION BY l.lin_rep
                    ORDER BY e.evidence DESC, e.yr DESC NULLS LAST, e.opinion_id DESC) AS rn,
@@ -188,7 +202,7 @@ BEGIN
 
     DROP TABLE IF EXISTS _dt_con_winner;
     CREATE TEMP TABLE _dt_con_winner AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT ls.lin_rep AS jr, lt.lin_rep AS sr, n.evidence,
                COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
                n.id AS opinion_id, n.negates
@@ -198,7 +212,7 @@ BEGIN
         LEFT JOIN refs r ON r.id = n.reference_id
         WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class = 'concept'
     ),
-    ranked AS (
+    ranked AS MATERIALIZED (
         SELECT jr, sr, negates,
                row_number() OVER (PARTITION BY jr
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -212,10 +226,10 @@ BEGIN
     DROP TABLE IF EXISTS _dt_con;
     CREATE TEMP TABLE _dt_con AS
     WITH RECURSIVE
-    con_edge AS (
+    con_edge AS MATERIALIZED (
         SELECT jr, sr FROM _dt_con_winner WHERE negates = false
     ),
-    con_undir AS (
+    con_undir AS MATERIALIZED (
         SELECT jr AS a, sr AS b FROM con_edge UNION SELECT sr, jr FROM con_edge
     ),
     reach(src, node) AS (
@@ -231,10 +245,10 @@ BEGIN
     -- senior lineage per concept + concept_permid/rank
     DROP TABLE IF EXISTS _dt_conmeta;
     CREATE TEMP TABLE _dt_conmeta AS
-    WITH con_sources AS (
+    WITH con_sources AS MATERIALIZED (
         SELECT DISTINCT jr FROM _dt_con_winner WHERE negates = false
     ),
-    ranked AS (
+    ranked AS MATERIALIZED (
         SELECT c.con_rep, c.lin_rep,
                row_number() OVER (PARTITION BY c.con_rep ORDER BY
                    (cs.jr IS NULL) DESC,
@@ -259,7 +273,7 @@ BEGIN
     -- ---- classification: winning assignment pooled across the concept ------
     DROP TABLE IF EXISTS _dt_assign;
     CREATE TEMP TABLE _dt_assign AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
                a.evidence,
                COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr
@@ -274,7 +288,7 @@ BEGIN
                 OR (cm.concept_rank_name <> 'species'
                     AND lm.accepted_rank_id = cm.concept_rank_id) )
     ),
-    win AS (
+    win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid,
                row_number() OVER (PARTITION BY con_rep
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -304,6 +318,11 @@ BEGIN
     ANALYZE _dt_node;
 
     -- ---- containment cycle guard (raises) ---------------------------------
+    -- NOTE: this walk is itself a suspected further pathology (explores from
+    -- every starting node up to depth 10000 before checking for a match) --
+    -- left untouched here since fixing/replacing it is a separate question
+    -- from the CTE-inlining fix above; a real cycle exists in the current
+    -- pg_play data (see find-containment-cycle.js) so this WILL still raise.
     IF EXISTS (
         WITH RECURSIVE walk AS (
             SELECT con_rep, containing_concept_permid, 1 AS depth
