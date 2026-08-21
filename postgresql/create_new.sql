@@ -5090,6 +5090,8 @@ BEGIN
     FROM name_opinions n
     WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
       AND n.edge_class = 'root';
+    CREATE INDEX ON _dt_identity(permid);
+    ANALYZE _dt_identity;
 
     -- root minting is a one-time act (§9.8.1), not a ranking contest: more than
     -- one live root row for a permid is an integrity violation to raise on, not
@@ -5111,6 +5113,8 @@ BEGIN
     LEFT JOIN refs r ON r.id = n.reference_id
     WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
       AND n.edge_class IN ('root','lineage');
+    CREATE INDEX ON _dt_edge_cand(permid);
+    ANALYZE _dt_edge_cand;
 
     -- each permid's own canonical introducing edge (root or lineage, whichever
     -- ranks highest) -- feeds eligibility (below), never union-find membership.
@@ -5123,9 +5127,20 @@ BEGIN
     -- stand on its own. Every permid's own root row is always a non-negating
     -- candidate, so excluding negating rows here can never itself exhaust a
     -- permid's eligibility.
+    --
+    -- ranked is marked MATERIALIZED (as are the other non-recursive CTEs
+    -- throughout this function) so Postgres plans/executes each stage
+    -- independently instead of inlining it into the surrounding query --
+    -- CONFIRMED root cause of derive_taxa() taking 30+ minutes on a full,
+    -- real-scale derive-all: with plain (inlined) CTEs, the equivalent of
+    -- _dt_linmeta below alone took 6+ minutes; with MATERIALIZED, 3.06s, with
+    -- zero logic changes (migration_exploration/testing/test-materialized-
+    -- linmeta.js). Missing statistics and union-find data volume were ruled
+    -- out first (migration_exploration/testing/diagnose-sink-degeneracy.js,
+    -- diagnose-linmeta-pieces.js).
     DROP TABLE IF EXISTS _dt_permid_edge;
     CREATE TEMP TABLE _dt_permid_edge AS
-    WITH ranked AS (
+    WITH ranked AS MATERIALIZED (
         SELECT permid, opinion_id, evidence, yr, never_accepted,
                row_number() OVER (PARTITION BY permid
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -5133,6 +5148,8 @@ BEGIN
         WHERE negates = false
     )
     SELECT permid, opinion_id, evidence, yr, never_accepted FROM ranked WHERE rn = 1;
+    CREATE INDEX ON _dt_permid_edge(permid);
+    ANALYZE _dt_permid_edge;
 
     -- each subject's own top-ranked LINEAGE-class opinion only (root rows have
     -- no target and can never contribute a union-find edge, so _dt_permid_edge
@@ -5142,7 +5159,7 @@ BEGIN
     -- lin_undir only ever draws edges from non-negating winners.
     DROP TABLE IF EXISTS _dt_lin_winner;
     CREATE TEMP TABLE _dt_lin_winner AS
-    WITH ranked AS (
+    WITH ranked AS MATERIALIZED (
         SELECT permid, target_permid, negates,
                row_number() OVER (PARTITION BY permid
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -5150,13 +5167,17 @@ BEGIN
         WHERE edge_class = 'lineage'
     )
     SELECT permid, target_permid, negates FROM ranked WHERE rn = 1;
+    CREATE INDEX ON _dt_lin_winner(permid);
+    ANALYZE _dt_lin_winner;
 
     -- ---- lineage union-find (connected components over each subject's own -
     -- winning, non-negating lineage edge only -- not every current one) ------
+    -- (lin_undir is marked MATERIALIZED; reach is the recursive term itself
+    -- and can't be inlined regardless, so it's left as-is.)
     DROP TABLE IF EXISTS _dt_lin;
     CREATE TEMP TABLE _dt_lin AS
     WITH RECURSIVE
-    lin_undir AS (
+    lin_undir AS MATERIALIZED (
         SELECT permid AS a, target_permid AS b FROM _dt_lin_winner WHERE negates = false
         UNION
         SELECT target_permid, permid FROM _dt_lin_winner WHERE negates = false
@@ -5167,11 +5188,14 @@ BEGIN
         SELECT r.src, u.b FROM reach r JOIN lin_undir u ON u.a = r.node
     )
     SELECT src AS permid, min(node::text)::uuid AS lin_rep FROM reach GROUP BY src;
+    CREATE INDEX ON _dt_lin(permid);
+    CREATE INDEX ON _dt_lin(lin_rep);
+    ANALYZE _dt_lin;
 
     -- ---- validity per permid (moved up: eligibility below depends on it) ---
     DROP TABLE IF EXISTS _dt_valid;
     CREATE TEMP TABLE _dt_valid AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT v.subject_permid AS permid, v.nomenclatural_status_id, v.id AS opinion_id,
                v.evidence,
                COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
@@ -5188,9 +5212,21 @@ BEGIN
     SELECT permid, nomenclatural_status_id, opinion_id AS winning_validity_opinion_id,
            bars_candidacy
     FROM cand WHERE rn = 1;
+    CREATE INDEX ON _dt_valid(permid);
+    ANALYZE _dt_valid;
 
     -- ---- per-lineage: eligibility, topological original_permid, accepted --
     -- spelling ----------------------------------------------------------------
+    -- CONFIRMED: this statement alone took 6+ minutes with plain (inlined)
+    -- CTEs and 3.06s with all five marked MATERIALIZED, with zero query-logic
+    -- changes (migration_exploration/testing/test-materialized-linmeta.js).
+    -- The LATERAL degenerate-group branch below fires on 0 of 400,113 lineage
+    -- groups against the real full-migration dataset (diagnose-sink-
+    -- degeneracy.js) -- it is not the cause, and neither is missing
+    -- statistics or union-find size; every sub-piece measured independently
+    -- fast (diagnose-linmeta-pieces.js). The root cause was Postgres inlining
+    -- these CTEs into one combined plan and choosing a catastrophic join
+    -- strategy somewhere in that combined shape.
     DROP TABLE IF EXISTS _dt_linmeta;
     CREATE TEMP TABLE _dt_linmeta AS
     WITH
@@ -5200,7 +5236,7 @@ BEGIN
     -- nudum). Negation is not a third exclusion here -- _dt_permid_edge
     -- already excludes negating rows from ever being the canonical
     -- introducing edge in the first place (see its own definition above).
-    eligible AS (
+    eligible AS MATERIALIZED (
         SELECT pe.permid, pe.evidence, pe.yr, pe.opinion_id
         FROM _dt_permid_edge pe
         LEFT JOIN _dt_valid dv ON dv.permid = pe.permid
@@ -5212,7 +5248,7 @@ BEGIN
     -- name_opinions existence: a winning negation still has a raw row naming
     -- the permid as subject but contributes no edge, so raw existence would
     -- wrongly deny it sink status
-    sinks AS (
+    sinks AS MATERIALIZED (
         SELECT l.lin_rep, l.permid
         FROM _dt_lin l
         WHERE NOT EXISTS (
@@ -5220,10 +5256,10 @@ BEGIN
             WHERE w.negates = false AND w.permid = l.permid
         )
     ),
-    sink_counts AS (
+    sink_counts AS MATERIALIZED (
         SELECT lin_rep, count(*) AS n FROM sinks GROUP BY lin_rep
     ),
-    roots AS (
+    roots AS MATERIALIZED (
         -- unique sink: that's original_permid, no ranking needed
         SELECT sc.lin_rep, s.permid AS original_permid
         FROM sink_counts sc JOIN sinks s ON s.lin_rep = sc.lin_rep
@@ -5248,7 +5284,7 @@ BEGIN
         WHERE sc.n != 1
         GROUP BY sc.lin_rep
     ),
-    spelling AS (
+    spelling AS MATERIALIZED (
         SELECT l.lin_rep, e.permid, di.rank_id,
                row_number() OVER (PARTITION BY l.lin_rep
                    ORDER BY e.evidence DESC, e.yr DESC NULLS LAST, e.opinion_id DESC) AS rn,
@@ -5266,6 +5302,8 @@ BEGIN
              WHERE pe2.permid = r.original_permid) AS original_yr
     FROM spelling s JOIN roots r ON r.lin_rep = s.lin_rep
     WHERE s.rn = 1;
+    CREATE INDEX ON _dt_linmeta(lin_rep);
+    ANALYZE _dt_linmeta;
 
     -- each lineage's own top-ranked CONCEPT-class opinion, pooled across all
     -- of that lineage's member permids (concept membership is a property of
@@ -5274,7 +5312,7 @@ BEGIN
     -- is provenance only and is never read by the union-find below.
     DROP TABLE IF EXISTS _dt_con_winner;
     CREATE TEMP TABLE _dt_con_winner AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT ls.lin_rep AS jr, lt.lin_rep AS sr, n.evidence,
                COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
                n.id AS opinion_id, n.negates
@@ -5284,23 +5322,27 @@ BEGIN
         LEFT JOIN refs r ON r.id = n.reference_id
         WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class = 'concept'
     ),
-    ranked AS (
+    ranked AS MATERIALIZED (
         SELECT jr, sr, negates,
                row_number() OVER (PARTITION BY jr
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
         FROM cand
     )
     SELECT jr, sr, negates FROM ranked WHERE rn = 1;
+    CREATE INDEX ON _dt_con_winner(jr);
+    ANALYZE _dt_con_winner;
 
     -- ---- concept union-find (components over each lineage's own winning, --
     -- non-negating concept edge only -- not every current one) --------------
+    -- (con_edge and con_undir are marked MATERIALIZED; reach is the recursive
+    -- term itself and can't be inlined regardless, so it's left as-is.)
     DROP TABLE IF EXISTS _dt_con;
     CREATE TEMP TABLE _dt_con AS
     WITH RECURSIVE
-    con_edge AS (
+    con_edge AS MATERIALIZED (
         SELECT jr, sr FROM _dt_con_winner WHERE negates = false
     ),
-    con_undir AS (
+    con_undir AS MATERIALIZED (
         SELECT jr AS a, sr AS b FROM con_edge UNION SELECT sr, jr FROM con_edge
     ),
     reach(src, node) AS (
@@ -5309,11 +5351,14 @@ BEGIN
         SELECT r.src, u.b FROM reach r JOIN con_undir u ON u.a = r.node
     )
     SELECT src AS lin_rep, min(node::text)::uuid AS con_rep FROM reach GROUP BY src;
+    CREATE INDEX ON _dt_con(lin_rep);
+    CREATE INDEX ON _dt_con(con_rep);
+    ANALYZE _dt_con;
 
     -- senior lineage per concept + concept_permid/rank
     DROP TABLE IF EXISTS _dt_conmeta;
     CREATE TEMP TABLE _dt_conmeta AS
-    WITH con_sources AS (
+    WITH con_sources AS MATERIALIZED (
         -- a lineage counts as "a source" (ever proposed junior) only if its
         -- current winning concept-class opinion is active -- not merely
         -- whether some concept-class opinion, win or lose or negated, exists
@@ -5321,7 +5366,7 @@ BEGIN
         -- isn't visible here; _dt_con_winner is the same set, persisted)
         SELECT DISTINCT jr FROM _dt_con_winner WHERE negates = false
     ),
-    ranked AS (
+    ranked AS MATERIALIZED (
         SELECT c.con_rep, c.lin_rep,
                row_number() OVER (PARTITION BY c.con_rep ORDER BY
                    (cs.jr IS NULL) DESC,                 -- non-source (never junior) first
@@ -5340,11 +5385,26 @@ BEGIN
     JOIN _dt_linmeta lm ON lm.lin_rep = r.lin_rep
     JOIN dictionaries.taxonomy_ranks tr ON tr.id = lm.accepted_rank_id
     WHERE r.rn = 1;
+    CREATE INDEX ON _dt_conmeta(con_rep);
+    ANALYZE _dt_conmeta;
 
     -- ---- classification: winning assignment pooled across the concept ------
+    -- KNOWN GAP (found live 2026-08-21, migration_exploration/testing/
+    -- diagnose-containment-self-loops.js): this pooling has no check
+    -- excluding a candidate whose containing_permid resolves back to the
+    -- subject's own concept. 73 concepts in the real full-migration dataset
+    -- end up with containing_concept_permid = concept_permid as a result --
+    -- 71 of 73 are two now-synonymized lineages where one carries a legacy
+    -- assignment opinion citing the other as container from before the
+    -- synonymy was recognized; 2 are literal same-lineage self-references.
+    -- A handful sit at high ranks (subclass/order/family) and each traps its
+    -- entire subtree from ever reaching a root, tripping the containment
+    -- cycle guard below on real data. Not fixed here -- this is a semantics
+    -- decision (what should win when every rank-matching candidate in a
+    -- concept is self-referential?), not a performance question.
     DROP TABLE IF EXISTS _dt_assign;
     CREATE TEMP TABLE _dt_assign AS
-    WITH cand AS (
+    WITH cand AS MATERIALIZED (
         SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
                a.evidence,
                COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr
@@ -5359,7 +5419,7 @@ BEGIN
                 OR (cm.concept_rank_name <> 'species'
                     AND lm.accepted_rank_id = cm.concept_rank_id) )
     ),
-    win AS (
+    win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid,
                row_number() OVER (PARTITION BY con_rep
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
@@ -5371,6 +5431,8 @@ BEGIN
     LEFT JOIN _dt_lin cl ON cl.permid = w.containing_permid
     LEFT JOIN _dt_con cc ON cc.lin_rep = cl.lin_rep
     WHERE w.rn = 1;
+    CREATE INDEX ON _dt_assign(con_rep);
+    ANALYZE _dt_assign;
 
     -- ---- per-concept node (concept_permid, containing_concept_permid) ------
     DROP TABLE IF EXISTS _dt_node;
@@ -5381,8 +5443,20 @@ BEGIN
     FROM _dt_conmeta cm
     LEFT JOIN _dt_assign a ON a.con_rep = cm.con_rep
     LEFT JOIN _dt_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
+    CREATE INDEX ON _dt_node(con_rep);
+    CREATE INDEX ON _dt_node(concept_permid);
+    CREATE INDEX ON _dt_node(containing_concept_permid);
+    ANALYZE _dt_node;
 
     -- ---- containment cycle guard (raises) ---------------------------------
+    -- NOTE: this walk explores from every starting node up to depth 10000
+    -- before checking for a match -- a suspected further pathology in its own
+    -- right if many nodes feed into a real cycle (see find-containment-
+    -- cycle.js's iterative-peeling alternative), but left as originally
+    -- written here since replacing it is a separate question from the
+    -- MATERIALIZED fix above. A real cycle currently exists on live
+    -- full-migration data (see the _dt_assign note above), so this WILL
+    -- raise until that's addressed.
     IF EXISTS (
         WITH RECURSIVE walk AS (
             SELECT con_rep, containing_concept_permid, 1 AS depth
@@ -5416,6 +5490,8 @@ BEGIN
         JOIN p pp ON pp.con_rep = parent.con_rep
     )
     SELECT con_rep, classification_path FROM p;
+    CREATE INDEX ON _dt_path(con_rep);
+    ANALYZE _dt_path;
 
     -- ---- assemble one row per minted permid -------------------------------
     RETURN QUERY
