@@ -225,9 +225,12 @@ async function main() {
         JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
         JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
         LEFT JOIN refs r ON r.id = a.reference_id
+        LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
+        LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
         WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
           AND ( sl.lin_rep = cm.senior_lin
                 OR (cm.concept_rank_name <> 'species' AND lm.accepted_rank_id = cm.concept_rank_id) )
+          AND ccc.con_rep IS DISTINCT FROM cm.con_rep
       ),
       win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid, subject_permid,

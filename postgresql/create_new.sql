@@ -5310,6 +5310,20 @@ BEGIN
     -- the whole lineage, not of whichever spelling happened to carry the
     -- opinion). As with _dt_lin_winner above, a negating winner's target (sr)
     -- is provenance only and is never read by the union-find below.
+    --
+    -- A candidate edge is excluded entirely -- on either side -- if either
+    -- lineage's accepted rank is unranked(25)/unranked clade(24) (fixed
+    -- 2026-08-21, migration_exploration/testing/enumerate-containment-cycles.js;
+    -- see openspec/changes/fix-eukarya-eumetazoa-containment-cycle/). These
+    -- are cladistic ranks, not part of the Linnaean containment system;
+    -- letting one merge into a concept alongside a Linnaean-ranked ancestor
+    -- or descendant was the actual mechanism behind 16 of 18 real
+    -- containment cycles found in the full-migration dataset (e.g. Eukarya /
+    -- Eumetazoa). Checked via _dt_linmeta.accepted_rank_id -- the LINEAGE's
+    -- accepted rank -- not the raw opinion's own subject/target permid: a
+    -- permid-level check left a loophole (18->4 instead of 18->2) where a
+    -- concept's senior spelling is unranked but the specific lineage-mate an
+    -- opinion cites as subject/target isn't.
     DROP TABLE IF EXISTS _dt_con_winner;
     CREATE TEMP TABLE _dt_con_winner AS
     WITH cand AS MATERIALIZED (
@@ -5319,8 +5333,11 @@ BEGIN
         FROM name_opinions n
         JOIN _dt_lin ls ON ls.permid = n.subject_permid
         JOIN _dt_lin lt ON lt.permid = n.target_permid
+        JOIN _dt_linmeta lm_s ON lm_s.lin_rep = ls.lin_rep
+        JOIN _dt_linmeta lm_t ON lm_t.lin_rep = lt.lin_rep
         LEFT JOIN refs r ON r.id = n.reference_id
         WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class = 'concept'
+          AND lm_s.accepted_rank_id NOT IN (24, 25) AND lm_t.accepted_rank_id NOT IN (24, 25)
     ),
     ranked AS MATERIALIZED (
         SELECT jr, sr, negates,
@@ -5389,19 +5406,32 @@ BEGIN
     ANALYZE _dt_conmeta;
 
     -- ---- classification: winning assignment pooled across the concept ------
-    -- KNOWN GAP (found live 2026-08-21, migration_exploration/testing/
-    -- diagnose-containment-self-loops.js): this pooling has no check
-    -- excluding a candidate whose containing_permid resolves back to the
-    -- subject's own concept. 73 concepts in the real full-migration dataset
-    -- end up with containing_concept_permid = concept_permid as a result --
-    -- 71 of 73 are two now-synonymized lineages where one carries a legacy
-    -- assignment opinion citing the other as container from before the
-    -- synonymy was recognized; 2 are literal same-lineage self-references.
-    -- A handful sit at high ranks (subclass/order/family) and each traps its
-    -- entire subtree from ever reaching a root, tripping the containment
-    -- cycle guard below on real data. Not fixed here -- this is a semantics
-    -- decision (what should win when every rank-matching candidate in a
-    -- concept is self-referential?), not a performance question.
+    -- Self-referential candidates (containing_permid resolves back to the
+    -- subject's own concept) are excluded here, before ranking -- not just
+    -- detected after (fixed 2026-08-21, migration_exploration/testing/
+    -- diagnose-containment-self-loops.js; see
+    -- openspec/changes/fix-dt-assign-containment-cycle/). Previously, 73
+    -- concepts in the real full-migration dataset ended up with
+    -- containing_concept_permid = concept_permid: 71/73 were two
+    -- now-synonymized lineages where one carried a legacy assignment opinion
+    -- citing the other as container from before the synonymy was recognized;
+    -- 2/73 were literal same-lineage self-references (a rank-change lineage
+    -- edge unifying a taxon with its own alternate-rank spelling, then a
+    -- containment opinion naming that spelling as container). A concept whose
+    -- only candidate(s) are self-referential ends up with zero _dt_assign
+    -- rows, which the LEFT JOIN below already turns into
+    -- containing_concept_permid = NULL (rootless) -- the same outcome already
+    -- used elsewhere for "no container asserted".
+    --
+    -- Candidates are also excluded when either the subject's or the
+    -- containing permid's lineage is accepted at rank unranked(25)/unranked
+    -- clade(24) (fixed 2026-08-21; see
+    -- openspec/changes/fix-eukarya-eumetazoa-containment-cycle/). These
+    -- cladistic ranks SHALL NOT be assigned a containing_concept_permid of
+    -- their own, and SHALL NOT be eligible to serve as another concept's
+    -- container -- the same reasoning as _dt_con_winner's exclusion above,
+    -- applied here for the cycles where an unranked concept was on the
+    -- containment side rather than (or in addition to) the synonymy side.
     DROP TABLE IF EXISTS _dt_assign;
     CREATE TEMP TABLE _dt_assign AS
     WITH cand AS MATERIALIZED (
@@ -5414,10 +5444,16 @@ BEGIN
         JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
         JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
         LEFT JOIN refs r ON r.id = a.reference_id
+        LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
+        LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
+        LEFT JOIN _dt_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
         WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
           AND ( sl.lin_rep = cm.senior_lin
                 OR (cm.concept_rank_name <> 'species'
                     AND lm.accepted_rank_id = cm.concept_rank_id) )
+          AND ccc.con_rep IS DISTINCT FROM cm.con_rep
+          AND lm.accepted_rank_id NOT IN (24, 25)
+          AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
     ),
     win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid,
