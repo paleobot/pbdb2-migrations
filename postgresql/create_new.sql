@@ -5432,6 +5432,17 @@ BEGIN
     -- container -- the same reasoning as _dt_con_winner's exclusion above,
     -- applied here for the cycles where an unranked concept was on the
     -- containment side rather than (or in addition to) the synonymy side.
+    --
+    -- Candidates are also excluded on rank cardinality: a container SHALL
+    -- NOT be more finely ranked than what it contains. Equal rank is
+    -- permitted (e.g. one genus containing another is a legitimate, common
+    -- pattern independent of the equal-rank-borrowing branch below) -- only
+    -- a genuine inversion (containing lineage strictly finer than the
+    -- subject lineage) is excluded. This is what fixed the last 2 real
+    -- containment cycles found in the full-migration dataset
+    -- (Hyriidae/Hyriinae, Elasmotheriini/Elasmotheriina), neither of which
+    -- involved unranked ranks at all -- see
+    -- openspec/changes/fix-eukarya-eumetazoa-containment-cycle/.
     DROP TABLE IF EXISTS _dt_assign;
     CREATE TEMP TABLE _dt_assign AS
     WITH cand AS MATERIALIZED (
@@ -5454,6 +5465,7 @@ BEGIN
           AND ccc.con_rep IS DISTINCT FROM cm.con_rep
           AND lm.accepted_rank_id NOT IN (24, 25)
           AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
+          AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id >= lm.accepted_rank_id)
     ),
     win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid,

@@ -33,7 +33,7 @@ For each lineage, `derive_taxa()` SHALL select the single top-ranked current `co
 
 ### Requirement: Classification is pooled across the whole concept (junior-synonym borrowing)
 
-`derive_taxa()` SHALL choose each concept's `containing_concept_permid` from the top `assignment_opinions` pooled across **all permids in the concept**, by the canonical `ORDER BY`. Borrowing SHALL apply only at **equal rank**, and SHALL be **excluded for species** (a species is placed by its own direct allocation). A candidate SHALL be excluded from this pool entirely — never entering the ranking contest — if its `containing_permid` resolves to the same concept as the subject (i.e. the concept would be its own container). A candidate SHALL also be excluded if either the subject's lineage or the containing permid's lineage is accepted at rank `unranked` or `unranked clade` — the same cladistic-vs-Linnaean reasoning as the concept-grouping exclusion applies here: an unranked-clade lineage SHALL NOT be assigned a `containing_concept_permid` of its own, and SHALL NOT be eligible to serve as another concept's container. If excluding self-referential or unranked candidates leaves no candidate for a concept, that concept's `containing_concept_permid` SHALL be `NULL` (rootless), the same outcome already used elsewhere for "no container asserted," rather than an error or a synthesized guess.
+`derive_taxa()` SHALL choose each concept's `containing_concept_permid` from the top `assignment_opinions` pooled across **all permids in the concept**, by the canonical `ORDER BY`. Borrowing SHALL apply only at **equal rank**, and SHALL be **excluded for species** (a species is placed by its own direct allocation). A candidate SHALL be excluded from this pool entirely — never entering the ranking contest — if its `containing_permid` resolves to the same concept as the subject (i.e. the concept would be its own container). A candidate SHALL also be excluded if either the subject's lineage or the containing permid's lineage is accepted at rank `unranked` or `unranked clade` — the same cladistic-vs-Linnaean reasoning as the concept-grouping exclusion applies here: an unranked-clade lineage SHALL NOT be assigned a `containing_concept_permid` of its own, and SHALL NOT be eligible to serve as another concept's container. A candidate SHALL also be excluded if the containing lineage's accepted rank is **finer** than the subject lineage's accepted rank (a rank inversion — a container SHALL NOT be more finely ranked than what it contains); equal rank between subject and container SHALL NOT be excluded by this check, since equal-rank containment (e.g. one genus placed within another) is a legitimate, common pattern independent of the dedicated equal-rank-borrowing mechanism above. If excluding self-referential, unranked, or rank-inverted candidates leaves no candidate for a concept, that concept's `containing_concept_permid` SHALL be `NULL` (rootless), the same outcome already used elsewhere for "no container asserted," rather than an error or a synthesized guess.
 
 #### Scenario: A placement filed under the junior name sets the concept's parent
 
@@ -65,11 +65,26 @@ For each lineage, `derive_taxa()` SHALL select the single top-ranked current `co
 - **WHEN** a concept's pooled candidates include one whose `containing_permid` resolves to a lineage accepted at rank `unranked` or `unranked clade`
 - **THEN** `derive_taxa()` excludes that candidate from the pool, falling through to the next-ranked non-excluded candidate or to `NULL` if none remains
 
+#### Scenario: A rank-inverted candidate is excluded, and a coarser or equal-rank candidate wins instead
+
+- **WHEN** a concept's pooled candidates include one whose containing lineage's accepted rank is finer than the subject lineage's accepted rank (e.g. a family's senior lineage cited as contained by a subfamily), and at least one other candidate whose containing lineage is coarser-or-equal-ranked
+- **THEN** `derive_taxa()` excludes the rank-inverted candidate from the ranking contest entirely, and sets `containing_concept_permid` from the top-ranked remaining candidate
+
+#### Scenario: Equal-rank containment is not excluded by the rank-cardinality check
+
+- **WHEN** a concept's pooled candidate names a containing lineage accepted at the same rank as the subject lineage (e.g. one genus placed within another)
+- **THEN** `derive_taxa()` does not exclude that candidate on rank-cardinality grounds; it competes normally in the ranking contest
+
+#### Scenario: A concept whose only candidates are rank-inverted ends up rootless
+
+- **WHEN** every candidate pooled for a concept has a containing lineage finer-ranked than the subject lineage
+- **THEN** `derive_taxa()` sets that concept's `containing_concept_permid` to `NULL` rather than raising an error or selecting one of the excluded candidates anyway
+
 ## MODIFIED Requirements
 
 ### Requirement: derive_taxa() terminates on cycles and surfaces containment cycles
 
-`derive_taxa()` SHALL terminate on synonymy cycles (treating the cycle as one concept). A direct self-reference — a single concept whose only pooled containment candidate(s) resolve back to itself — SHALL be resolved to `containing_concept_permid = NULL` by the pooling exclusion above, and SHALL NOT reach the cycle guard at all. A cycle whose formation depended on an `unranked`/`unranked clade` lineage participating in concept-class merging or containment pooling SHALL likewise never form in the first place, per the exclusions above, and SHALL NOT reach the cycle guard. A genuine classification (containment) cycle spanning two or more distinct, ordinarily-ranked concepts — one that does not depend on any unranked-clade participation — SHALL still be surfaced as an error rather than looping or emitting a partial path.
+`derive_taxa()` SHALL terminate on synonymy cycles (treating the cycle as one concept). A direct self-reference — a single concept whose only pooled containment candidate(s) resolve back to itself — SHALL be resolved to `containing_concept_permid = NULL` by the pooling exclusion above, and SHALL NOT reach the cycle guard at all. A cycle whose formation depended on an `unranked`/`unranked clade` lineage participating in concept-class merging or containment pooling, or on a rank-inverted containment candidate, SHALL likewise never form in the first place, per the exclusions above, and SHALL NOT reach the cycle guard. A genuine classification (containment) cycle spanning two or more distinct concepts of compatible rank — one that does not depend on unranked-clade participation or a rank inversion — SHALL still be surfaced as an error rather than looping or emitting a partial path.
 
 #### Scenario: A synonymy cycle does not loop
 
@@ -78,7 +93,7 @@ For each lineage, `derive_taxa()` SHALL select the single top-ranked current `co
 
 #### Scenario: A containment cycle raises
 
-- **WHEN** assignment opinions imply that concept A contains concept B, and (directly or transitively through other distinct concepts) B contains A, and no concept in the cycle is accepted at rank `unranked` or `unranked clade`
+- **WHEN** assignment opinions imply that concept A contains concept B, and (directly or transitively through other distinct concepts) B contains A, no concept in the cycle is accepted at rank `unranked` or `unranked clade`, and no edge in the cycle is a rank inversion
 - **THEN** `derive_taxa()` raises an error identifying the cycle rather than returning
 
 #### Scenario: A direct self-containment candidate resolves to rootless, not a raised cycle
@@ -90,3 +105,8 @@ For each lineage, `derive_taxa()` SHALL select the single top-ranked current `co
 
 - **WHEN** a chain of concept-class and/or containment edges would form a cycle only because one of its links merges or places an `unranked`/`unranked clade` lineage
 - **THEN** the concept-grouping and classification-pooling exclusions above prevent that link from ever forming, so the cycle never exists and the guard is never triggered by it
+
+#### Scenario: A cycle that only forms via a rank-inverted containment edge never reaches the guard
+
+- **WHEN** a chain of containment edges would form a cycle only because one of its links places a coarser-ranked lineage inside a finer-ranked one
+- **THEN** the classification-pooling exclusion above prevents that link from ever forming, so the cycle never exists and the guard is never triggered by it

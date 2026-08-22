@@ -1,12 +1,19 @@
-// Investigation for openspec/changes/fix-eukarya-eumetazoa-containment-cycle:
-// the containment graph (concept -> containing_concept_permid) is a functional
-// graph (each concept has at most one parent), so iterative peeling finds all
-// nodes downstream of ANY cycle, but not how many DISTINCT cycles exist or
-// their individual membership. This loops: peel to a fixed point, walk one
-// cycle out of whatever survives, record and remove exactly that cycle's
-// members, then re-peel (which drops everything that was only downstream of
-// the now-removed cycle) and repeats until no survivors remain. Each outer
-// iteration finds exactly one more distinct cycle.
+// Speculative solution prompted directly by the user's question: why isn't
+// rank cardinality (a container must be coarser-ranked than what it
+// contains) already a hard rule? Answer: _dt_assign's senior-lineage branch
+// (`sl.lin_rep = cm.senior_lin`) has NO rank check at all today -- only the
+// separate equal-rank-borrowing branch checks rank, and only for equality.
+//
+// This tests a new rule, narrower than the earlier "spelling-rank
+// consistency" attempt (which compared an opinion's literal cited rank
+// against ITS OWN lineage's rank history -- common, mostly benign, and the
+// reason that attempt had a 10.6% blast radius): require the CONTAINING
+// lineage's accepted rank to be STRICTLY COARSER than the SUBJECT lineage's
+// accepted rank (ccm.accepted_rank_id >= lm.accepted_rank_id). This compares
+// two DIFFERENT lineages' current identities against each other -- a rare
+// violation in well-formed data -- rather than one lineage's own rank
+// history against itself. Uses only already-joined _dt_linmeta values, no
+// new joins.
 import { pgPlay, closePgPlay } from '../../pg-play-pool.js';
 
 function ms(ns) { return Number(ns) / 1e6; }
@@ -14,7 +21,7 @@ function ms(ns) { return Number(ns) / 1e6; }
 async function main() {
   const client = await pgPlay.connect();
   try {
-    console.log(`[${new Date().toISOString()}] Rebuilding pipeline through _dt_node (with the _dt_assign fix)...`);
+    console.log(`[${new Date().toISOString()}] Rebuilding pipeline through _dt_node (self-reference + unranked + NEW rank-cardinality)...`);
     const t0 = process.hrtime.bigint();
     await client.query(`
       DROP TABLE IF EXISTS _dt_identity, _dt_edge_cand, _dt_permid_edge, _dt_lin_winner,
@@ -198,6 +205,13 @@ async function main() {
       WHERE r.rn = 1
     `);
     await client.query('CREATE INDEX ON _dt_conmeta(con_rep); ANALYZE _dt_conmeta');
+
+    // ---- NEW: rank cardinality -- containing lineage's accepted rank must
+    // be STRICTLY COARSER than the subject lineage's accepted rank. Applies
+    // to BOTH branches (senior-lineage direct placement, which today has NO
+    // rank check at all; and equal-rank borrowing, tightened from "equal to
+    // the concept's rank" to "still must be coarser than the SUBJECT's own
+    // rank" for the container specifically). ----
     await client.query(`
       CREATE TEMP TABLE _dt_assign AS
       WITH cand AS MATERIALIZED (
@@ -313,26 +327,15 @@ async function main() {
     }
 
     console.log('');
-    console.log('=== Why each cycle\'s containment edges won: senior-lineage direct placement, or equal-rank borrowing? ===');
-    for (let i = 0; i < cycles.length; i++) {
-      const members = cycles[i];
-      const { rows } = await client.query(`
-        SELECT dn.concept_permid, dn.winning_assignment_opinion_id, dn.concept_rank_name,
-               n1.new_name AS concept_name,
-               a.subject_permid AS assign_subject_permid,
-               (sl.lin_rep = cm.senior_lin) AS via_senior_lineage
-        FROM _dt_node dn
-        JOIN _dt_conmeta cm ON cm.concept_permid = dn.concept_permid
-        LEFT JOIN name_opinions n1 ON n1.subject_permid = dn.concept_permid AND n1.edge_class = 'root'
-        LEFT JOIN assignment_opinions a ON a.id = dn.winning_assignment_opinion_id
-        LEFT JOIN _dt_lin sl ON sl.permid = a.subject_permid
-        WHERE dn.concept_permid = ANY($1::uuid[])
-      `, [members]);
-      console.log(`  Cycle #${i + 1}:`);
-      for (const r of rows) {
-        console.log(`    "${r.concept_name}" (${r.concept_rank_name}): winning_assignment_opinion_id=${r.winning_assignment_opinion_id}, via_senior_lineage=${r.via_senior_lineage}`);
-      }
-    }
+    console.log('=== Sanity: Hyriidae/Hyriinae and Elasmotheriini/Elasmotheriina ===');
+    const { rows: sanity } = await client.query(`
+      SELECT n1.new_name AS concept_name, n2.new_name AS containing_name
+      FROM _dt_node dn
+      JOIN name_opinions n1 ON n1.subject_permid = dn.concept_permid AND n1.edge_class = 'root'
+      LEFT JOIN name_opinions n2 ON n2.subject_permid = dn.containing_concept_permid AND n2.edge_class = 'root'
+      WHERE n1.new_name IN ('Hyriidae','Hyriinae','Elasmotheriini','Elasmotheriina')
+    `);
+    for (const r of sanity) console.log(`  "${r.concept_name}" -> containing_concept: ${r.containing_name ?? 'NULL (rootless)'}`);
   } finally {
     await client.query('DROP TABLE IF EXISTS _cyc_active').catch(() => {});
     client.release();
@@ -341,6 +344,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Enumeration failed:', err);
+  console.error('Test failed:', err);
   process.exitCode = 1;
 });

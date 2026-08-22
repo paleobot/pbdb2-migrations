@@ -1,12 +1,18 @@
-// Investigation for openspec/changes/fix-eukarya-eumetazoa-containment-cycle:
-// the containment graph (concept -> containing_concept_permid) is a functional
-// graph (each concept has at most one parent), so iterative peeling finds all
-// nodes downstream of ANY cycle, but not how many DISTINCT cycles exist or
-// their individual membership. This loops: peel to a fixed point, walk one
-// cycle out of whatever survives, record and remove exactly that cycle's
-// members, then re-peel (which drops everything that was only downstream of
-// the now-removed cycle) and repeats until no survivors remain. Each outer
-// iteration finds exactly one more distinct cycle.
+// Investigation for openspec/changes/fix-eukarya-eumetazoa-containment-cycle's
+// 2 remaining cycles (Elasmotheriini/Elasmotheriina, Hyriidae/Hyriinae), on
+// top of the already-shipped self-reference + unranked-rank exclusions.
+//
+// Both remaining cycles share a shape: a lineage has multiple rank-spellings
+// merged via 'reranked' lineage edges (e.g. Cucumerunionini=tribe,
+// Cucumerunionidae=family), and the opinion that causes the cycle is filed
+// under a STALE rank-spelling -- one whose own individual rank differs from
+// the lineage's currently-accepted rank (_dt_linmeta.accepted_rank_id).
+//
+// New rule tested here: a concept-class or assignment_opinions candidate is
+// only eligible if the specific permid cited as subject/target/containing
+// shares its own lineage's currently-accepted rank. This is a static
+// per-candidate filter (same shape/cost as the two already-shipped
+// exclusions), not graph-based cycle detection.
 import { pgPlay, closePgPlay } from '../../pg-play-pool.js';
 
 function ms(ns) { return Number(ns) / 1e6; }
@@ -14,7 +20,7 @@ function ms(ns) { return Number(ns) / 1e6; }
 async function main() {
   const client = await pgPlay.connect();
   try {
-    console.log(`[${new Date().toISOString()}] Rebuilding pipeline through _dt_node (with the _dt_assign fix)...`);
+    console.log(`[${new Date().toISOString()}] Rebuilding pipeline through _dt_node (with self-reference + unranked + spelling-rank-consistency fixes)...`);
     const t0 = process.hrtime.bigint();
     await client.query(`
       DROP TABLE IF EXISTS _dt_identity, _dt_edge_cand, _dt_permid_edge, _dt_lin_winner,
@@ -141,6 +147,10 @@ async function main() {
       FROM spelling s JOIN roots r ON r.lin_rep = s.lin_rep WHERE s.rn = 1
     `);
     await client.query('CREATE INDEX ON _dt_linmeta(lin_rep); ANALYZE _dt_linmeta');
+
+    // ---- concept-class edges: unranked exclusion (shipped) + NEW spelling-rank
+    // consistency (subject/target's own individual rank must equal their
+    // lineage's accepted rank) ----
     await client.query(`
       CREATE TEMP TABLE _dt_con_winner AS
       WITH cand AS MATERIALIZED (
@@ -152,9 +162,12 @@ async function main() {
         JOIN _dt_lin lt ON lt.permid = n.target_permid
         JOIN _dt_linmeta lm_s ON lm_s.lin_rep = ls.lin_rep
         JOIN _dt_linmeta lm_t ON lm_t.lin_rep = lt.lin_rep
+        JOIN _dt_identity di_s ON di_s.permid = n.subject_permid
+        JOIN _dt_identity di_t ON di_t.permid = n.target_permid
         LEFT JOIN refs r ON r.id = n.reference_id
         WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL AND n.edge_class = 'concept'
           AND lm_s.accepted_rank_id NOT IN (24, 25) AND lm_t.accepted_rank_id NOT IN (24, 25)
+          AND di_s.rank_id = lm_s.accepted_rank_id AND di_t.rank_id = lm_t.accepted_rank_id
       ),
       ranked AS MATERIALIZED (
         SELECT jr, sr, negates,
@@ -198,6 +211,10 @@ async function main() {
       WHERE r.rn = 1
     `);
     await client.query('CREATE INDEX ON _dt_conmeta(con_rep); ANALYZE _dt_conmeta');
+
+    // ---- assignment_opinions: self-reference (shipped) + unranked (shipped)
+    // + NEW spelling-rank consistency (subject's and containing permid's own
+    // individual rank must equal their respective lineage's accepted rank) ----
     await client.query(`
       CREATE TEMP TABLE _dt_assign AS
       WITH cand AS MATERIALIZED (
@@ -209,17 +226,20 @@ async function main() {
         JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
         JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
         JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
+        JOIN _dt_identity di_s ON di_s.permid = a.subject_permid
         LEFT JOIN refs r ON r.id = a.reference_id
         LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
         LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
         LEFT JOIN _dt_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
+        LEFT JOIN _dt_identity di_c ON di_c.permid = a.containing_permid
         WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
           AND ( sl.lin_rep = cm.senior_lin
                 OR (cm.concept_rank_name <> 'species' AND lm.accepted_rank_id = cm.concept_rank_id) )
           AND ccc.con_rep IS DISTINCT FROM cm.con_rep
           AND lm.accepted_rank_id NOT IN (24, 25)
           AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
-          AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id >= lm.accepted_rank_id)
+          AND di_s.rank_id = lm.accepted_rank_id
+          AND (a.containing_permid IS NULL OR di_c.rank_id = ccm.accepted_rank_id)
       ),
       win AS MATERIALIZED (
         SELECT con_rep, opinion_id, containing_permid, subject_permid,
@@ -313,26 +333,15 @@ async function main() {
     }
 
     console.log('');
-    console.log('=== Why each cycle\'s containment edges won: senior-lineage direct placement, or equal-rank borrowing? ===');
-    for (let i = 0; i < cycles.length; i++) {
-      const members = cycles[i];
-      const { rows } = await client.query(`
-        SELECT dn.concept_permid, dn.winning_assignment_opinion_id, dn.concept_rank_name,
-               n1.new_name AS concept_name,
-               a.subject_permid AS assign_subject_permid,
-               (sl.lin_rep = cm.senior_lin) AS via_senior_lineage
-        FROM _dt_node dn
-        JOIN _dt_conmeta cm ON cm.concept_permid = dn.concept_permid
-        LEFT JOIN name_opinions n1 ON n1.subject_permid = dn.concept_permid AND n1.edge_class = 'root'
-        LEFT JOIN assignment_opinions a ON a.id = dn.winning_assignment_opinion_id
-        LEFT JOIN _dt_lin sl ON sl.permid = a.subject_permid
-        WHERE dn.concept_permid = ANY($1::uuid[])
-      `, [members]);
-      console.log(`  Cycle #${i + 1}:`);
-      for (const r of rows) {
-        console.log(`    "${r.concept_name}" (${r.concept_rank_name}): winning_assignment_opinion_id=${r.winning_assignment_opinion_id}, via_senior_lineage=${r.via_senior_lineage}`);
-      }
-    }
+    console.log('=== Sanity: did Hyriidae/Hyriinae and Elasmotheriini/Elasmotheriina resolve? ===');
+    const { rows: sanity } = await client.query(`
+      SELECT n1.new_name AS concept_name, n2.new_name AS containing_name
+      FROM _dt_node dn
+      JOIN name_opinions n1 ON n1.subject_permid = dn.concept_permid AND n1.edge_class = 'root'
+      LEFT JOIN name_opinions n2 ON n2.subject_permid = dn.containing_concept_permid AND n2.edge_class = 'root'
+      WHERE n1.new_name IN ('Hyriidae','Hyriinae','Elasmotheriini','Elasmotheriina')
+    `);
+    for (const r of sanity) console.log(`  "${r.concept_name}" -> containing_concept: ${r.containing_name ?? 'NULL (rootless)'}`);
   } finally {
     await client.query('DROP TABLE IF EXISTS _cyc_active').catch(() => {});
     client.release();
@@ -341,6 +350,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Enumeration failed:', err);
+  console.error('Test failed:', err);
   process.exitCode = 1;
 });
