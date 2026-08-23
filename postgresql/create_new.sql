@@ -4881,8 +4881,8 @@ CREATE TABLE validity_opinions (
 -- an ordered ranking for the accepted spelling per lineage, and the winning
 -- assignment pooled across the whole concept. Called by both the hot path (B2
 -- statement trigger over dependency_closure) and the cold path (rebuild_taxa() /
--- migration / CI), which makes the invariant derive_taxa(all) ≡ {current ledger
--- heads} checkable (assert_taxa_invariant()).
+-- migration / CI), which makes the invariant derive_taxa(all) ≡ {the current taxa
+-- rows} checkable (assert_taxa_invariant()).
 --
 -- The functions are DEFINED after the Layer 1 indexes below (they reference the
 -- taxa ledger and every opinion table). See the "LAYER 2 — THE DERIVATION
@@ -4914,8 +4914,8 @@ CREATE TABLE taxa (
     rank_id integer REFERENCES dictionaries.taxonomy_ranks("id") NOT NULL,
     authority_id bigint REFERENCES authorities("id"),
 
-    -- The derived identity triad. All three are succession-head pointers, not SQL
-    -- foreign keys; members of a grouping share equal values:
+    -- The derived identity triad. All three are permid pointers, not SQL foreign
+    -- keys; members of a grouping share equal values:
     --   original_permid          groups the name-lineage                ≈ orig_no
     --   accepted_spelling_permid the accepted spelling of THIS lineage  ≈ spelling_no
     --   concept_permid           the accepted spelling of the SENIOR synonym ≈ synonym_no
@@ -4942,45 +4942,35 @@ CREATE TABLE taxa (
     winning_assignment_opinion_id bigint REFERENCES assignment_opinions("id"),
     winning_validity_opinion_id   bigint REFERENCES validity_opinions("id"),
 
-    preceded_by_id bigint REFERENCES taxa("id"),
-    succeeded_by_id bigint REFERENCES taxa("id"),
     removed boolean,
-    created_at timestamptz DEFAULT NOW()
+    created_at timestamptz DEFAULT NOW(),
+
+    UNIQUE (permid)
 );
 
--- VERSIONED even though it is pure derive() output. The current heads
--- (succeeded_by_id IS NULL) are a rebuildable cache (the §9.5.5 invariant); the
--- superseded versions are the part that is NOT a cache — an append-only,
--- transaction-time archive of WHAT WAS BELIEVED, WHEN, and WHICH OPINIONS WON
--- (winning_*_opinion_id pinned on each version). This is a CONFIRMED requirement
--- (§10.6 D8, point-in-time reconstruction), and it keeps derive() a present-tense
--- function (§9.5.2.1). This is the one place install_version_triggers() is called
--- normally: here the swing half of handle_new_version() is INERT — every
--- cross-reference in this subsystem is a *_permid uuid resolved via the head index,
--- NOT an FK to taxa("id"). The only FKs to taxa("id") are this table's own
--- succession columns, which are extended, not swung. That zero-swing property is
--- the payoff of pointing at permid instead of row id (§9.8.3).
---
--- C2 (DEFERRED, not acted on — §10.6): the inert swing spends a pg_constraint scan
--- per taxa append (the hottest write path). A trimmed taxa-only trigger could drop
--- it, but would diverge from the shared helper and be correct only while nothing
--- FKs to taxa("id"). Revisit only if §9.7 profiling flags it, with a loud guard.
-SELECT install_version_triggers('taxa');
+-- NOT versioned (no preceded_by_id/succeeded_by_id, no
+-- install_version_triggers() call) — a plain cache, one row per permid, upserted in
+-- place by rebuild_taxa(). taxa is pure derive() output and fully rebuildable from
+-- Layer 1 opinions at any time (the §9.5.5 invariant), so there is no independent
+-- history to keep here: the opinions themselves remain the durable, versioned
+-- record of what was asserted, when (§10.6 D8, superseded — see
+-- docs/classic-taxa-opinions.md). UNIQUE (permid) above is what guarantees "one row
+-- per permid" now that there is no head/succession chain to enforce it.
 
--- taxa_permid_head_idx is created by install_version_triggers(). These are the
--- additional head-only indexes derive() and the read path need.
-CREATE INDEX taxa_head_original_idx
-    ON taxa (original_permid) WHERE succeeded_by_id IS NULL;
-CREATE INDEX taxa_head_accepted_spelling_idx
-    ON taxa (accepted_spelling_permid) WHERE succeeded_by_id IS NULL;
-CREATE INDEX taxa_head_concept_idx
-    ON taxa (concept_permid) WHERE succeeded_by_id IS NULL;
-CREATE INDEX taxa_head_containing_idx
-    ON taxa (containing_concept_permid) WHERE succeeded_by_id IS NULL;
-CREATE INDEX taxa_head_path_idx
-    ON taxa USING gist (classification_path) WHERE succeeded_by_id IS NULL;
-CREATE INDEX taxa_head_name_idx
-    ON taxa (name) WHERE succeeded_by_id IS NULL;
+-- These back derive() and the read path; UNIQUE (permid) above already covers
+-- exact-permid lookups.
+CREATE INDEX taxa_original_idx
+    ON taxa (original_permid);
+CREATE INDEX taxa_accepted_spelling_idx
+    ON taxa (accepted_spelling_permid);
+CREATE INDEX taxa_concept_idx
+    ON taxa (concept_permid);
+CREATE INDEX taxa_containing_idx
+    ON taxa (containing_concept_permid);
+CREATE INDEX taxa_path_idx
+    ON taxa USING gist (classification_path);
+CREATE INDEX taxa_name_idx
+    ON taxa (name);
 
 
 -- ============================================================================
@@ -5572,33 +5562,17 @@ $fn$;
 
 
 -- ============================================================================
--- rebuild_taxa() — cold path: derive(all) → diff → append new ledger heads
+-- rebuild_taxa() — cold path: derive(all) → upsert into the ledger
 -- ============================================================================
 CREATE OR REPLACE FUNCTION rebuild_taxa()
 RETURNS integer LANGUAGE plpgsql AS $fn$
 DECLARE
     changed integer := 0;
 BEGIN
-    -- close out heads whose derived output changed or vanished, then insert new
-    WITH d AS (SELECT * FROM derive_taxa(NULL)),
-    heads AS (SELECT * FROM taxa WHERE succeeded_by_id IS NULL),
-    -- rows that differ (or are new)
-    diff AS (
-        SELECT d.* FROM d
-        LEFT JOIN heads h ON h.permid = d.permid
-        WHERE h.permid IS NULL
-           OR h.name IS DISTINCT FROM d.name
-           OR h.rank_id IS DISTINCT FROM d.rank_id
-           OR h.original_permid IS DISTINCT FROM d.original_permid
-           OR h.accepted_spelling_permid IS DISTINCT FROM d.accepted_spelling_permid
-           OR h.concept_permid IS DISTINCT FROM d.concept_permid
-           OR h.containing_concept_permid IS DISTINCT FROM d.containing_concept_permid
-           OR h.classification_path IS DISTINCT FROM d.classification_path
-           OR h.nomenclatural_status_id IS DISTINCT FROM d.nomenclatural_status_id
-           OR h.winning_name_opinion_id IS DISTINCT FROM d.winning_name_opinion_id
-           OR h.winning_assignment_opinion_id IS DISTINCT FROM d.winning_assignment_opinion_id
-           OR h.winning_validity_opinion_id IS DISTINCT FROM d.winning_validity_opinion_id
-    )
+    -- Insert a row for every permid derive_taxa() returns; where the permid
+    -- already has a row, update it in place. The DO UPDATE ... WHERE guard makes
+    -- this a true no-op (0 rows touched, per Postgres's own ON CONFLICT row-count
+    -- semantics) when nothing has actually changed.
     INSERT INTO taxa (permid, name, rank_id, authority_id, original_permid,
         accepted_spelling_permid, concept_permid, containing_concept_permid,
         classification_path, nomenclatural_status_id, winning_name_opinion_id,
@@ -5607,7 +5581,32 @@ BEGIN
         accepted_spelling_permid, concept_permid, containing_concept_permid,
         classification_path, nomenclatural_status_id, winning_name_opinion_id,
         winning_assignment_opinion_id, winning_validity_opinion_id
-    FROM diff;
+    FROM derive_taxa(NULL)
+    ON CONFLICT (permid) DO UPDATE SET
+        name                          = EXCLUDED.name,
+        rank_id                       = EXCLUDED.rank_id,
+        authority_id                  = EXCLUDED.authority_id,
+        original_permid               = EXCLUDED.original_permid,
+        accepted_spelling_permid      = EXCLUDED.accepted_spelling_permid,
+        concept_permid                = EXCLUDED.concept_permid,
+        containing_concept_permid     = EXCLUDED.containing_concept_permid,
+        classification_path           = EXCLUDED.classification_path,
+        nomenclatural_status_id       = EXCLUDED.nomenclatural_status_id,
+        winning_name_opinion_id       = EXCLUDED.winning_name_opinion_id,
+        winning_assignment_opinion_id = EXCLUDED.winning_assignment_opinion_id,
+        winning_validity_opinion_id   = EXCLUDED.winning_validity_opinion_id
+    WHERE taxa.name                      IS DISTINCT FROM EXCLUDED.name
+       OR taxa.rank_id                   IS DISTINCT FROM EXCLUDED.rank_id
+       OR taxa.authority_id              IS DISTINCT FROM EXCLUDED.authority_id
+       OR taxa.original_permid           IS DISTINCT FROM EXCLUDED.original_permid
+       OR taxa.accepted_spelling_permid  IS DISTINCT FROM EXCLUDED.accepted_spelling_permid
+       OR taxa.concept_permid            IS DISTINCT FROM EXCLUDED.concept_permid
+       OR taxa.containing_concept_permid IS DISTINCT FROM EXCLUDED.containing_concept_permid
+       OR taxa.classification_path       IS DISTINCT FROM EXCLUDED.classification_path
+       OR taxa.nomenclatural_status_id   IS DISTINCT FROM EXCLUDED.nomenclatural_status_id
+       OR taxa.winning_name_opinion_id       IS DISTINCT FROM EXCLUDED.winning_name_opinion_id
+       OR taxa.winning_assignment_opinion_id IS DISTINCT FROM EXCLUDED.winning_assignment_opinion_id
+       OR taxa.winning_validity_opinion_id   IS DISTINCT FROM EXCLUDED.winning_validity_opinion_id;
     GET DIAGNOSTICS changed = ROW_COUNT;
     RETURN changed;
 END;
@@ -5615,7 +5614,7 @@ $fn$;
 
 
 -- ============================================================================
--- assert_taxa_invariant() — derive(all) ≡ current ledger heads
+-- assert_taxa_invariant() — derive(all) ≡ the current taxa rows
 -- ============================================================================
 CREATE OR REPLACE FUNCTION assert_taxa_invariant()
 RETURNS void LANGUAGE plpgsql AS $fn$
@@ -5623,7 +5622,7 @@ DECLARE
     bad integer;
 BEGIN
     WITH d AS (SELECT * FROM derive_taxa(NULL)),
-    heads AS (SELECT * FROM taxa WHERE succeeded_by_id IS NULL),
+    heads AS (SELECT * FROM taxa),
     mism AS (
         SELECT COALESCE(d.permid, h.permid) AS permid FROM d
         FULL JOIN heads h ON h.permid = d.permid
@@ -5639,7 +5638,7 @@ BEGIN
     )
     SELECT count(*) INTO bad FROM mism;
     IF bad > 0 THEN
-        RAISE EXCEPTION 'assert_taxa_invariant: % permid(s) diverge between derive_taxa(all) and ledger heads', bad;
+        RAISE EXCEPTION 'assert_taxa_invariant: % permid(s) diverge between derive_taxa(all) and the current taxa rows', bad;
     END IF;
 END;
 $fn$;

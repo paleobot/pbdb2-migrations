@@ -1644,6 +1644,14 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   keeps `derive()` a present-tense function (§9.5.2.1). The "if that requirement is ever dropped, `taxa`
   could become a plain rebuildable cache" escape hatch is now closed by decision.
 
+  **⚠ Superseded, 2026-08-23.** The escape hatch above was reopened and taken: `taxa` is no longer
+  versioned. `install_version_triggers('taxa')` and the `preceded_by_id`/`succeeded_by_id` columns are
+  removed; `taxa` is a plain `UNIQUE (permid)` ledger, upserted in place by `rebuild_taxa()`. Point-in-time
+  reconstruction of the *derived ledger* is no longer supported — Layer 1 opinions remain fully versioned,
+  so what was asserted, when, is still recoverable; only the pre-computed per-version derivation result is
+  gone. See `openspec/changes/de-version-taxa/` (once archived, `openspec/specs/taxa-opinions/spec.md`'s
+  "Versioning regimes are applied correctly per table" requirement) for the current, authoritative design.
+
 - **D7 — `namechange_reasons` dictionary reconciled (was A3): DECIDED (2026-07-31).** Eight final
   tokens, each mapping 1:1 to a legacy vocabulary value. Three calls settled the overlaps:
   (1) **`assignment` and `recombination` both kept** — they are two distinct legacy `spelling_reason`
