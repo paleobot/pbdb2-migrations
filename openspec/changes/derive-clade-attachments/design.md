@@ -131,6 +131,19 @@ column per row) — instead, `(concept_permid, direction, attached_to_concept_pe
 with winner selection deduplicating repeated/superseded opinions about the same specific pair before
 insertion.
 
+### rebuild_taxa_full() includes ANALYZE between stages from the start
+
+A sibling exploration of a different storage design for this same problem (branch `clade-rework-single`,
+`extend-taxa-for-clades`) hit a real incident here: its own three-step orchestrator took 9+ minutes against
+a truncated table and had to be killed, because a bulk write to one table left the next step's heavy
+self-joins against it planning off stale post-truncate statistics — the same class of bug as this
+project's own `derive-taxa-performance-fix`. That design's tables are structured differently, but the
+underlying hazard is generic to any orchestrator that bulk-writes a table and then immediately reads it
+hard in the same transaction. `rebuild_taxa_full()` here includes `ANALYZE taxa` after `rebuild_taxa()` and
+`ANALYZE taxa_clades` after `rebuild_taxa_clades()` from the start, rather than waiting to hit the same
+failure independently. (`clade_attachments` needs no trailing `ANALYZE` — nothing downstream reads it
+within this function.)
+
 ## Risks / Trade-offs
 
 - **[Risk]** Clade-to-clade containment cycles have no rank-cardinality firewall. Confirmed against real

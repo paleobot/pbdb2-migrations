@@ -158,6 +158,23 @@ check SHALL assert the invariant `derive_clade_attachments(all) ≡ the current 
 - **THEN** the invariant check reports equality between `derive_clade_attachments(all)` and the current
   `clade_attachments` rows
 
+### Requirement: rebuild_taxa_full() enforces correct ordering across all three rebuild steps
+
+`derive_taxa_clades()` reads `taxa`'s lineage-level output, and `derive_clade_attachments()` reads both
+`taxa`'s and `taxa_clades`'s resolved concept output — so `rebuild_taxa_clades()` SHALL run only after
+`rebuild_taxa()`, and `rebuild_clade_attachments()` SHALL run only after `rebuild_taxa_clades()`. An
+orchestrating function, `rebuild_taxa_full()`, SHALL run `rebuild_taxa()`, then `rebuild_taxa_clades()`,
+then `rebuild_clade_attachments()`, in that order, within a single transaction, and SHALL be the supported
+entry point for a full rebuild. Calling the three steps independently and out of order is possible but
+unsupported.
+
+#### Scenario: rebuild_taxa_full() produces a fully consistent set of ledgers from empty tables
+
+- **WHEN** `rebuild_taxa_full()` is called against `taxa`, `taxa_clades`, and `clade_attachments` tables
+  with no prior rows
+- **THEN** all three ledgers end up fully and correctly populated, in one call, with no manual step-ordering
+  required by the caller
+
 #### Scenario: A no-op re-derivation updates no rows
 
 - **WHEN** `rebuild_clade_attachments()` runs twice with no intervening opinion changes

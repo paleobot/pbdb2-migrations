@@ -140,11 +140,31 @@
       prototype's edge counts from section 5. **Result**: exact parity — 21,043 rows. Cold rebuild inserted
       all 21,043; warm rebuild correctly reported 0 changed; invariant check passed.
 
-## 7. Final close out
+## 7. Add rebuild_taxa_full() orchestrator
 
-- [x] 7.1 Add a memory entry documenting: the clade-to-clade hierarchy and cross-boundary attachment
+- [x] 7.1 Implement `rebuild_taxa_full()`: calls `rebuild_taxa()`, then `rebuild_taxa_clades()`, then
+      `rebuild_clade_attachments()`, in order, in one transaction, with `ANALYZE taxa` after the first
+      stage and `ANALYZE taxa_clades` after the second — pre-emptively, per the sibling branch's confirmed
+      incident (see design.md), not waiting to hit the same failure independently.
+- [x] 7.2 Verify against `pg_play` from truncated `taxa`/`taxa_clades`/`clade_attachments` tables: one call
+      produces a fully consistent set of all three ledgers, matching every prior section's individually-
+      verified numbers (515,543 / 3,312 / 21,043 rows, 0 cycles). **Result**: cold run 93.6s, exact parity
+      on all three counts, 0 cycles. Warm run reported a true `0/0/0` no-op across all three stages —
+      confirming a genuine advantage of the separate-table design: unlike the sibling branch's
+      `rebuild_taxa_full()` (which reverts and re-merges clade permids on every call because they share
+      `taxa`), `rebuild_taxa()` here never touches `taxa_clades`/`clade_attachments` at all.
+- [x] 7.3 Port `rebuild_taxa_full()` into `postgresql/create_new.sql`, redeploy into `pg_play`, and
+      re-confirm parity.
+
+## 8. Final close out
+
+- [x] 8.1 Add a memory entry documenting: the clade-to-clade hierarchy and cross-boundary attachment
       passes are live in `create_new.sql`/`pg_play`, the measured cycle rate from 2.1/2.2, and the
       measured attachment-edge counts from 5.1. **Result**:
       `memory/project_derive-clade-attachments-status.md`, `MEMORY.md` index updated to match.
-- [ ] 7.2 Archive this OpenSpec change once the maintainer confirms the implementation matches these
+- [x] 8.2 Update the memory entry to mention `rebuild_taxa_full()` once section 7 is complete. **Result**:
+      updated both this design's and the sibling design's memory entries with the comparison note (this
+      design's warm run is a true `0/0/0` no-op across all three stages; the sibling's isn't, and can't be,
+      without editing its own `rebuild_taxa()`).
+- [ ] 8.3 Archive this OpenSpec change once the maintainer confirms the implementation matches these
       artifacts.
