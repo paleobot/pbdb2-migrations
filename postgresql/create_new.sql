@@ -5072,6 +5072,9 @@ RETURNS TABLE (
     winning_validity_opinion_id bigint
 ) LANGUAGE plpgsql AS $fn$
 #variable_conflict use_column
+DECLARE
+    cut_opinion_id bigint;
+    iter integer := 0;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dt_identity;
@@ -5433,85 +5436,120 @@ BEGIN
     -- (Hyriidae/Hyriinae, Elasmotheriini/Elasmotheriina), neither of which
     -- involved unranked ranks at all -- see
     -- openspec/changes/fix-eukarya-eumetazoa-containment-cycle/.
-    DROP TABLE IF EXISTS _dt_assign;
-    CREATE TEMP TABLE _dt_assign AS
-    WITH cand AS MATERIALIZED (
-        SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
-               a.evidence,
-               COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr
-        FROM assignment_opinions a
-        JOIN _dt_lin sl ON sl.permid = a.subject_permid
-        JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
-        JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
-        JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
-        LEFT JOIN refs r ON r.id = a.reference_id
-        LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
-        LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
-        LEFT JOIN _dt_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
-        WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
-          AND ( sl.lin_rep = cm.senior_lin
-                OR (cm.concept_rank_name <> 'species'
-                    AND lm.accepted_rank_id = cm.concept_rank_id) )
-          AND ccc.con_rep IS DISTINCT FROM cm.con_rep
-          AND lm.accepted_rank_id NOT IN (24, 25)
-          AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
-          AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id >= lm.accepted_rank_id)
-    ),
-    win AS MATERIALIZED (
-        SELECT con_rep, opinion_id, containing_permid,
-               row_number() OVER (PARTITION BY con_rep
-                   ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
-        FROM cand
-    )
-    SELECT w.con_rep, w.opinion_id AS winning_assignment_opinion_id,
-           cc.con_rep AS containing_con_rep
-    FROM win w
-    LEFT JOIN _dt_lin cl ON cl.permid = w.containing_permid
-    LEFT JOIN _dt_con cc ON cc.lin_rep = cl.lin_rep
-    WHERE w.rn = 1;
-    CREATE INDEX ON _dt_assign(con_rep);
-    ANALYZE _dt_assign;
 
-    -- ---- per-concept node (concept_permid, containing_concept_permid) ------
-    DROP TABLE IF EXISTS _dt_node;
-    CREATE TEMP TABLE _dt_node AS
-    SELECT cm.con_rep, cm.concept_permid, cm.concept_rank_id,
-           ccm.concept_permid AS containing_concept_permid,
-           a.winning_assignment_opinion_id
-    FROM _dt_conmeta cm
-    LEFT JOIN _dt_assign a ON a.con_rep = cm.con_rep
-    LEFT JOIN _dt_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
-    CREATE INDEX ON _dt_node(con_rep);
-    CREATE INDEX ON _dt_node(concept_permid);
-    CREATE INDEX ON _dt_node(containing_concept_permid);
-    ANALYZE _dt_node;
+    -- ---- classification cycle-breaking loop --------------------------------
+    -- Rank cardinality and the unranked-clade/self-reference exclusions above
+    -- already prevent containment cycles by construction in every case found
+    -- against the full-migration dataset to date. This loop is a residual
+    -- safety net on top of that, not the primary defense: each iteration
+    -- rebuilds _dt_assign/_dt_node excluding whatever opinions prior
+    -- iterations have cut, precisely identifies any genuine cycle members (a
+    -- concept whose own containment chain returns to ITSELF), and cuts the
+    -- SINGLE weakest edge (lowest evidence/pubyr/id by the canonical order)
+    -- among all current cycle members' own winning candidates. Repeats until
+    -- no cycle remains -- the same MST-style weakest-link loop
+    -- derive_taxa_clades() uses for clade-to-clade cycles, including its
+    -- iter > 1000 non-convergence guard.
+    --
+    -- NOTE: the recursive walk below explores from every starting node up to
+    -- depth 10000 before checking for a match -- a suspected further
+    -- pathology in its own right if many nodes feed into a real cycle (see
+    -- find-containment-cycle.js's iterative-peeling alternative), but left as
+    -- originally written here since replacing it is a separate question from
+    -- this loop.
+    DROP TABLE IF EXISTS _dt_excluded_opinions;
+    CREATE TEMP TABLE _dt_excluded_opinions (opinion_id bigint PRIMARY KEY);
 
-    -- ---- containment cycle guard (raises) ---------------------------------
-    -- NOTE: this walk explores from every starting node up to depth 10000
-    -- before checking for a match -- a suspected further pathology in its own
-    -- right if many nodes feed into a real cycle (see find-containment-
-    -- cycle.js's iterative-peeling alternative), but left as originally
-    -- written here since replacing it is a separate question from the
-    -- MATERIALIZED fix above. A real cycle currently exists on live
-    -- full-migration data (see the _dt_assign note above), so this WILL
-    -- raise until that's addressed.
-    IF EXISTS (
-        WITH RECURSIVE walk AS (
-            SELECT con_rep, containing_concept_permid, 1 AS depth
-            FROM _dt_node WHERE containing_concept_permid IS NOT NULL
-            UNION ALL
-            SELECT w.con_rep, n.containing_concept_permid, w.depth + 1
-            FROM walk w
-            JOIN _dt_node cn ON cn.concept_permid = w.containing_concept_permid
-            JOIN _dt_node n  ON n.con_rep = cn.con_rep
-            WHERE w.depth < 10000
-              AND n.containing_concept_permid IS NOT NULL
+    <<cycle_break>>
+    LOOP
+        DROP TABLE IF EXISTS _dt_assign;
+        CREATE TEMP TABLE _dt_assign AS
+        WITH cand AS MATERIALIZED (
+            SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
+                   a.evidence,
+                   COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr
+            FROM assignment_opinions a
+            JOIN _dt_lin sl ON sl.permid = a.subject_permid
+            JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
+            JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep
+            JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
+            LEFT JOIN refs r ON r.id = a.reference_id
+            LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
+            LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
+            LEFT JOIN _dt_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
+            WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
+              AND ( sl.lin_rep = cm.senior_lin
+                    OR (cm.concept_rank_name <> 'species'
+                        AND lm.accepted_rank_id = cm.concept_rank_id) )
+              AND ccc.con_rep IS DISTINCT FROM cm.con_rep
+              AND lm.accepted_rank_id NOT IN (24, 25)
+              AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
+              AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id >= lm.accepted_rank_id)
+              AND NOT EXISTS (SELECT 1 FROM _dt_excluded_opinions eo WHERE eo.opinion_id = a.id)
+        ),
+        win AS MATERIALIZED (
+            SELECT con_rep, opinion_id, containing_permid, evidence, yr,
+                   row_number() OVER (PARTITION BY con_rep
+                       ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+            FROM cand
         )
-        SELECT 1 FROM walk w JOIN _dt_node self ON self.con_rep = w.con_rep
-        WHERE w.containing_concept_permid = self.concept_permid
-    ) THEN
-        RAISE EXCEPTION 'derive_taxa: classification containment cycle detected';
-    END IF;
+        SELECT w.con_rep, w.opinion_id AS winning_assignment_opinion_id,
+               cc.con_rep AS containing_con_rep, w.evidence, w.yr
+        FROM win w
+        LEFT JOIN _dt_lin cl ON cl.permid = w.containing_permid
+        LEFT JOIN _dt_con cc ON cc.lin_rep = cl.lin_rep
+        WHERE w.rn = 1;
+        CREATE INDEX ON _dt_assign(con_rep);
+        ANALYZE _dt_assign;
+
+        -- ---- per-concept node (concept_permid, containing_concept_permid) --
+        DROP TABLE IF EXISTS _dt_node;
+        CREATE TEMP TABLE _dt_node AS
+        SELECT cm.con_rep, cm.concept_permid, cm.concept_rank_id,
+               ccm.concept_permid AS containing_concept_permid,
+               a.winning_assignment_opinion_id, a.evidence, a.yr
+        FROM _dt_conmeta cm
+        LEFT JOIN _dt_assign a ON a.con_rep = cm.con_rep
+        LEFT JOIN _dt_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
+        CREATE INDEX ON _dt_node(con_rep);
+        CREATE INDEX ON _dt_node(concept_permid);
+        CREATE INDEX ON _dt_node(containing_concept_permid);
+        ANALYZE _dt_node;
+
+        -- find the weakest winning edge among this round's genuine cycle
+        -- members (NULL if none remain)
+        SELECT a.winning_assignment_opinion_id INTO cut_opinion_id
+        FROM (
+            WITH RECURSIVE walk AS (
+                SELECT con_rep AS start_rep, containing_concept_permid, 1 AS depth
+                FROM _dt_node WHERE containing_concept_permid IS NOT NULL
+                UNION ALL
+                SELECT w.start_rep, n.containing_concept_permid, w.depth + 1
+                FROM walk w
+                JOIN _dt_node cn ON cn.concept_permid = w.containing_concept_permid
+                JOIN _dt_node n  ON n.con_rep = cn.con_rep
+                WHERE w.depth < 10000
+                  AND n.containing_concept_permid IS NOT NULL
+            )
+            SELECT DISTINCT w.start_rep AS con_rep
+            FROM walk w
+            JOIN _dt_node self ON self.con_rep = w.start_rep
+            WHERE w.containing_concept_permid = self.concept_permid
+        ) cyc
+        JOIN _dt_node a ON a.con_rep = cyc.con_rep
+        ORDER BY a.evidence ASC, a.yr ASC NULLS FIRST, a.winning_assignment_opinion_id ASC
+        LIMIT 1;
+
+        EXIT cycle_break WHEN cut_opinion_id IS NULL;
+
+        INSERT INTO _dt_excluded_opinions VALUES (cut_opinion_id);
+        cut_opinion_id := NULL;
+
+        iter := iter + 1;
+        IF iter > 1000 THEN
+            RAISE EXCEPTION 'derive_taxa: classification cycle-breaking loop did not converge after 1000 iterations';
+        END IF;
+    END LOOP cycle_break;
 
     -- ---- classification_path (root -> node) -------------------------------
     DROP TABLE IF EXISTS _dt_path;
