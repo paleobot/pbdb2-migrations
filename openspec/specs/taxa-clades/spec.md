@@ -5,7 +5,7 @@ synonymy and containment relationships `derive_taxa()` deliberately excludes fro
 whenever either side of a candidate edge is unranked, leaving those lineages isolated as singleton,
 rootless concepts in `taxa` today.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: derive_taxa_clades() is a pure function of taxa's lineage identity and the opinion tables
 
@@ -78,11 +78,11 @@ be `NULL` (rootless) — the same fallback `derive_taxa()` uses for its own conc
 
 ### Requirement: No rank-cardinality ordering exists among clades
 
-Unlike Linnaean ranks, `unranked` and `unranked clade` both carry `height IS NULL` in
-`dictionaries.taxonomy_ranks` — there is no finer/coarser ordering between clade concepts for
-`derive_taxa_clades()` to check. It SHALL NOT attempt a rank-cardinality exclusion analogous to
-`_dt_assign`'s finer-contains-coarser check; cycle prevention for clade-to-clade containment relies solely
-on the self-reference exclusion above and the general cycle-detection guard below.
+`derive_taxa_clades()` SHALL NOT attempt a rank-cardinality exclusion analogous to `_dt_assign`'s
+finer-contains-coarser check: unlike Linnaean ranks, `unranked` and `unranked clade` both carry `height IS
+NULL` in `dictionaries.taxonomy_ranks`, so there is no finer/coarser ordering between clade concepts to
+check. Cycle prevention for clade-to-clade containment relies solely on the self-reference exclusion above
+and the general cycle-detection guard below.
 
 #### Scenario: Two clade concepts may contain each other's siblings without a rank check
 

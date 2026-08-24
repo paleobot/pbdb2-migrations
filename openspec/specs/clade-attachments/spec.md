@@ -5,7 +5,7 @@ unranked-clade concepts (`taxa_clades`), from the `assignment_opinions` rows tha
 derivations exclude by design, so that clade/rank attachment becomes queryable derived data instead of
 discarded evidence.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: derive_clade_attachments() is a pure function of opinions and the two concept ledgers
 
@@ -71,11 +71,11 @@ same way `derive_taxa()` resolves synonym spellings to their concept rather than
 
 ### Requirement: A subject concept and its target concept are never the same concept
 
-Because `derive_taxa()`'s concept-grouping requirement already excludes concept-class (synonymy) merges
-across the ranked/unranked-clade boundary, a ranked concept and an unranked-clade concept can never
-resolve to the same `concept_permid`. `derive_clade_attachments()` SHALL nonetheless exclude, defensively,
-any candidate whose resolved subject and target concepts are equal, entirely from the ranking contest
-rather than filtering it out after the fact.
+`derive_clade_attachments()` SHALL exclude, defensively, any candidate whose resolved subject and target
+concepts are equal, entirely from the ranking contest rather than filtering it out after the fact. This is
+defensive because `derive_taxa()`'s concept-grouping requirement already excludes concept-class (synonymy)
+merges across the ranked/unranked-clade boundary, so a ranked concept and an unranked-clade concept can
+never resolve to the same `concept_permid`.
 
 #### Scenario: A same-row self-reference is excluded by the existing opinion constraint
 
@@ -92,10 +92,10 @@ rather than filtering it out after the fact.
 
 ### Requirement: Winner selection is scoped per (subject concept, target concept) pair
 
-For each distinct `(subject concept, target concept, direction)` combination with at least one candidate,
-`derive_clade_attachments()` SHALL select the single top-ranked current candidate by `ORDER BY evidence
-DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — the same canonical order `derive_taxa()` uses — as that
-pair's accepted edge. This selection is scoped to the pair, not to the subject alone: it resolves
+`derive_clade_attachments()` SHALL select, for each distinct `(subject concept, target concept,
+direction)` combination with at least one candidate, the single top-ranked current candidate by `ORDER BY
+evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — the same canonical order `derive_taxa()` uses —
+as that pair's accepted edge. This selection is scoped to the pair, not to the subject alone: it resolves
 disagreement about a single specific attachment without suppressing a subject's other, independently
 supported attachments.
 
@@ -160,9 +160,9 @@ check SHALL assert the invariant `derive_clade_attachments(all) ≡ the current 
 
 ### Requirement: rebuild_taxa_full() enforces correct ordering across all three rebuild steps
 
-`derive_taxa_clades()` reads `taxa`'s lineage-level output, and `derive_clade_attachments()` reads both
-`taxa`'s and `taxa_clades`'s resolved concept output — so `rebuild_taxa_clades()` SHALL run only after
-`rebuild_taxa()`, and `rebuild_clade_attachments()` SHALL run only after `rebuild_taxa_clades()`. An
+`rebuild_taxa_clades()` SHALL run only after `rebuild_taxa()`, and `rebuild_clade_attachments()` SHALL run
+only after `rebuild_taxa_clades()`, because `derive_taxa_clades()` reads `taxa`'s lineage-level output and
+`derive_clade_attachments()` reads both `taxa`'s and `taxa_clades`'s resolved concept output. An
 orchestrating function, `rebuild_taxa_full()`, SHALL run `rebuild_taxa()`, then `rebuild_taxa_clades()`,
 then `rebuild_clade_attachments()`, in that order, within a single transaction, and SHALL be the supported
 entry point for a full rebuild. Calling the three steps independently and out of order is possible but
