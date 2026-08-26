@@ -89,6 +89,40 @@
 - [ ] 5.3 Cross-check a handful of migrated rows against Classic (e.g. a `misspelling of` row where
       `parent_spelling_no != child_no`, an asserted-rootless `belongs to`, a targeted vs. untargeted
       `nomen oblitum`) to confirm the corrected targets landed
+- [ ] 5.4 Add a read-only cross-check harness under `src/opinions-migration/` that compares the freshly
+      migrated localhost `assignment_opinions` / `name_opinions` / `validity_opinions` against the
+      reference full-run in the Aurora `pbdb2_migration_test` DB (the archived output of
+      `migration_exploration`'s 48 handlers). Read Aurora **only** through the existing read-only
+      `pg-migrated-pool.js` (rejects anything but SELECT/WITH); add the `PG_MIGRATED_*` vars to `.env`
+      (values in the commented AWS block, `PG_MIGRATED_CA_CERT=global-bundle.pem`). The comparison must
+      **exclude the per-run generated columns** that legitimately differ between two independent
+      migrations — `id`, `permid`, `created_at`, `preceded_by_id`, `succeeded_by_id` — and compare only
+      run-independent content.
+- [ ] 5.5 First confirm the Aurora reference conforms to the current `postgresql/create_new.sql` schema
+      (the authority — **not** the superseded `taxa-opinions-draft.sql`): `publication_year` (not `pubyr`),
+      `name_opinions.oldpbdb_taxon_no` + `negates` present and no `pages`/`figures`, nullable
+      `assignment_opinions.containing_permid`, and untargeted-only `validity_opinions`
+      (`nomenclatural_status_id`, no `targeted`/`target_permid`). If the reference predates the 2026-08-18
+      model move (targeted `invalid subgroup of` / `nomen oblitum` folded into `name_opinions` concept
+      edges), treat those as **known intentional differences** and reconcile/exclude them rather than
+      flagging them as diffs — record the reference's generation in the run-summary. Then resolve the
+      permid-matching question: sample-test whether `subject_permid` / `target_permid` /
+      `containing_permid` are **shared** across the two DBs (dependency layer seeded from the same
+      authorities/`name_opinions`-root run) or minted independently. For `name_opinions`, prefer the stable
+      `oldpbdb_taxon_no` as the match key where populated; otherwise (and for the other tables) match on the
+      permid tuple if shared, else translate each `*_permid` back to its legacy id via each DB's own
+      `authorities` / root `name_opinions` mapping before matching. Record which case holds.
+- [ ] 5.6 Run the cross-check in two layers and assert both hold: (a) **structural** — per-table row
+      counts and counts grouped by the discriminators each table actually carries in `create_new.sql`:
+      `name_opinions` by `edge_class` / `reason_id` / `negates` / `objective` / `evidence` /
+      `target_permid IS NULL` / `rank_id` / `publication_year`; `assignment_opinions` by `questioned` /
+      `evidence` / `containing_permid IS NULL` / `publication_year`; `validity_opinions` by
+      `nomenclatural_status_id` / `evidence` / `publication_year` — all matching exactly (net of the 5.5
+      known-difference reconciliation); (b) **row-level** — a symmetric-difference (full outer join) on the
+      run-independent key reports zero rows present in one DB but not the other. Canonicalize
+      semantically-equal-but-textually-different fields before matching (`attribution` jsonb key order /
+      whitespace, NULL-vs-sentinel normalization) so equivalent rows don't register as diffs; write any
+      residual mismatches to a diff report under `src/opinions-migration/` for inspection.
 
 ## 6. Supersede the consolidate change and close out
 
