@@ -30,7 +30,7 @@ N/A | permid | generated
 authorizer_no	| authorizer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = authorizer_no.
 enterer_no	| enterer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = enterer_no.
 taxon_no | subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = taxon_no.
-taxon_rank | nomenclatural_status_id | fk to the dictionaries.nomenclatural_statuses = 'informal'
+taxon_rank | nomenclatural_status_id | fk to the dictionaries.nomenclatural_statuses = 'nomen vanum' (this might change, but it's the best placeholder for now)
 reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
 N/A | evidence |  FALSE
 N/A | targeted | FALSE
