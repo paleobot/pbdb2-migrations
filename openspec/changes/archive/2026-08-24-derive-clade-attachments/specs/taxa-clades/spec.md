@@ -105,10 +105,18 @@ place (per the requirement above), `derive_taxa_clades()` SHALL instead resolve 
 every concept whose own containment chain returns to itself (a precise check — a concept merely downstream
 of a cycle, whose own chain terminates once it reaches a cycle member, is not itself a cycle member and is
 unaffected), and among those concepts' own winning candidate edges, exclude the single one ranked lowest by
-the canonical order (`evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — i.e. weakest first) from
-future candidacy, causing that concept's containment to fall through to its next-best remaining candidate,
-or to `NULL` if none remains. This SHALL repeat until no concept's containment chain returns to itself.
-Resolution SHALL NOT alter or remove any candidate belonging to a concept outside the current cycle set.
+the canonical order (`evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, is_senior DESC, id DESC` — i.e. weakest
+first) from future candidacy, causing that concept's containment to fall through to its next-best remaining
+candidate, or to `NULL` if none remains. This SHALL repeat until no concept's containment chain returns to
+itself. Resolution SHALL NOT alter or remove any candidate belonging to a concept outside the current cycle
+set.
+
+`is_senior` (a candidate filed directly on the concept's own senior lineage, vs. one only pooled in via the
+equal-rank-borrowing branch above) breaks a tie on `evidence`/`pubyr` in favor of cutting the pooled/junior
+candidate before the senior one — a pooled candidate reaching this concept only because an unrelated
+lineage was synonymized into it is more likely to be a synonym-pooling artifact than a real disagreement
+filed on the concept's own anchor name. `id` (arbitrary, last resort) SHALL only decide ties that persist
+even after `is_senior`.
 
 #### Scenario: A synonymy cycle among clades resolves to one concept
 
@@ -138,6 +146,33 @@ Resolution SHALL NOT alter or remove any candidate belonging to a concept outsid
 - **THEN** `derive_taxa_clades()` continues excluding the weakest remaining edge among current cycle
   members each round until no concept's containment chain returns to itself, rather than stopping after a
   single exclusion
+
+#### Scenario: An evidence/pubyr tie between a pooled and a senior-lineage candidate cuts the pooled one
+
+- **WHEN** two cycle members' winning candidates tie on `evidence` and `pubyr`, one filed directly on its
+  concept's own senior lineage and the other reaching its concept only because a different lineage was
+  pooled into it via the equal-rank-borrowing branch (e.g. concept A contains concept B only through a
+  junior synonym of A that was separately placed under B, while B's own opinion places B under A)
+- **THEN** `derive_taxa_clades()` excludes the pooled candidate, not the senior-lineage one, leaving the
+  concept's own directly-filed opinion standing
+
+### Requirement: Cycle-breaking cuts are logged to a permanent audit table
+
+Every opinion excluded by the cycle-breaking loop in either `derive_taxa()` or `derive_taxa_clades()` SHALL
+be recorded in a permanent `cycle_cuts` table (`source`, `concept_permid`, `cut_opinion_id`,
+`cycle_members`) by the corresponding `rebuild_taxa()`/`rebuild_taxa_clades()` call, not left inspectable
+only within the derivation's own temp tables for the lifetime of the session that computed it.
+`derive_taxa()`/`derive_taxa_clades()` themselves SHALL remain pure — they SHALL NOT write to `cycle_cuts`
+directly, only the cold-path rebuild functions. Each rebuild SHALL replace its own source's prior rows
+(`taxa` or `taxa_clades`) with the current cut set, since this is a snapshot of cuts under the current
+opinion data, not a historical log.
+
+#### Scenario: A rebuild's cuts are queryable after the fact
+
+- **WHEN** `rebuild_taxa_clades()` runs and its derivation cuts an opinion to resolve a cycle
+- **THEN** a row identifying that opinion, the concept it was cut from, and the full set of concepts in the
+  cycle at cut time is queryable from `cycle_cuts` afterward, without needing to still be connected in the
+  session that ran the rebuild
 
 ### Requirement: The taxa_clades ledger exists as derived output
 
