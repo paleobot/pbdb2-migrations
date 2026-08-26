@@ -205,7 +205,7 @@ construction.
 **Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `lineage` rows *within the
 authorities pass*, drawing identity from `authorities`) and the §9.8.2 language "that minting row carries
 the permid's immutable identity" — which now holds for `root` only. Under the ledger decomposition the
-authorities pass mints **roots only** (already implemented in `migrate-name-opinions.js`); `lineage`
+authorities pass mints **roots only** (already implemented in `migrate-authorities-opinions.js`); `lineage`
 edges are written by the per-slice opinion migrations and carry no identity. §9.1's root-vs-lineage
 split (shape decided by the top-ranked introducing opinion) does not apply to the ledger migration.
 
@@ -683,7 +683,7 @@ text carries from whichever source row the pass names.
 > below describe a **pre-ledger** design where this single pass decides ROOT-vs-LINEAGE **shape** by
 > ranking candidate opinions and mints exactly one row per `authorities.taxon_no` either way. That is
 > no longer correct. Under the ledger model:
-> - This pass (now `migrate-name-opinions.js`) mints **ROOT rows only**, unconditionally, one per
+> - This pass (now `migrate-authorities-opinions.js`) mints **ROOT rows only**, unconditionally, one per
 >   `authorities.taxon_no`, with no ranking and no dependency on any `opinions` row at all.
 > - **LINEAGE** rows are NOT minted here. Every opinion satisfying `child_spelling_no ≠ child_no` is
 >   migrated as its own separate `lineage` row by whichever per-slice migration owns that opinion —
