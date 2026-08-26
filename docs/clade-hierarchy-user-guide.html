@@ -193,7 +193,7 @@
   /* ================= NOTE-TYPE GRID ================= */
   .note-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 16px;
     margin-top: 26px;
   }
@@ -347,45 +347,52 @@
   <header class="hero">
     <span class="eyebrow">A field guide to pbdb2, part two</span>
     <h1>The Containment Ledger</h1>
-    <p class="dek">How the next Paleobiology Database decides what belongs inside what — across two family trees the old system never actually kept apart.</p>
+    <p class="dek">How the next Paleobiology Database decides what belongs inside what — across two family trees the old system never actually kept apart, and the combined view that now sits above both.</p>
     <p class="lede">The <a href="taxonomy-user-guide.html">companion page to this one</a> covers identity: how the system decides what a name <em>is</em> — a card, a lineage, a concept, an accepted spelling. This page assumes you've read that and moves to the other half of the question: what a name <em>belongs to</em>, and whether "belongs to" even means the same thing for every name.</p>
-    <p class="lede">It doesn't. A name published with a rank — genus, family, order — sits in one hierarchy. A name published as an "unranked clade," the modern habit of naming a group without committing to where it sits on the old Linnaean ladder, sits in a second, separate hierarchy. This page is about why those two hierarchies are kept apart, the narrow bridge built between them, and three real cases — checked against the old system's actual, live behavior — of what that separation gets right, what it costs, and where it still needs work.</p>
+    <p class="lede">It doesn't. A name published with a rank — genus, family, order — sits in one hierarchy. A name published as an "unranked clade," the modern habit of naming a group without committing to where it sits on the old Linnaean ladder, sits in a second, separate hierarchy. This page used to be about why those two hierarchies are kept apart forever, with a narrow bridge built between them. It no longer is: a third, primary ledger now resolves both together, and the two separate ledgers described below are its secondary, supporting layer. This page covers all of it — the two-ledger split that came first, the bridge between them, and the combined view built on top — through three real cases checked against live data.</p>
   </header>
 
   <!-- ============ THE BIG IDEA ============ -->
   <section class="block">
     <span class="eyebrow">The big idea</span>
-    <h2>Two family trees, joined by an explicit bridge</h2>
-    <p class="standfirst">Linnaean ranks and modern unranked clades are two different ways of naming a group. The redesign gives each its own ledger, rather than pretending they're one tree with a few odd branches.</p>
+    <h2>Two family trees, a bridge between them — and now, a combined view above both</h2>
+    <p class="standfirst">Linnaean ranks and modern unranked clades are two different ways of naming a group. This system keeps a secondary ledger for each — and now derives a primary, combined hierarchy directly from the same underlying opinions, resolving the two together instead of asking a caller to reconcile them by hand.</p>
     <div class="prose">
-      <p>The identity guide's ledger — <span class="mono">taxa</span> — holds every name accepted at a genuine Linnaean rank: kingdom down to subspecies. Its containment column, <span class="mono">containing_concept_permid</span>, is filled in by the exact same recompute step that decides accepted spellings and synonyms, just answering a different question: given every "belongs to" claim ever filed about a concept, which one wins?</p>
-      <p>Names published as an unranked clade — <span class="latin">Archosauria</span>, <span class="latin">Pancrustacea</span>, whole modern chunks of the tree of life that working systematists name without ranking — get their own, parallel ledger: <span class="mono">taxa_clades</span>. It runs the identical machinery, on the identical rule, restricted to candidates where both sides of a claim are themselves unranked. A clade can contain another clade. It cannot, through this path, contain or be contained by a Linnaean concept — that boundary is a hard wall, not a preference.</p>
-      <p>Every real "belongs to" claim that crosses the wall — a genus placed inside an unranked clade, or an unranked clade placed inside a Linnaean order — still exists in the source opinions. It's the two trees above that refuse it, by design: each one's pooling only ever considers candidates from its own side, so a cross-boundary claim can't win either contest no matter how well-evidenced it is. Before this bridge existed, that exclusion meant those claims were weighed by nothing at all — not beaten fairly, just never in the running anywhere. The redesign gives them a third, explicit home instead: <span class="mono">clade_attachments</span>, a bridge table built specifically for cross-boundary claims, and only for those.</p>
+      <p>The identity guide's Linnaean ledger — <span class="mono">taxa_linnaean</span> — holds every name accepted at a genuine Linnaean rank: kingdom down to subspecies. Its containment column, <span class="mono">containing_concept_permid</span>, is filled in by the exact same recompute step that decides accepted spellings and synonyms, just answering a different question: given every "belongs to" claim ever filed about a concept, which one wins?</p>
+      <p>Names published as an unranked clade — <span class="latin">Archosauria</span>, <span class="latin">Pancrustacea</span>, whole modern chunks of the tree of life that working systematists name without ranking — get their own, parallel ledger: <span class="mono">taxa_clades</span>. It runs the identical machinery, on the identical rule, restricted to candidates where both sides of a claim are themselves unranked. Within these two ledgers, a clade can contain another clade, and a Linnaean concept can contain another Linnaean concept — but neither can cross into the other's tree.</p>
+      <p>Every real "belongs to" claim that crosses that line — a genus placed inside an unranked clade, or an unranked clade placed inside a Linnaean order — still exists in the source opinions. It's these two ledgers' own pooling that refuses it, by design: each one only ever considers candidates from its own side. A third ledger, <span class="mono">taxa_attachments</span>, exists specifically to keep every cross-boundary claim as an explicit, queryable fact — a concept can carry more than one, since the claims never actually compete against each other in that ledger.</p>
+      <p>All three of those remain exactly as before, unchanged in behavior. What's new is a fourth, primary ledger — <span class="mono">taxa</span> — that resolves Linnaean and clade opinions <em>together</em>, from scratch, with no boundary at all. It doesn't read the other three; it re-derives the whole hierarchy from the same underlying opinions in one pass, so a claim that crosses the old line competes on equal footing with everything else, and wins or loses the ordinary way. <span class="mono">taxa_linnaean</span>, <span class="mono">taxa_clades</span>, and <span class="mono">taxa_attachments</span> remain as the secondary, per-domain record; <span class="mono">taxa</span> is now the one to read for a single best answer.</p>
     </div>
 
     <div class="note-grid">
       <div class="note-type">
-        <div class="glyph">◭</div>
+        <div class="glyph">◆</div>
         <h3><span class="mono">taxa</span></h3>
-        <p>The Linnaean tree. One container per concept, chosen by pooling every synonym's placement claims at equal rank.</p>
+        <p>Primary. The combined tree — Linnaean and clade opinions resolved together, no boundary. One container per concept, from the same pooling rule applied without restriction.</p>
+        <p class="eg">e.g. a genus attached to an unranked clade, resolved directly</p>
+      </div>
+      <div class="note-type">
+        <div class="glyph">◭</div>
+        <h3><span class="mono">taxa_linnaean</span></h3>
+        <p>Secondary. The Linnaean-only tree. One container per concept, chosen by pooling every synonym's placement claims at equal rank.</p>
         <p class="eg">e.g. a genus placed within a family</p>
       </div>
       <div class="note-type">
         <div class="glyph">◬</div>
         <h3><span class="mono">taxa_clades</span></h3>
-        <p>The clade-to-clade tree. Same pooling rule, restricted to candidates where both sides are unranked.</p>
+        <p>Secondary. The clade-to-clade tree. Same pooling rule, restricted to candidates where both sides are unranked.</p>
         <p class="eg">e.g. <span class="latin">Pancrustacea</span> within <span class="latin">Mandibulata</span></p>
       </div>
       <div class="note-type">
         <div class="glyph">⇄</div>
-        <h3><span class="mono">clade_attachments</span></h3>
-        <p>The bridge. Every claim that crosses the wall, in either direction — and, unlike the other two, a concept can have more than one.</p>
+        <h3><span class="mono">taxa_attachments</span></h3>
+        <p>Secondary. Every claim that crosses the Linnaean/clade line, in either direction — and, unlike the other secondary ledgers, a concept can have more than one.</p>
         <p class="eg">e.g. a genus attached to an unranked clade</p>
       </div>
     </div>
 
     <figure class="diagram">
-      <svg viewBox="0 0 640 230" role="img" aria-label="Two separate hierarchies, taxa and taxa_clades, joined only by the explicit clade_attachments bridge, which runs in both directions and allows more than one edge per subject.">
+      <svg viewBox="0 0 640 260" role="img" aria-label="Two separate secondary hierarchies, taxa_linnaean and taxa_clades, joined by the explicit taxa_attachments bridge, with a combined primary taxa ledger derived directly from the same underlying opinions, independent of all three.">
         <defs>
           <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
@@ -395,51 +402,71 @@
           </marker>
         </defs>
 
-        <!-- left tree: taxa -->
-        <rect x="16" y="20" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
-        <text x="126" y="42" text-anchor="middle" font-size="12.5" font-weight="600">taxa</text>
-        <text x="126" y="58" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">Linnaean concepts</text>
-        <circle cx="126" cy="90" r="4" fill="none" stroke="currentColor"></circle>
-        <path d="M126,94 L96,120" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <path d="M126,94 L156,120" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <circle cx="96" cy="124" r="4" fill="none" stroke="currentColor"></circle>
-        <circle cx="156" cy="124" r="4" fill="none" stroke="currentColor"></circle>
-        <path d="M156,128 L156,150" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <circle cx="156" cy="154" r="4" fill="none" stroke="currentColor"></circle>
+        <!-- combined primary ledger, spanning above both -->
+        <rect x="140" y="14" width="360" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"></rect>
+        <text x="320" y="34" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--accent)">taxa (primary)</text>
+        <text x="320" y="47" text-anchor="middle" font-size="9" fill="var(--accent)">Linnaean + clade opinions, resolved together, no boundary</text>
+
+        <!-- left tree: taxa_linnaean -->
+        <rect x="16" y="80" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
+        <text x="126" y="102" text-anchor="middle" font-size="12.5" font-weight="600">taxa_linnaean</text>
+        <text x="126" y="118" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">Linnaean concepts</text>
+        <circle cx="126" cy="150" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M126,154 L96,180" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <path d="M126,154 L156,180" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="96" cy="184" r="4" fill="none" stroke="currentColor"></circle>
+        <circle cx="156" cy="184" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M156,188 L156,210" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="156" cy="214" r="4" fill="none" stroke="currentColor"></circle>
 
         <!-- right tree: taxa_clades -->
-        <rect x="404" y="20" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
-        <text x="514" y="42" text-anchor="middle" font-size="12.5" font-weight="600">taxa_clades</text>
-        <text x="514" y="58" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">unranked clades</text>
-        <circle cx="514" cy="90" r="4" fill="none" stroke="currentColor"></circle>
-        <path d="M514,94 L484,120" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <path d="M514,94 L544,120" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <circle cx="484" cy="124" r="4" fill="none" stroke="currentColor"></circle>
-        <circle cx="544" cy="124" r="4" fill="none" stroke="currentColor"></circle>
-        <path d="M544,128 L544,150" fill="none" stroke="currentColor" stroke-width="1"></path>
-        <circle cx="544" cy="154" r="4" fill="none" stroke="currentColor"></circle>
+        <rect x="404" y="80" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
+        <text x="514" y="102" text-anchor="middle" font-size="12.5" font-weight="600">taxa_clades</text>
+        <text x="514" y="118" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">unranked clades</text>
+        <circle cx="514" cy="150" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M514,154 L484,180" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <path d="M514,154 L544,180" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="484" cy="184" r="4" fill="none" stroke="currentColor"></circle>
+        <circle cx="544" cy="184" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M544,188 L544,210" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="544" cy="214" r="4" fill="none" stroke="currentColor"></circle>
+
+        <!-- dashed lines: combined ledger derives independently from the same opinions, not from these two -->
+        <path d="M270,54 L 200,80" fill="none" stroke="var(--accent)" stroke-width="1" stroke-dasharray="2,3"></path>
+        <path d="M370,54 L 440,80" fill="none" stroke="var(--accent)" stroke-width="1" stroke-dasharray="2,3"></path>
 
         <!-- bridge -->
-        <path d="M236,110 L 404,90" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowA)"></path>
-        <path d="M404,150 L 236,140" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowA)"></path>
-        <text x="320" y="82" text-anchor="middle" font-size="10" fill="var(--accent)">ranked-in-clade</text>
-        <text x="320" y="168" text-anchor="middle" font-size="10" fill="var(--accent)">clade-in-ranked</text>
-        <text x="320" y="205" text-anchor="middle" font-size="11" font-weight="600" fill="var(--accent)">clade_attachments</text>
-        <text x="320" y="220" text-anchor="middle" font-size="9" fill="var(--ink-faint)">many-to-many — a concept can carry more than one edge</text>
+        <path d="M236,170 L 404,150" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowB)"></path>
+        <path d="M404,210 L 236,200" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowB)"></path>
+        <text x="320" y="142" text-anchor="middle" font-size="10" fill="var(--ink-faint)">ranked-in-clade</text>
+        <text x="320" y="228" text-anchor="middle" font-size="10" fill="var(--ink-faint)">clade-in-ranked</text>
+        <text x="320" y="248" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink-soft)">taxa_attachments — many-to-many</text>
       </svg>
-      <figcaption>Two structurally separate trees. The only crossing point is <span class="mono">clade_attachments</span>, which — unlike either tree's own single-parent containment column — allows a concept to carry more than one accepted edge at once.</figcaption>
+      <figcaption><span class="mono">taxa_linnaean</span> and <span class="mono">taxa_clades</span> stay structurally separate, crossed only by <span class="mono">taxa_attachments</span> (which, unlike either tree's own single-parent containment column, allows a concept to carry more than one accepted edge at once). The combined <span class="mono">taxa</span> ledger above doesn't read any of the three — it re-derives the whole hierarchy straight from the underlying opinions, with no boundary to cross.</figcaption>
     </figure>
   </section>
 
   <!-- ============ THE MECHANISM ============ -->
   <section class="block">
-    <span class="eyebrow">How a container gets chosen</span>
+    <span class="eyebrow">How a container gets chosen — the two secondary ledgers</span>
     <h2>Borrow from a synonym, never invert a rank, never cross the wall</h2>
-    <p class="standfirst">Both trees fill in their containment column the same way: pool every placement claim across a concept's synonyms, then exclude the ones that can't possibly be right before anything else is even weighed.</p>
+    <p class="standfirst"><span class="mono">taxa_linnaean</span> and <span class="mono">taxa_clades</span> fill in their containment column the same way: pool every placement claim across a concept's synonyms, then exclude the ones that can't possibly be right before anything else is even weighed. (The combined <span class="mono">taxa</span> ledger reuses this same pooling and tie-breaking rule too — the next section covers exactly where it differs.)</p>
     <div class="prose">
       <p>A concept's container isn't just whatever the accepted name's own placement claim says. Every synonym filed under that concept gets a vote too — a claim filed under a junior synonym is allowed to win if it's better evidenced or more recent than anything filed directly on the accepted name. This is deliberate: a specialist's paper about an obscure synonym can still carry real information about where the whole group belongs. The one exception is species — a species is placed by its own direct claim only, never borrowed from a synonym, because a species has to sit in its current genus regardless of what's argued about a synonym somewhere else.</p>
       <p>Two kinds of candidates get thrown out before the ranking contest even starts, no matter how well-evidenced they look. A claim that would make a concept its own container — a leftover placement filed before two names were recognized as synonyms of each other — is excluded outright. And on the Linnaean side only, a claim is excluded if the proposed container is <em>more finely ranked</em> than the concept itself: a family cannot be placed inside its own subfamily. Equal rank is fine — one genus can legitimately sit inside another — it's only an inversion that's barred.</p>
-      <p>Neither tree ever lets a claim cross the boundary between them through this normal path. An unranked clade is never assigned a Linnaean container, and it's never borrowed as one either — <span class="mono">taxa_clades</span> runs its own copy of this same pooling logic, restricted the other way, to candidates where <em>both</em> sides are unranked. A claim that names one side ranked and the other unranked doesn't win or lose in either pool. It's simply not a candidate in either — which is exactly the gap <span class="mono">clade_attachments</span> exists to fill.</p>
+      <p>Neither of these two ledgers ever lets a claim cross the boundary between them through this normal path. An unranked clade is never assigned a Linnaean container in <span class="mono">taxa_linnaean</span>, and it's never borrowed as one either — <span class="mono">taxa_clades</span> runs its own copy of this same pooling logic, restricted the other way, to candidates where <em>both</em> sides are unranked. A claim that names one side ranked and the other unranked doesn't win or lose in either pool. It's simply not a candidate in either — which is exactly the gap <span class="mono">taxa_attachments</span> exists to fill, and exactly the gap the combined <span class="mono">taxa</span> ledger resolves a different way, covered next.</p>
+    </div>
+  </section>
+
+  <!-- ============ THE COMBINED LEDGER ============ -->
+  <section class="block">
+    <span class="eyebrow">How a container gets chosen — the combined primary ledger</span>
+    <h2><span class="mono">taxa</span>: the same rule, with the wall taken down</h2>
+    <p class="standfirst">The combined ledger doesn't read <span class="mono">taxa_linnaean</span>, <span class="mono">taxa_clades</span>, or <span class="mono">taxa_attachments</span> and stitch them together. It re-derives the whole hierarchy from the same underlying opinions in one pass, with the Linnaean/clade boundary removed from every step — spelling grouping, synonym grouping, and containment pooling alike.</p>
+    <div class="prose">
+      <p>Concretely, that means a genus's synonym can be an unranked clade, and the merge is allowed; an unranked clade's container can be a Linnaean order, and the pooling is allowed; a family and an unranked clade with a shared, tangled opinion history can turn out to be the same concept, once nothing is stopping the merge from completing. Case 3 below is a real example of exactly that last kind.</p>
+      <p>One exclusion from the Linnaean side survives, in a modified form: a container still can't be <em>more finely ranked</em> than what it contains. But "finely ranked" has no meaning for an unranked clade — there's no coarser-or-finer ordering between two clades, or between a clade and a rank, the way there is between two ranks. So the combined ledger checks this only when <em>both</em> sides have a real rank to compare; a candidate touching an unranked clade on either side skips the check entirely, rather than being silently excluded the way it would be under the old wall. Nothing else from the old exclusion list survives — a concept accepted as an unranked clade can now have a container of its own, and can now serve as another concept's container, both for the first time.</p>
+      <p>Taking the wall down does exactly what it sounds like it would: it lets real disagreements that used to be structurally impossible actually surface, including genuine containment cycles between a Linnaean concept and a clade concept — a shape neither <span class="mono">taxa_linnaean</span> nor <span class="mono">taxa_clades</span> could ever produce on its own, since each excludes the other's side entirely. The combined ledger resolves those the same way <span class="mono">taxa_clades</span> already resolves clade-only cycles: cut the single weakest candidate among a cycle's own members, recompute, repeat until none remain. It never raises an error over a cycle — only if that loop somehow fails to terminate at all. Checked against real data, this happens more, and at a different scale, than either separate ledger ever saw: dropping the wall surfaced a handful of real disagreements among a few major, deep-history clade names sitting near the root of the entire tree of life, each resolved the same way, cut by cut.</p>
     </div>
   </section>
 
@@ -447,7 +474,7 @@
   <section class="block">
     <span class="eyebrow">Breaking ties</span>
     <h2>The same three questions, run independently in each ledger</h2>
-    <p class="standfirst">Once the impossible candidates are gone, all three ledgers settle a contest the identical way — the same rule the identity guide describes for spellings and synonyms, run again here for containment.</p>
+    <p class="standfirst">Once the impossible candidates are gone, every ledger — all three secondary ones, and the combined primary ledger above them — settles a contest the identical way: the same rule the identity guide describes for spellings and synonyms, run again here for containment.</p>
     <div class="rank-strip">
       <div class="rank-step">
         <div class="n">FIRST</div>
@@ -466,10 +493,10 @@
       </div>
     </div>
     <div class="prose" style="margin-top:26px;">
-      <p>That's the whole rule, and it runs three separate times — once for <span class="mono">taxa</span>, once for <span class="mono">taxa_clades</span>, once for <span class="mono">clade_attachments</span> — each strictly within its own candidate pool. Nothing about the rule itself differs between the Linnaean and clade sides. What differs is what happens when the pooled candidates form a genuine cycle: concept A's winning claim points to B, and B's, however indirectly, points back to A.</p>
-      <p>On the Linnaean side, the rank-inversion exclusion above does most of the work of preventing a cycle from ever forming — a coarser thing can never be placed inside a finer one, which rules out most loops before they start. On the rare occasion a genuine cycle still forms among concepts of compatible rank, <span class="mono">taxa</span>'s derivation stops and raises an error identifying it, rather than guessing.</p>
-      <p>Unranked clades have no such firewall. There's no "coarser or finer" between two unranked names — that ordering doesn't exist for them at all — so nothing structural stops a cycle from forming on the clade side the way rank inversion does on the Linnaean side. Rather than block the entire derivation over it, <span class="mono">taxa_clades</span> resolves a genuine cycle automatically: it finds every concept whose own containment chain loops back to itself, cuts the single weakest candidate — lowest evidence, then oldest, then earliest-entered — among just those concepts, and repeats until no cycle remains. Every cut is permanently recorded and queryable afterward, not just inspectable within the session that computed it.</p>
-      <p>One wrinkle sits ahead of that last "earliest-entered" step: a candidate that only reached a concept because an unrelated name was pooled in as its synonym is cut before one filed directly on the concept's own anchor name, if the two are otherwise tied. A synonym-pooling artifact is a more likely explanation for a tie than a real disagreement between two carefully-argued claims, so it loses first. That's genuinely useful — Case 1 below shows it working correctly — but it only breaks <em>that specific kind</em> of tie. Two directly-filed, equally senior, equally well-evidenced claims from different concepts still fall through to the same arbitrary last resort as everywhere else in the system, and the clade side still has no rank-based ordering to stop a cycle from forming in the first place. The tiebreak narrows the risk; it doesn't remove it.</p>
+      <p>That's the whole rule, and it runs independently in <span class="mono">taxa_linnaean</span>, <span class="mono">taxa_clades</span>, <span class="mono">taxa_attachments</span>, and <span class="mono">taxa</span> alike, each strictly within its own candidate pool. Nothing about the rule itself differs between them. What differs is what happens when the pooled candidates form a genuine cycle: concept A's winning claim points to B, and B's, however indirectly, points back to A.</p>
+      <p>On the Linnaean side, the rank-inversion exclusion above does most of the work of preventing a cycle from ever forming — a coarser thing can never be placed inside a finer one, which rules out most loops before they start. On the rare occasion a genuine cycle still forms among concepts of compatible rank, <span class="mono">taxa_linnaean</span> resolves it the same way the clade side always has: it finds every concept whose own containment chain loops back to itself, cuts the single weakest candidate among just those concepts, and repeats until no cycle remains, rather than guessing or leaving a partial answer. It only raises an error if that loop somehow fails to settle after a very large number of rounds — not merely because a cycle was found.</p>
+      <p>Unranked clades have no rank-based firewall at all — there's no "coarser or finer" between two unranked names, so nothing structural stops a cycle from forming on the clade side the way rank inversion mostly does on the Linnaean side. <span class="mono">taxa_clades</span> resolves a genuine cycle the identical way: cuts the single weakest candidate — lowest evidence, then oldest, then earliest-entered — among just the looping concepts, and repeats. Every cut, on either side, is permanently recorded and queryable afterward, not just inspectable within the session that computed it.</p>
+      <p>One wrinkle sits ahead of that last "earliest-entered" step: a candidate that only reached a concept because an unrelated name was pooled in as its synonym is cut before one filed directly on the concept's own anchor name, if the two are otherwise tied. A synonym-pooling artifact is a more likely explanation for a tie than a real disagreement between two carefully-argued claims, so it loses first. That's genuinely useful — Case 1 below shows it working correctly — but it only breaks <em>that specific kind</em> of tie. Two directly-filed, equally senior, equally well-evidenced claims from different concepts still fall through to the same arbitrary last resort as everywhere else in the system, and neither the clade side nor the combined ledger has a rank-based ordering to stop every possible cycle from forming in the first place. The tiebreak narrows the risk; it doesn't remove it — and the combined ledger, having no boundary left to shrink the candidate pool at all, sees this kind of cycle more often than either secondary ledger did on its own.</p>
     </div>
   </section>
 
@@ -477,7 +504,7 @@
   <section class="block">
     <span class="eyebrow">Worked examples</span>
     <h2>Case files</h2>
-    <p class="standfirst">Three real cases, each checked directly against the old system's own live data rather than described from memory or invented for the page: a place a genuine tie gets broken correctly, a place the design trades one gain for one cost, and a place it's unambiguously better.</p>
+    <p class="standfirst">Three real cases, each checked directly against the old system's own live data and, for two of them, against both the secondary ledgers and the new combined one — not described from memory or invented for the page: a place a genuine tie gets broken correctly, a place a real cost has now been resolved, and a place the combined ledger surfaces something neither older ledger could.</p>
 
     <div class="case">
       <div class="case-tab"><span class="num">Case 1</span><span class="kind">clade cycle · a genuine tie, correctly broken</span></div>
@@ -491,25 +518,25 @@
     </div>
 
     <div class="case">
-      <div class="case-tab"><span class="num">Case 2</span><span class="kind">cross-boundary · a real trade-off</span></div>
+      <div class="case-tab"><span class="num">Case 2</span><span class="kind">cross-boundary · a real cost, now resolved</span></div>
       <div class="case-body">
-        <h3><span class="latin">Bredocaris</span>: two containers, not one</h3>
-        <div class="cite">Real data, checked against both the old system's live database and the new system's current derived output.</div>
+        <h3><span class="latin">Bredocaris</span>: one answer again, and it's the right one</h3>
+        <div class="cite">Real data, checked against the old system's live database and against all four of the new system's ledgers.</div>
         <p>Exactly two opinions have ever been filed about this small arthropod genus: "belongs to <span class="latin">Orstenocarida</span>" — an order-level placement, no evidence stated, filed under a reference the old system's own reliability rule treats as the weakest kind on record — and "belongs to <span class="latin">Pancrustacea</span>" — an unranked clade, backed by stated evidence. The old system ranks every opinion in one pool regardless of category, so it correctly picks <span class="latin">Pancrustacea</span> as <span class="latin">Bredocaris</span>'s one classification. The weaker <span class="latin">Orstenocarida</span> opinion is still on file, but nothing in the old system's own display ever shows it once it loses.</p>
-        <p>The new system keeps both opinions visible — but not by picking the better one. Because a Linnaean concept's container is chosen from Linnaean-only candidates, and <span class="latin">Pancrustacea</span> is cross-boundary, <span class="latin">Bredocaris</span>'s main classification in <span class="mono">taxa</span> resolves to <span class="latin">Orstenocarida</span> — the weaker opinion — while the better-evidenced <span class="latin">Pancrustacea</span> placement sits, correctly, in <span class="mono">clade_attachments</span>. The two claims never actually compete against each other; they're ranked in separate pools.</p>
-        <div class="takeaway"><strong>The gain:</strong> nothing is silently discarded the way the losing opinion is in the old system — both claims survive as explicit, queryable facts.</div>
-        <div class="takeaway cost"><strong>The cost:</strong> there is currently no single answer to "what's <span class="latin">Bredocaris</span>'s best-evidenced classification, full stop." Reading <span class="mono">taxa</span> alone gives a less-supported answer than the old system's own single ranked pool did for the identical question — finding the better one means knowing to also check <span class="mono">clade_attachments</span>.</div>
+        <p><span class="mono">taxa_linnaean</span> still shows the cost this page originally described: because its container is chosen from Linnaean-only candidates and <span class="latin">Pancrustacea</span> is cross-boundary, it resolves <span class="latin">Bredocaris</span> to <span class="latin">Orstenocarida</span> — the weaker opinion — while <span class="mono">taxa_attachments</span> separately, correctly, records the better-evidenced <span class="latin">Pancrustacea</span> placement. Reading <span class="mono">taxa_linnaean</span> alone still gives the less-supported answer, exactly as before.</p>
+        <p>The combined <span class="mono">taxa</span> ledger doesn't have that problem, because it isn't choosing from a restricted pool in the first place: both opinions compete directly, and <span class="latin">Pancrustacea</span> wins on its own merits — better evidence, no boundary to sit on the wrong side of. Checked against the current derived output, that's exactly what it shows.</p>
+        <div class="takeaway"><strong>The point:</strong> this was never a limitation of the evidence-ranking rule itself — it was a rule applied to an artificially narrowed pool. The combined ledger applies the identical rule to the full pool, and the better-evidenced opinion wins the way it always should have. <span class="mono">taxa_attachments</span> still keeps the <span class="latin">Pancrustacea</span> placement visible as its own explicit, queryable fact, same as before — it's just no longer the only place the right answer for <span class="latin">Bredocaris</span> shows up.</div>
       </div>
     </div>
 
     <div class="case">
-      <div class="case-tab"><span class="num">Case 3</span><span class="kind">cross-boundary · a real win</span></div>
+      <div class="case-tab"><span class="num">Case 3</span><span class="kind">cross-boundary · what looked like alternatives turns out to be one answer</span></div>
       <div class="case-body">
-        <h3><span class="latin">Wiwaxia</span>'s coexisting hypotheses</h3>
-        <div class="cite">Real data, checked against both the old system's live database and the new system's current derived output.</div>
-        <p><span class="latin">Wiwaxia</span> is a famously contested Cambrian fossil, and its opinion history shows it: six placements on file, in order — <span class="latin">Sachitida</span> (an order-level grouping, no evidence stated), <span class="latin">Halwaxida</span> (an unranked clade, stated evidence — the old system's <em>current</em> cached answer), <span class="latin">Annelida</span> (a phylum, no evidence stated), <span class="latin">Metazoa</span> (a subkingdom, second-hand), and <span class="latin">Wiwaxidae</span> twice, the second time with stated evidence and the most recent entry on file. The old system has room for exactly one answer at a time. It currently shows <span class="latin">Halwaxida</span> — which means the historically real <span class="latin">Sachitida</span> and <span class="latin">Annelida</span> hypotheses, and arguably the more current <span class="latin">Wiwaxidae</span> opinion, are invisible in the classification itself. Finding out they were ever seriously argued means reading the raw opinion history by hand.</p>
-        <p>The new system's <span class="mono">taxa</span> table gets the current answer right — <span class="latin">Wiwaxidae</span>, matching the newest, best-evidenced opinion on file. And separately, <span class="mono">clade_attachments</span> keeps both the <span class="latin">Sachitida</span> and <span class="latin">Annelida</span> placements on record as live, labeled facts, not buried history. All three coexist because none of them are actually competing: each is judged against its own specific target, not against each other.</p>
-        <div class="takeaway"><strong>The point:</strong> no hedge needed here. The current answer is correct, and real information about a genuinely, repeatedly re-argued taxon survives that the old system's one-container-per-taxon design could never hold onto, for any taxon, by construction.</div>
+        <h3><span class="latin">Wiwaxia</span>: two "coexisting hypotheses" that were never actually two</h3>
+        <div class="cite">Real data, checked against the old system's live database and against all four of the new system's ledgers.</div>
+        <p><span class="latin">Wiwaxia</span> is a famously contested Cambrian fossil, and its opinion history shows it: six placements on file, in order — <span class="latin">Sachitida</span> (an order-level grouping, no evidence stated), <span class="latin">Halwaxida</span> (an unranked clade, stated evidence, published 2007 — the old system's <em>current</em> cached answer), <span class="latin">Annelida</span> (a phylum, no evidence stated), <span class="latin">Metazoa</span> (a subkingdom, second-hand), and <span class="latin">Wiwaxidae</span> twice, the second time with stated evidence but citing a much older (1911) publication. <span class="mono">taxa_linnaean</span> shows <span class="latin">Wiwaxidae</span> as the current answer — not because it's actually the best-evidenced opinion on file, but because <span class="latin">Halwaxida</span>, an unranked clade, was never a candidate for a Linnaean concept's container in the first place. Separately, <span class="mono">taxa_attachments</span> keeps the <span class="latin">Sachitida</span> and <span class="latin">Annelida</span> placements on record as their own explicit, cross-boundary facts — exactly as this page originally described, and exactly what made this look like a case of several genuine, coexisting hypotheses sitting side by side.</p>
+        <p>The combined <span class="mono">taxa</span> ledger doesn't have a rank wall to sit on the wrong side of, so it just applies the ordinary evidence rule to <span class="latin">Wiwaxia</span>'s full opinion history: <span class="latin">Halwaxida</span>'s 2007 evidenced opinion outranks <span class="latin">Wiwaxidae</span>'s 1911 one, the same way it always should have. That much matches the old system's own current answer. But <span class="latin">Halwaxida</span> turns out to already be a junior synonym of <span class="latin">Sachitida</span> — a merge <span class="mono">taxa_clades</span> has independently derived for some time, unrelated to anything new here — and the combined ledger additionally recognizes <span class="latin">Thambetolepida</span> as a junior synonym of the same senior name, a real, evidenced opinion that could never merge across the old wall before now. <span class="latin">Sachitida</span> itself has never been asserted junior to anything on file, so it wins the concept's senior name outright. <span class="latin">Wiwaxia</span>'s combined-ledger classification therefore reads as "<span class="latin">Sachitida</span>" — not a different container than <span class="latin">Halwaxida</span>, but the correct senior name for the identical one.</p>
+        <div class="takeaway"><strong>The point:</strong> one of the two "coexisting hypotheses" <span class="mono">taxa_attachments</span> preserves for this taxon — <span class="latin">Sachitida</span> — was never actually a competing alternative to the current answer. It's a synonym of it, hiding in plain sight because the old rank wall kept the two names permanently apart. <span class="latin">Annelida</span> remains a genuinely separate, weaker, still-on-file hypothesis; that part of the original story is unchanged.</div>
       </div>
     </div>
   </section>
@@ -517,38 +544,38 @@
   <!-- ============ WHAT CHANGED FROM CLASSIC ============ -->
   <section class="block">
     <span class="eyebrow">For readers who know the old system</span>
-    <h2>Not simply better. Structured differently, on purpose.</h2>
-    <p class="standfirst">The old system has no separate concept of a clade hierarchy, or of a cross-boundary attachment, at all. An unranked clade there is just another row in one undifferentiated tree, with its usual rank-order sanity check quietly switched off rather than routed anywhere different. The redesign's three-ledger split is a real trade, not a strict upgrade — the three cases above show all of it, not just the flattering part.</p>
+    <h2>Four ledgers, not one — and the primary one now matches the old system's own ambition</h2>
+    <p class="standfirst">The old system has no separate concept of a clade hierarchy, or of a cross-boundary attachment, at all. An unranked clade there is just another row in one undifferentiated tree, with its usual rank-order sanity check quietly switched off rather than routed anywhere different. This redesign's two secondary ledgers plus a bridge were the first cut at that problem; the combined primary ledger is the second, and it closes a gap the first cut deliberately left open.</p>
     <div class="prose">
-      <p>Splitting the two hierarchies apart is what makes <span class="mono">taxa</span> and <span class="mono">taxa_clades</span> each internally clean — a Linnaean concept and a clade concept can never merge into each other or cycle through each other, however tangled either side's own opinions get. That isolation is also exactly what makes Case 1's situation possible: with no rank ordering left on the clade side to catch a cycle before it forms, telling a real disagreement apart from a synonym-pooling artifact falls entirely on the tie-breaking rule. Today that rule gets it right, for the specific kind of tie it was built to catch — but it's a narrower guarantee than the rank-based firewall the Linnaean side gets for free, and the same isolation produces Case 2's recurring cost: evidence no longer competes across the boundary the old system always ranked as one pool, so the "main" answer in <span class="mono">taxa</span> can be weaker than the one sitting right next to it in <span class="mono">clade_attachments</span>.</p>
-      <p>But the same isolation is what makes Case 3 possible at all. The old system's single classification slot per taxon means a genuinely contested name — one the literature has placed in three or four different groups over its history — can only ever show the current winner, with everything else invisible unless someone goes looking. The redesign's separate, explicit bridge table means a well-evidenced alternative placement doesn't have to lose a fight it was never actually in to stay visible.</p>
+      <p>Splitting the two hierarchies apart is what makes <span class="mono">taxa_linnaean</span> and <span class="mono">taxa_clades</span> each internally clean — a Linnaean concept and a clade concept can never merge into each other or cycle through each other within either one, however tangled either side's own opinions get. That isolation is also exactly what makes Case 1's situation possible: with no rank ordering left on the clade side to catch a cycle before it forms, telling a real disagreement apart from a synonym-pooling artifact falls entirely on the tie-breaking rule. Today that rule gets it right, for the specific kind of tie it was built to catch — but it's a narrower guarantee than the rank-based firewall the Linnaean side gets for free.</p>
+      <p>Case 2 and Case 3 are a different story than they used to be. Both used to illustrate a real, recurring cost of the two-ledger split: evidence stopped competing across the boundary the old system always ranked as one pool, so the "main" Linnaean answer could be weaker than — or blind to a synonymy with — something sitting right next to it in the bridge table. The combined <span class="mono">taxa</span> ledger removes that cost directly, by removing the boundary that caused it, rather than by adding a second place to look. <span class="mono">taxa_linnaean</span>, <span class="mono">taxa_clades</span>, and <span class="mono">taxa_attachments</span> still exist, still behave exactly as before, and still matter — they're what the combined ledger's own containment cycles get compared against, and they're the finer-grained, per-domain record when someone specifically needs "the Linnaean-only view" or "the clade-only view" rather than the resolved one. But for the question the old system's one pool always answered — what's this taxon's single, best-evidenced classification, full stop — <span class="mono">taxa</span> is now the ledger that answers it, the same way Classic's one slot always tried to.</p>
     </div>
     <div class="compare">
-      <div class="compare-head"><div class="old">Classic — one slot per taxon</div><div class="new">pbdb2 — three ledgers</div></div>
+      <div class="compare-head"><div class="old">Classic — one slot per taxon</div><div class="new">pbdb2 — combined ledger</div></div>
       <div class="compare-row">
         <div class="old"><p><span class="case-label">Case 1</span>Every filed opinion agrees; the cached classification happens to be right.</p></div>
-        <div class="new"><p><span class="case-label">Case 1</span>No rank firewall on the clade side, so a real tie relies on the tie-break rule — which currently gets this one right.</p></div>
+        <div class="new"><p><span class="case-label">Case 1</span>No rank firewall on the clade side, so a real tie relies on the tie-break rule — which currently gets this one right, in <span class="mono">taxa_clades</span> and unchanged in the combined ledger.</p></div>
       </div>
       <div class="compare-row">
         <div class="old"><p><span class="case-label">Case 2</span>One evidence-ranked pool correctly picks the better opinion; the weaker one disappears.</p></div>
-        <div class="new"><p><span class="case-label">Case 2</span>Both opinions survive, but the "main" table can show the weaker of the two.</p></div>
+        <div class="new"><p><span class="case-label">Case 2</span><span class="mono">taxa_linnaean</span> alone still shows the weaker opinion, same as before — but <span class="mono">taxa</span> now picks the better one directly, and <span class="mono">taxa_attachments</span> still keeps it as a queryable fact too.</p></div>
       </div>
       <div class="compare-row">
         <div class="old"><p><span class="case-label">Case 3</span>One classification slot shows only the current winner; five other real hypotheses vanish.</p></div>
-        <div class="new"><p><span class="case-label">Case 3</span>The current answer is correct, and two coexisting alternatives stay visible alongside it.</p></div>
+        <div class="new"><p><span class="case-label">Case 3</span><span class="mono">taxa</span> shows the same current winner Classic does — and additionally reveals that one of the "alternative" hypotheses <span class="mono">taxa_attachments</span> preserves is actually a synonym of it, not a competitor.</p></div>
       </div>
     </div>
     <div class="prose" style="margin-top:26px;">
-      <p>What's missing today, on both sides of that comparison, is a single combined view that ranks a Linnaean and a cross-boundary claim against each other directly — the way the old system's one pool always did, for better and for worse. Building that view is a deliberate piece of future work, not an oversight this page is glossing over.</p>
+      <p>None of this is free. Resolving Linnaean and clade opinions together, with no boundary to shrink the candidate pool, means the combined ledger sees containment cycles the two secondary ledgers structurally couldn't — checked against the full current dataset, a real one turned up among a handful of major, deep-history clade names sitting near the root of the entire tree of life, resolved the same cut-the-weakest-edge way described above. It's also slower to compute in full: rebuilding the combined ledger from scratch currently takes on the order of minutes, not the roughly-twenty-seconds the Linnaean-only ledger alone needs, because each cycle it resolves means rebuilding its full candidate pool again. Both are known, monitored trade-offs of resolving everything together rather than an oversight this page is glossing over.</p>
     </div>
   </section>
 
   <footer>
     <div class="status">
       <span class="tag">Where this stands today</span>
-      <span class="mono">taxa_clades</span> and <span class="mono">clade_attachments</span> are implemented and validated against real, migrated data — this isn't a design sketch the way parts of the identity guide are. The OpenSpec change that built them is complete but not yet archived as of this writing.
+      All four ledgers — <span class="mono">taxa_linnaean</span>, <span class="mono">taxa_clades</span>, <span class="mono">taxa_attachments</span>, and the combined <span class="mono">taxa</span> — are implemented and validated end-to-end against the full real, migrated dataset, including a genuine cross-boundary containment cycle the combined ledger had to learn to resolve (see above). This isn't a design sketch the way parts of the identity guide are. The <span class="mono">derive-clade-attachments</span> OpenSpec change (the two secondary ledgers plus the bridge) and the <span class="mono">taxa-tables-rework</span> change (the rename and the combined ledger) are both complete but not yet archived as of this writing.
     </div>
-    <p class="colophon">Grounded in <span class="mono">openspec/specs/taxa-opinions/spec.md</span>, <span class="mono">openspec/changes/derive-clade-attachments/</span> (proposal, design, and both capability specs), and <a href="taxonomy-user-guide.html">the identity half of this guide</a>. Cases 1–3 are drawn from a direct, live comparison between the old system's own Postgres-ported database and the new system's current derived output — not reconstructed from documentation on either side.</p>
+    <p class="colophon">Grounded in <span class="mono">openspec/specs/taxa-opinions/spec.md</span>, <span class="mono">openspec/specs/taxa-unified/spec.md</span>, <span class="mono">openspec/changes/derive-clade-attachments/</span>, <span class="mono">openspec/changes/taxa-tables-rework/</span> (proposal, design, and specs for both), and <a href="taxonomy-user-guide.html">the identity half of this guide</a>. All three cases are drawn from a direct, live comparison between the old system's own Postgres-ported database and the new system's current derived output across all four ledgers — not reconstructed from documentation on either side.</p>
   </footer>
 
 </div>
