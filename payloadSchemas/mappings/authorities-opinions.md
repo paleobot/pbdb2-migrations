@@ -14,27 +14,9 @@ N/A	| edge_class | 'root'
 N/A | objective | NA
 N/A | evidence | Always FALSE for root
 taxon_name	| new_name |
-taxon_rank	| rank_id | Find the id in dictionaries.taxonomy_ranks that corresponds to the taxon_rank.
+taxon_rank	| rank_id | taxon_rank = "informal" ? fk to dictionaries.taxonomy_ranks "unranked" : fk to dictionaries.taxonomy_ranks that corresponds to the taxon_rank.
 N/A | authority_id | This is a fk to the new authorities table record whose authority.legacyIDs.oldpbdbids includes the oldpbdb_taxon_no.
 reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
 N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
 N/A | publication_year | authorities.authority.year in the record fk'ed by authority_id
 N/A | removed | false
-
-### There will be 18 rows from classic authorities that have a taxon rank of "informal". These should be mapped to the rank_id for "unranked" in the name_opinions record and a record should be added to validity_opinions that follows this mapping:
-
-Classic authorities | validity_opinions | Notes
--- | -- | --
-N/A	| id	| pk
-N/A | permid | generated
-authorizer_no	| authorizer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = authorizer_no.
-enterer_no	| enterer_person_id	| This is a foreign key to the new persons table record whose person.legacyIDs.oldpbdbid = enterer_no.
-taxon_no | subject_permid | The permid from the name_opinions record with oldpbdb_taxon_no = taxon_no.
-taxon_rank | nomenclatural_status_id | fk to the dictionaries.nomenclatural_statuses = 'nomen vanum' (this might change, but it's the best placeholder for now)
-reference_no | reference_id | The reference_id from the record in the new authorities table fk'ed by authority_id
-N/A | evidence |  FALSE
-N/A | targeted | FALSE
-N/A | publication_year | authorities.authority.year in the record fk'ed by authority_id
-N/A | attribution | Using opinionAttribution.schema.js, this gets the relevant data from authorities.authority in the record fk'ed by authority_id
-N/A | removed | false
-
