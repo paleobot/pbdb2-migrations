@@ -1,0 +1,553 @@
+<title>The Containment Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600&family=Libre+Franklin:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* ================= TOKENS ================= */
+  :root {
+    --ground:        #E4E1D3;
+    --surface:        #F7F5ED;
+    --surface-raised: #FCFBF6;
+    --ink:            #262319;
+    --ink-soft:       #5D5847;
+    --ink-faint:      #8C876F;
+    --rule:           #CBC4AA;
+    --rule-strong:    #A9A184;
+    --accent:         #35635C;
+    --accent-soft:    #C9DCD6;
+    --accent-warm:    #A96F2A;
+    --accent-warm-soft: #EBD9B8;
+    --flag:           #954234;
+    --flag-soft:      #E9CFC6;
+    --shadow:         rgba(38, 35, 25, 0.10);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #1A1C17;
+      --surface:        #232620;
+      --surface-raised: #2A2D25;
+      --ink:            #ECE7D8;
+      --ink-soft:       #B3AC93;
+      --ink-faint:      #837C63;
+      --rule:           #3B3D33;
+      --rule-strong:    #4F5142;
+      --accent:         #7FC2B6;
+      --accent-soft:    #29423D;
+      --accent-warm:    #DCA857;
+      --accent-warm-soft: #4A3B22;
+      --flag:           #DA8E7C;
+      --flag-soft:      #4A2E27;
+      --shadow:         rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #1A1C17;
+    --surface:        #232620;
+    --surface-raised: #2A2D25;
+    --ink:            #ECE7D8;
+    --ink-soft:       #B3AC93;
+    --ink-faint:      #837C63;
+    --rule:           #3B3D33;
+    --rule-strong:    #4F5142;
+    --accent:         #7FC2B6;
+    --accent-soft:    #29423D;
+    --accent-warm:    #DCA857;
+    --accent-warm-soft: #4A3B22;
+    --flag:           #DA8E7C;
+    --flag-soft:      #4A2E27;
+    --shadow:         rgba(0, 0, 0, 0.35);
+  }
+
+  /* ================= BASE ================= */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  h1, h2, h3 {
+    font-family: "Fraunces", ui-serif, Georgia, serif;
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--ink);
+    margin: 0;
+  }
+  .latin { font-style: italic; font-family: "Fraunces", ui-serif, Georgia, serif; }
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+  img, svg { max-width: 100%; }
+
+  /* ================= HERO ================= */
+  .hero {
+    padding: 76px 0 56px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .eyebrow { display: block; margin-bottom: 18px; }
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    line-height: 1.06;
+    letter-spacing: -0.01em;
+  }
+  .hero .dek {
+    margin-top: 18px;
+    font-size: 1.2rem;
+    color: var(--ink-soft);
+    max-width: 34ch;
+    line-height: 1.5;
+  }
+  .hero .lede {
+    margin-top: 28px;
+    max-width: 62ch;
+    font-size: 1.02rem;
+  }
+  .hero .lede + .lede { margin-top: 14px; }
+
+  /* ================= SECTIONS ================= */
+  section.block {
+    padding: 56px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  section.block:last-of-type { border-bottom: none; }
+  .block .eyebrow { display: block; margin-bottom: 14px; }
+  .block h2 {
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    max-width: 24ch;
+  }
+  .block .standfirst {
+    margin-top: 10px;
+    font-size: 1.06rem;
+    color: var(--ink-soft);
+    max-width: 56ch;
+  }
+  .prose { max-width: 62ch; margin-top: 22px; }
+  .prose p { margin: 0 0 16px; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose strong { color: var(--ink); font-weight: 600; }
+
+  /* ================= ASIDE / CLASSIC NOTE ================= */
+  .classic-note {
+    margin: 22px 0 0;
+    padding: 14px 18px;
+    background: var(--accent-warm-soft);
+    border-left: 3px solid var(--accent-warm);
+    border-radius: 2px;
+    font-size: 0.94rem;
+    max-width: 56ch;
+  }
+  .classic-note .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-warm);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  /* ================= DIAGRAM FIGURES ================= */
+  figure.diagram {
+    margin: 30px 0 0;
+    padding: 24px 20px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  figure.diagram svg { display: block; width: 100%; height: auto; color: var(--ink-soft); }
+  figure.diagram svg text { fill: currentColor; font-family: "IBM Plex Mono", monospace; }
+  figcaption {
+    margin-top: 14px;
+    font-size: 0.88rem;
+    color: var(--ink-faint);
+    max-width: 56ch;
+  }
+
+  /* ================= NOTE-TYPE GRID ================= */
+  .note-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 26px;
+  }
+  @media (max-width: 640px) { .note-grid { grid-template-columns: 1fr; } }
+  .note-type {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 18px 18px 20px;
+  }
+  .note-type .glyph {
+    font-family: "Fraunces", serif;
+    font-size: 1.6rem;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .note-type h3 { font-size: 1.02rem; margin-top: 10px; font-weight: 600; }
+  .note-type p { font-size: 0.92rem; color: var(--ink-soft); margin: 8px 0 0; }
+  .note-type .eg { margin-top: 10px; font-size: 0.82rem; font-family: "IBM Plex Mono", monospace; color: var(--ink-faint); }
+
+  /* ================= RANKING STRIP ================= */
+  .rank-strip {
+    display: flex;
+    gap: 0;
+    margin-top: 26px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  .rank-step {
+    flex: 1;
+    min-width: 140px;
+    padding: 16px 16px 18px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .rank-step:last-child { border-right: none; }
+  .rank-step .n { font-family:"IBM Plex Mono",monospace; font-size: 11px; color: var(--accent); letter-spacing: .06em; }
+  .rank-step h4 { font-size: 0.98rem; font-weight: 600; margin: 6px 0 4px; font-family:"Libre Franklin",sans-serif; }
+  .rank-step p { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
+
+  /* ================= CASE FILES ================= */
+  .case {
+    margin-top: 34px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .case:first-of-type { margin-top: 28px; }
+  .case-tab {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--rule);
+    padding: 12px 20px;
+  }
+  .case-tab .num { font-family:"IBM Plex Mono",monospace; font-size: 11.5px; letter-spacing:.1em; color: var(--accent-warm); text-transform: uppercase; }
+  .case-tab .kind { font-family:"IBM Plex Mono",monospace; font-size: 11.5px; color: var(--ink-faint); }
+  .case-body { padding: 20px 22px 24px; }
+  .case-body h3 { font-size: 1.18rem; margin-bottom: 4px; }
+  .case-body .cite { font-size: 0.86rem; color: var(--ink-faint); font-style: italic; margin-bottom: 14px; }
+  .case-body .cite.hypo::before { content: "hypothetical — "; font-style: normal; color: var(--accent-warm); }
+  .case-body p { margin: 0 0 14px; max-width: 60ch; }
+  .case-body p:last-child { margin-bottom: 0; }
+  .takeaway {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border-radius: 2px;
+    font-size: 0.92rem;
+    max-width: 58ch;
+  }
+  .takeaway strong { color: var(--accent); }
+  .takeaway.cost { background: var(--flag-soft); }
+  .takeaway.cost strong { color: var(--flag); }
+  .never { color: var(--flag); font-weight: 600; }
+
+  /* ================= COMPARE TABLE ================= */
+  .compare {
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .compare-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: var(--rule);
+    gap: 1px;
+  }
+  @media (max-width: 640px) { .compare-row { grid-template-columns: 1fr; } }
+  .compare-row > div { background: var(--surface); padding: 16px 18px; }
+  .compare-row .old { }
+  .compare-row .new { }
+  .compare-head { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 0; }
+  @media (max-width: 640px) { .compare-head { grid-template-columns: 1fr; } }
+  .compare-head > div {
+    padding: 10px 18px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .compare-head .old { color: var(--ink-faint); background: var(--surface); }
+  .compare-head .new { color: var(--accent); background: var(--surface); }
+  .compare-row p { margin: 0; font-size: 0.94rem; }
+  .compare-row .old { color: var(--ink-soft); }
+  .compare-row .new { color: var(--ink); }
+  .compare-row .case-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  /* ================= FOOTER ================= */
+  footer {
+    padding: 40px 0 64px;
+  }
+  footer .status {
+    padding: 16px 18px;
+    border: 1px dashed var(--rule-strong);
+    border-radius: 3px;
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+    max-width: 58ch;
+  }
+  footer .status .tag {
+    display:block; font-family:"IBM Plex Mono",monospace; font-size: 11px; letter-spacing:.08em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px;
+  }
+  footer .colophon {
+    margin-top: 22px;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">A field guide to pbdb2, part two</span>
+    <h1>The Containment Ledger</h1>
+    <p class="dek">How the next Paleobiology Database decides what belongs inside what — across two family trees the old system never actually kept apart.</p>
+    <p class="lede">The <a href="taxonomy-user-guide.html">companion page to this one</a> covers identity: how the system decides what a name <em>is</em> — a card, a lineage, a concept, an accepted spelling. This page assumes you've read that and moves to the other half of the question: what a name <em>belongs to</em>, and whether "belongs to" even means the same thing for every name.</p>
+    <p class="lede">It doesn't. A name published with a rank — genus, family, order — sits in one hierarchy. A name published as an "unranked clade," the modern habit of naming a group without committing to where it sits on the old Linnaean ladder, sits in a second, separate hierarchy. This page is about why those two hierarchies are kept apart, the narrow bridge built between them, and three real cases — checked against the old system's actual, live behavior — of what that separation gets right, what it costs, and where it still needs work.</p>
+  </header>
+
+  <!-- ============ THE BIG IDEA ============ -->
+  <section class="block">
+    <span class="eyebrow">The big idea</span>
+    <h2>Two family trees, joined by an explicit bridge</h2>
+    <p class="standfirst">Linnaean ranks and modern unranked clades are two different ways of naming a group. The redesign gives each its own ledger, rather than pretending they're one tree with a few odd branches.</p>
+    <div class="prose">
+      <p>The identity guide's ledger — <span class="mono">taxa</span> — holds every name accepted at a genuine Linnaean rank: kingdom down to subspecies. Its containment column, <span class="mono">containing_concept_permid</span>, is filled in by the exact same recompute step that decides accepted spellings and synonyms, just answering a different question: given every "belongs to" claim ever filed about a concept, which one wins?</p>
+      <p>Names published as an unranked clade — <span class="latin">Archosauria</span>, <span class="latin">Pancrustacea</span>, whole modern chunks of the tree of life that working systematists name without ranking — get their own, parallel ledger: <span class="mono">taxa_clades</span>. It runs the identical machinery, on the identical rule, restricted to candidates where both sides of a claim are themselves unranked. A clade can contain another clade. It cannot, through this path, contain or be contained by a Linnaean concept — that boundary is a hard wall, not a preference.</p>
+      <p>Every real "belongs to" claim that crosses the wall — a genus placed inside an unranked clade, or an unranked clade placed inside a Linnaean order — still exists in the source opinions. It's the two trees above that refuse it, by design: each one's pooling only ever considers candidates from its own side, so a cross-boundary claim can't win either contest no matter how well-evidenced it is. Before this bridge existed, that exclusion meant those claims were weighed by nothing at all — not beaten fairly, just never in the running anywhere. The redesign gives them a third, explicit home instead: <span class="mono">clade_attachments</span>, a bridge table built specifically for cross-boundary claims, and only for those.</p>
+    </div>
+
+    <div class="note-grid">
+      <div class="note-type">
+        <div class="glyph">◭</div>
+        <h3><span class="mono">taxa</span></h3>
+        <p>The Linnaean tree. One container per concept, chosen by pooling every synonym's placement claims at equal rank.</p>
+        <p class="eg">e.g. a genus placed within a family</p>
+      </div>
+      <div class="note-type">
+        <div class="glyph">◬</div>
+        <h3><span class="mono">taxa_clades</span></h3>
+        <p>The clade-to-clade tree. Same pooling rule, restricted to candidates where both sides are unranked.</p>
+        <p class="eg">e.g. <span class="latin">Pancrustacea</span> within <span class="latin">Mandibulata</span></p>
+      </div>
+      <div class="note-type">
+        <div class="glyph">⇄</div>
+        <h3><span class="mono">clade_attachments</span></h3>
+        <p>The bridge. Every claim that crosses the wall, in either direction — and, unlike the other two, a concept can have more than one.</p>
+        <p class="eg">e.g. a genus attached to an unranked clade</p>
+      </div>
+    </div>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 640 230" role="img" aria-label="Two separate hierarchies, taxa and taxa_clades, joined only by the explicit clade_attachments bridge, which runs in both directions and allows more than one edge per subject.">
+        <defs>
+          <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+          </marker>
+          <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+          </marker>
+        </defs>
+
+        <!-- left tree: taxa -->
+        <rect x="16" y="20" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
+        <text x="126" y="42" text-anchor="middle" font-size="12.5" font-weight="600">taxa</text>
+        <text x="126" y="58" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">Linnaean concepts</text>
+        <circle cx="126" cy="90" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M126,94 L96,120" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <path d="M126,94 L156,120" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="96" cy="124" r="4" fill="none" stroke="currentColor"></circle>
+        <circle cx="156" cy="124" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M156,128 L156,150" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="156" cy="154" r="4" fill="none" stroke="currentColor"></circle>
+
+        <!-- right tree: taxa_clades -->
+        <rect x="404" y="20" width="220" height="150" rx="3" fill="var(--surface-raised)" stroke="currentColor" stroke-width="1.2"></rect>
+        <text x="514" y="42" text-anchor="middle" font-size="12.5" font-weight="600">taxa_clades</text>
+        <text x="514" y="58" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">unranked clades</text>
+        <circle cx="514" cy="90" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M514,94 L484,120" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <path d="M514,94 L544,120" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="484" cy="124" r="4" fill="none" stroke="currentColor"></circle>
+        <circle cx="544" cy="124" r="4" fill="none" stroke="currentColor"></circle>
+        <path d="M544,128 L544,150" fill="none" stroke="currentColor" stroke-width="1"></path>
+        <circle cx="544" cy="154" r="4" fill="none" stroke="currentColor"></circle>
+
+        <!-- bridge -->
+        <path d="M236,110 L 404,90" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowA)"></path>
+        <path d="M404,150 L 236,140" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrowA)"></path>
+        <text x="320" y="82" text-anchor="middle" font-size="10" fill="var(--accent)">ranked-in-clade</text>
+        <text x="320" y="168" text-anchor="middle" font-size="10" fill="var(--accent)">clade-in-ranked</text>
+        <text x="320" y="205" text-anchor="middle" font-size="11" font-weight="600" fill="var(--accent)">clade_attachments</text>
+        <text x="320" y="220" text-anchor="middle" font-size="9" fill="var(--ink-faint)">many-to-many — a concept can carry more than one edge</text>
+      </svg>
+      <figcaption>Two structurally separate trees. The only crossing point is <span class="mono">clade_attachments</span>, which — unlike either tree's own single-parent containment column — allows a concept to carry more than one accepted edge at once.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ THE MECHANISM ============ -->
+  <section class="block">
+    <span class="eyebrow">How a container gets chosen</span>
+    <h2>Borrow from a synonym, never invert a rank, never cross the wall</h2>
+    <p class="standfirst">Both trees fill in their containment column the same way: pool every placement claim across a concept's synonyms, then exclude the ones that can't possibly be right before anything else is even weighed.</p>
+    <div class="prose">
+      <p>A concept's container isn't just whatever the accepted name's own placement claim says. Every synonym filed under that concept gets a vote too — a claim filed under a junior synonym is allowed to win if it's better evidenced or more recent than anything filed directly on the accepted name. This is deliberate: a specialist's paper about an obscure synonym can still carry real information about where the whole group belongs. The one exception is species — a species is placed by its own direct claim only, never borrowed from a synonym, because a species has to sit in its current genus regardless of what's argued about a synonym somewhere else.</p>
+      <p>Two kinds of candidates get thrown out before the ranking contest even starts, no matter how well-evidenced they look. A claim that would make a concept its own container — a leftover placement filed before two names were recognized as synonyms of each other — is excluded outright. And on the Linnaean side only, a claim is excluded if the proposed container is <em>more finely ranked</em> than the concept itself: a family cannot be placed inside its own subfamily. Equal rank is fine — one genus can legitimately sit inside another — it's only an inversion that's barred.</p>
+      <p>Neither tree ever lets a claim cross the boundary between them through this normal path. An unranked clade is never assigned a Linnaean container, and it's never borrowed as one either — <span class="mono">taxa_clades</span> runs its own copy of this same pooling logic, restricted the other way, to candidates where <em>both</em> sides are unranked. A claim that names one side ranked and the other unranked doesn't win or lose in either pool. It's simply not a candidate in either — which is exactly the gap <span class="mono">clade_attachments</span> exists to fill.</p>
+    </div>
+  </section>
+
+  <!-- ============ BREAKING TIES ============ -->
+  <section class="block">
+    <span class="eyebrow">Breaking ties</span>
+    <h2>The same three questions, run independently in each ledger</h2>
+    <p class="standfirst">Once the impossible candidates are gone, all three ledgers settle a contest the identical way — the same rule the identity guide describes for spellings and synonyms, run again here for containment.</p>
+    <div class="rank-strip">
+      <div class="rank-step">
+        <div class="n">FIRST</div>
+        <h4>Was evidence given?</h4>
+        <p>A claim backed by an argument outranks one that's just asserted.</p>
+      </div>
+      <div class="rank-step">
+        <div class="n">THEN</div>
+        <h4>Which is newer?</h4>
+        <p>Among equally-argued claims, the most recent publication wins.</p>
+      </div>
+      <div class="rank-step">
+        <div class="n">FINALLY</div>
+        <h4>Which was entered later?</h4>
+        <p>A last-resort tiebreaker for an exact tie on both counts.</p>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:26px;">
+      <p>That's the whole rule, and it runs three separate times — once for <span class="mono">taxa</span>, once for <span class="mono">taxa_clades</span>, once for <span class="mono">clade_attachments</span> — each strictly within its own candidate pool. Nothing about the rule itself differs between the Linnaean and clade sides. What differs is what happens when the pooled candidates form a genuine cycle: concept A's winning claim points to B, and B's, however indirectly, points back to A.</p>
+      <p>On the Linnaean side, the rank-inversion exclusion above does most of the work of preventing a cycle from ever forming — a coarser thing can never be placed inside a finer one, which rules out most loops before they start. On the rare occasion a genuine cycle still forms among concepts of compatible rank, <span class="mono">taxa</span>'s derivation stops and raises an error identifying it, rather than guessing.</p>
+      <p>Unranked clades have no such firewall. There's no "coarser or finer" between two unranked names — that ordering doesn't exist for them at all — so nothing structural stops a cycle from forming on the clade side the way rank inversion does on the Linnaean side. Rather than block the entire derivation over it, <span class="mono">taxa_clades</span> resolves a genuine cycle automatically: it finds every concept whose own containment chain loops back to itself, cuts the single weakest candidate — lowest evidence, then oldest, then earliest-entered — among just those concepts, and repeats until no cycle remains. Every cut is recorded and inspectable afterward, not hidden.</p>
+    </div>
+  </section>
+
+  <!-- ============ CASE FILES ============ -->
+  <section class="block">
+    <span class="eyebrow">Worked examples</span>
+    <h2>Case files</h2>
+    <p class="standfirst">Three real cases, each checked directly against the old system's own live data rather than described from memory or invented for the page: a place the design gets it wrong, a place it trades one gain for one cost, and a place it's unambiguously better.</p>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 1</span><span class="kind">clade cycle · resolved backwards</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Ornithopoda</span> and <span class="latin">Clypeodonta</span></h3>
+        <div class="cite">Real data, checked against both the old system's live database and the new system's current derived output.</div>
+        <p>Every opinion ever filed about this pair — three of them, the most recent backed by stated evidence — says the same thing: <span class="latin">Clypeodonta</span> belongs to <span class="latin">Ornithopoda</span>. Not one of them says otherwise. The old system's own live classification agrees: <span class="latin">Clypeodonta</span> sits under <span class="latin">Ornithopoda</span>, which in turn sits under <span class="latin">Cerapoda</span> — an uncontested placement matching how ornithischian dinosaurs are usually grouped. (<span class="latin">Ornithopoda</span> itself has been filed at five different formal ranks over its history — suborder, order, superfamily, infraorder, and finally unranked clade — which is exactly the kind of history the identity guide's lineage mechanism exists to sort out; only the lineage's one accepted rank matters here.)</p>
+        <p>The new system currently has it backwards. <span class="latin">Ornithopoda</span>'s concept is now contained by <span class="latin">Clypeodonta</span> — and <span class="latin">Clypeodonta</span> itself sits under a different clade entirely, nowhere near <span class="latin">Ornithopoda</span>. Neither name's own directly-filed opinions actually contradict each other; the genuine cycle the automatic resolution found and cut arose somewhere in the wider pool of candidates spanning every synonym and rerank tied to each concept, not in these two opinions arguing past one another.</p>
+        <div class="takeaway cost"><strong>The point:</strong> this is the disclosed cost of having no rank-based firewall on the clade side. The automatic weakest-edge cut resolved a real cycle without blocking the whole derivation over one disputed pair — but on this specific pair, it landed on the one placement no actual opinion supports. The cut is recorded and inspectable, not hidden; it just isn't right here.</div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 2</span><span class="kind">cross-boundary · a real trade-off</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Bredocaris</span>: two containers, not one</h3>
+        <div class="cite">Real data, checked against both the old system's live database and the new system's current derived output.</div>
+        <p>Exactly two opinions have ever been filed about this small arthropod genus: "belongs to <span class="latin">Orstenocarida</span>" — an order-level placement, no evidence stated, filed under a reference the old system's own reliability rule treats as the weakest kind on record — and "belongs to <span class="latin">Pancrustacea</span>" — an unranked clade, backed by stated evidence. The old system ranks every opinion in one pool regardless of category, so it correctly picks <span class="latin">Pancrustacea</span> as <span class="latin">Bredocaris</span>'s one classification. The weaker <span class="latin">Orstenocarida</span> opinion is still on file, but nothing in the old system's own display ever shows it once it loses.</p>
+        <p>The new system keeps both opinions visible — but not by picking the better one. Because a Linnaean concept's container is chosen from Linnaean-only candidates, and <span class="latin">Pancrustacea</span> is cross-boundary, <span class="latin">Bredocaris</span>'s main classification in <span class="mono">taxa</span> resolves to <span class="latin">Orstenocarida</span> — the weaker opinion — while the better-evidenced <span class="latin">Pancrustacea</span> placement sits, correctly, in <span class="mono">clade_attachments</span>. The two claims never actually compete against each other; they're ranked in separate pools.</p>
+        <div class="takeaway"><strong>The gain:</strong> nothing is silently discarded the way the losing opinion is in the old system — both claims survive as explicit, queryable facts.</div>
+        <div class="takeaway cost"><strong>The cost:</strong> there is currently no single answer to "what's <span class="latin">Bredocaris</span>'s best-evidenced classification, full stop." Reading <span class="mono">taxa</span> alone gives a less-supported answer than the old system's own single ranked pool did for the identical question — finding the better one means knowing to also check <span class="mono">clade_attachments</span>.</div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-tab"><span class="num">Case 3</span><span class="kind">cross-boundary · a real win</span></div>
+      <div class="case-body">
+        <h3><span class="latin">Wiwaxia</span>'s coexisting hypotheses</h3>
+        <div class="cite">Real data, checked against both the old system's live database and the new system's current derived output.</div>
+        <p><span class="latin">Wiwaxia</span> is a famously contested Cambrian fossil, and its opinion history shows it: six placements on file, in order — <span class="latin">Sachitida</span> (an order-level grouping, no evidence stated), <span class="latin">Halwaxida</span> (an unranked clade, stated evidence — the old system's <em>current</em> cached answer), <span class="latin">Annelida</span> (a phylum, no evidence stated), <span class="latin">Metazoa</span> (a subkingdom, second-hand), and <span class="latin">Wiwaxidae</span> twice, the second time with stated evidence and the most recent entry on file. The old system has room for exactly one answer at a time. It currently shows <span class="latin">Halwaxida</span> — which means the historically real <span class="latin">Sachitida</span> and <span class="latin">Annelida</span> hypotheses, and arguably the more current <span class="latin">Wiwaxidae</span> opinion, are invisible in the classification itself. Finding out they were ever seriously argued means reading the raw opinion history by hand.</p>
+        <p>The new system's <span class="mono">taxa</span> table gets the current answer right — <span class="latin">Wiwaxidae</span>, matching the newest, best-evidenced opinion on file. And separately, <span class="mono">clade_attachments</span> keeps both the <span class="latin">Sachitida</span> and <span class="latin">Annelida</span> placements on record as live, labeled facts, not buried history. All three coexist because none of them are actually competing: each is judged against its own specific target, not against each other.</p>
+        <div class="takeaway"><strong>The point:</strong> no hedge needed here. The current answer is correct, and real information about a genuinely, repeatedly re-argued taxon survives that the old system's one-container-per-taxon design could never hold onto, for any taxon, by construction.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WHAT CHANGED FROM CLASSIC ============ -->
+  <section class="block">
+    <span class="eyebrow">For readers who know the old system</span>
+    <h2>Not simply better. Structured differently, on purpose.</h2>
+    <p class="standfirst">The old system has no separate concept of a clade hierarchy, or of a cross-boundary attachment, at all. An unranked clade there is just another row in one undifferentiated tree, with its usual rank-order sanity check quietly switched off rather than routed anywhere different. The redesign's three-ledger split is a real trade, not a strict upgrade — the three cases above show all of it, not just the flattering part.</p>
+    <div class="prose">
+      <p>Splitting the two hierarchies apart is what makes <span class="mono">taxa</span> and <span class="mono">taxa_clades</span> each internally clean — a Linnaean concept and a clade concept can never merge into each other or cycle through each other, however tangled either side's own opinions get. That isolation is also exactly what let Case 1 go wrong: with no rank ordering left on the clade side to catch a cycle before it forms, the automatic fix that keeps the derivation running at all can land on the wrong side of a tie. And it's what produces Case 2's recurring cost: evidence no longer competes across the boundary the old system always ranked as one pool, so the "main" answer in <span class="mono">taxa</span> can be weaker than the one sitting right next to it in <span class="mono">clade_attachments</span>.</p>
+      <p>But the same isolation is what makes Case 3 possible at all. The old system's single classification slot per taxon means a genuinely contested name — one the literature has placed in three or four different groups over its history — can only ever show the current winner, with everything else invisible unless someone goes looking. The redesign's separate, explicit bridge table means a well-evidenced alternative placement doesn't have to lose a fight it was never actually in to stay visible.</p>
+    </div>
+    <div class="compare">
+      <div class="compare-head"><div class="old">Classic — one slot per taxon</div><div class="new">pbdb2 — three ledgers</div></div>
+      <div class="compare-row">
+        <div class="old"><p><span class="case-label">Case 1</span>Every filed opinion agrees; the cached classification happens to be right.</p></div>
+        <div class="new"><p><span class="case-label">Case 1</span>Automatic cycle-resolution has no rank firewall on the clade side and lands backwards.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p><span class="case-label">Case 2</span>One evidence-ranked pool correctly picks the better opinion; the weaker one disappears.</p></div>
+        <div class="new"><p><span class="case-label">Case 2</span>Both opinions survive, but the "main" table can show the weaker of the two.</p></div>
+      </div>
+      <div class="compare-row">
+        <div class="old"><p><span class="case-label">Case 3</span>One classification slot shows only the current winner; five other real hypotheses vanish.</p></div>
+        <div class="new"><p><span class="case-label">Case 3</span>The current answer is correct, and two coexisting alternatives stay visible alongside it.</p></div>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:26px;">
+      <p>What's missing today, on both sides of that comparison, is a single combined view that ranks a Linnaean and a cross-boundary claim against each other directly — the way the old system's one pool always did, for better and for worse. Building that view is a deliberate piece of future work, not an oversight this page is glossing over.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="status">
+      <span class="tag">Where this stands today</span>
+      <span class="mono">taxa_clades</span> and <span class="mono">clade_attachments</span> are implemented and validated against real, migrated data — this isn't a design sketch the way parts of the identity guide are. The OpenSpec change that built them is complete but not yet archived as of this writing.
+    </div>
+    <p class="colophon">Grounded in <span class="mono">openspec/specs/taxa-opinions/spec.md</span>, <span class="mono">openspec/changes/derive-clade-attachments/</span> (proposal, design, and both capability specs), and <a href="taxonomy-user-guide.html">the identity half of this guide</a>. Cases 1–3 are drawn from a direct, live comparison between the old system's own Postgres-ported database and the new system's current derived output — not reconstructed from documentation on either side.</p>
+  </footer>
+
+</div>
