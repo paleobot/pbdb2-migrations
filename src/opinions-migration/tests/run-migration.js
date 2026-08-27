@@ -13,15 +13,15 @@
 //
 // After the run it asserts the reconciliation invariant and a battery of
 // spec-derived structural scenarios (specs/opinions-migration/spec.md).
-import { mariadb, pg, closeAll } from '../lib/db.js';
-import { main as migrateOpinions } from './migrate-opinions.js';
+import { mariadb, pg, closeAll } from '../../lib/db.js';
+import { main as migrateOpinions } from '../migrate-opinions.js';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(SCRIPT_DIR, '..', '..');
+const REPO_ROOT = join(SCRIPT_DIR, '..', '..', '..');
 const RESET_SQL = join(REPO_ROOT, 'reset-opinions.sql');
 const AUTHORITIES_OPINIONS = join(REPO_ROOT, 'migrate-authorities-opinions.js');
 

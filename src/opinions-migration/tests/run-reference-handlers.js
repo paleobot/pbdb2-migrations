@@ -23,7 +23,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const OPINIONS_DIR = join(REPO_ROOT, 'migration_exploration', 'opinions');
 const PRIMARY_DB = process.env.PG_DATABASE;
 const REF_DB = process.env.PG_REF_DATABASE || 'pbdb_ref';

@@ -13,8 +13,8 @@
 //      minted independently per run).
 //
 // Writes cross-check-report.txt into this directory.
-import { pg, closePg } from '../lib/pg-pool.js';
-import { pgMigrated, closePgMigrated } from '../../pg-migrated-pool.js';
+import { pg, closePg } from '../../lib/pg-pool.js';
+import { pgMigrated, closePgMigrated } from '../../../pg-migrated-pool.js';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

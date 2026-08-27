@@ -5,6 +5,6 @@ CLAUDE.local.md
 migration_exploration/opinions/*/anomalies.csv
 src/opinions-migration/anomalies.csv
 src/opinions-migration/run-summary.txt
-src/opinions-migration/cross-check-report.txt
+src/opinions-migration/tests/cross-check-report.txt
+src/opinions-migration/tests/cross-check-reference-report.txt
 .DS_Store
-src/opinions-migration/cross-check-reference-report.txt
