@@ -7,3 +7,4 @@ src/opinions-migration/anomalies.csv
 src/opinions-migration/run-summary.txt
 src/opinions-migration/cross-check-report.txt
 .DS_Store
+src/opinions-migration/cross-check-reference-report.txt

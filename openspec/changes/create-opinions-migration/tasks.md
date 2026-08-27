@@ -112,7 +112,7 @@
       `oldpbdb_taxon_no` as the match key where populated; otherwise (and for the other tables) match on the
       permid tuple if shared, else translate each `*_permid` back to its legacy id via each DB's own
       `authorities` / root `name_opinions` mapping before matching. Record which case holds.
-- [ ] 5.6 Run the cross-check in two layers and assert both hold: (a) **structural** — per-table row
+- [x] 5.6 Run the cross-check in two layers and assert both hold: (a) **structural** — per-table row
       counts and counts grouped by the discriminators each table actually carries in `create_new.sql`:
       `name_opinions` by `edge_class` / `reason_id` / `negates` / `objective` / `evidence` /
       `target_permid IS NULL` / `rank_id` / `publication_year`; `assignment_opinions` by `questioned` /
@@ -123,6 +123,17 @@
       semantically-equal-but-textually-different fields before matching (`attribution` jsonb key order /
       whitespace, NULL-vs-sentinel normalization) so equivalent rows don't register as diffs; write any
       residual mismatches to a diff report under `src/opinions-migration/` for inspection.
+
+> **5.4–5.6 note (reference source):** the Aurora `pbdb2_migration_test` DB proved to be a stale,
+> pre-correction snapshot (no `negates`, targeted validity, 0 lineage edges, only `junior synonym` concept
+> edges, 18 `informal` validity rows), so it could not serve as a current-model oracle — recorded by
+> `cross-check-aurora.js` (Layer 1). The cross-check was instead run against a **freshly built local
+> reference DB** (`run-reference-handlers.js`: a `TEMPLATE` clone of the primary DB, outputs cleared, then
+> all 48 `migration_exploration/opinions/` handlers re-run against it over the same MariaDB source). Because
+> the clone shares identical dictionaries and root permids, `cross-check-reference.js` compares output rows
+> directly on permids. Result: **byte-for-byte identical** on all run-independent content — every table
+> matches on count, all discriminator groups, and the row-level multiset fingerprint. The reference DB is
+> dropped afterward (`run-reference-handlers.js --drop`).
 
 ## 6. Supersede the consolidate change and close out
 
