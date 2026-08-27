@@ -141,5 +141,5 @@
       `opinions.md` + `specs/opinions-migration/spec.md`; content remains in git history) — do NOT archive it
       (nothing to promote, since this change owns the canonical spec)
 - [x] 6.2 Run `openspec validate create-opinions-migration --strict` and resolve any issues
-- [ ] 6.3 Archive this change with `openspec archive create-opinions-migration` once the maintainer confirms
+- [x] 6.3 Archive this change with `openspec archive create-opinions-migration` once the maintainer confirms
       the implementation matches these artifacts
