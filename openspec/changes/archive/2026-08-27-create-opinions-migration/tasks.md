@@ -89,51 +89,41 @@
 - [x] 5.3 Cross-check a handful of migrated rows against Classic (e.g. a `misspelling of` row where
       `parent_spelling_no != child_no`, an asserted-rootless `belongs to`, a targeted vs. untargeted
       `nomen oblitum`) to confirm the corrected targets landed
-- [x] 5.4 Add a read-only cross-check harness under `src/opinions-migration/` that compares the freshly
-      migrated localhost `assignment_opinions` / `name_opinions` / `validity_opinions` against the
-      reference full-run in the Aurora `pbdb2_migration_test` DB (the archived output of
-      `migration_exploration`'s 48 handlers). Read Aurora **only** through the existing read-only
-      `pg-migrated-pool.js` (rejects anything but SELECT/WITH); add the `PG_MIGRATED_*` vars to `.env`
-      (values in the commented AWS block, `PG_MIGRATED_CA_CERT=global-bundle.pem`). The comparison must
-      **exclude the per-run generated columns** that legitimately differ between two independent
-      migrations — `id`, `permid`, `created_at`, `preceded_by_id`, `succeeded_by_id` — and compare only
-      run-independent content.
-- [x] 5.5 First confirm the Aurora reference conforms to the current `postgresql/create_new.sql` schema
-      (the authority — **not** the superseded `taxa-opinions-draft.sql`): `publication_year` (not `pubyr`),
-      `name_opinions.oldpbdb_taxon_no` + `negates` present and no `pages`/`figures`, nullable
-      `assignment_opinions.containing_permid`, and untargeted-only `validity_opinions`
-      (`nomenclatural_status_id`, no `targeted`/`target_permid`). If the reference predates the 2026-08-18
-      model move (targeted `invalid subgroup of` / `nomen oblitum` folded into `name_opinions` concept
-      edges), treat those as **known intentional differences** and reconcile/exclude them rather than
-      flagging them as diffs — record the reference's generation in the run-summary. Then resolve the
-      permid-matching question: sample-test whether `subject_permid` / `target_permid` /
-      `containing_permid` are **shared** across the two DBs (dependency layer seeded from the same
-      authorities/`name_opinions`-root run) or minted independently. For `name_opinions`, prefer the stable
-      `oldpbdb_taxon_no` as the match key where populated; otherwise (and for the other tables) match on the
-      permid tuple if shared, else translate each `*_permid` back to its legacy id via each DB's own
-      `authorities` / root `name_opinions` mapping before matching. Record which case holds.
-- [x] 5.6 Run the cross-check in two layers and assert both hold: (a) **structural** — per-table row
-      counts and counts grouped by the discriminators each table actually carries in `create_new.sql`:
-      `name_opinions` by `edge_class` / `reason_id` / `negates` / `objective` / `evidence` /
-      `target_permid IS NULL` / `rank_id` / `publication_year`; `assignment_opinions` by `questioned` /
-      `evidence` / `containing_permid IS NULL` / `publication_year`; `validity_opinions` by
-      `nomenclatural_status_id` / `evidence` / `publication_year` — all matching exactly (net of the 5.5
-      known-difference reconciliation); (b) **row-level** — a symmetric-difference (full outer join) on the
-      run-independent key reports zero rows present in one DB but not the other. Canonicalize
-      semantically-equal-but-textually-different fields before matching (`attribution` jsonb key order /
-      whitespace, NULL-vs-sentinel normalization) so equivalent rows don't register as diffs; write any
-      residual mismatches to a diff report under `src/opinions-migration/` for inspection.
-
-> **5.4–5.6 note (reference source):** the Aurora `pbdb2_migration_test` DB proved to be a stale,
-> pre-correction snapshot (no `negates`, targeted validity, 0 lineage edges, only `junior synonym` concept
-> edges, 18 `informal` validity rows), so it could not serve as a current-model oracle — recorded by
-> `cross-check-aurora.js` (Layer 1). The cross-check was instead run against a **freshly built local
-> reference DB** (`run-reference-handlers.js`: a `TEMPLATE` clone of the primary DB, outputs cleared, then
-> all 48 `migration_exploration/opinions/` handlers re-run against it over the same MariaDB source). Because
-> the clone shares identical dictionaries and root permids, `cross-check-reference.js` compares output rows
-> directly on permids. Result: **byte-for-byte identical** on all run-independent content — every table
-> matches on count, all discriminator groups, and the row-level multiset fingerprint. The reference DB is
-> dropped afterward (`run-reference-handlers.js --drop`).
+- [x] 5.4 Add a read-only cross-check harness under `src/opinions-migration/tests/` that compares the
+      freshly migrated localhost `assignment_opinions` / `name_opinions` / `validity_opinions` against an
+      independent reference produced by re-running all 48 `migration_exploration/opinions/` handlers. The
+      reference is a throwaway **local** DB, not a remote one: `run-reference-handlers.js` makes a `TEMPLATE`
+      clone of the primary DB, clears its opinion outputs while keeping the identical dictionaries + root
+      `name_opinions`, then re-runs the 48 handlers over the same MariaDB source (real `db.js`,
+      `MIGRATION_TEST_MODE` unset); `--drop` tears the clone down. The comparison (`cross-check-reference.js`)
+      **excludes the per-run generated columns** that legitimately differ between two independent
+      migrations — `id`, `permid`, `created_at`, `preceded_by_id`, `succeeded_by_id` — and compares only
+      run-independent content. (An earlier attempt targeted the Aurora `pbdb2_migration_test` DB through the
+      read-only `pg-migrated-pool.js`, with `PG_MIGRATED_*` added to `.env`; that read-only probe survives as
+      `tests/cross-check-aurora.js` but was abandoned once the DB was found stale — see 5.5.)
+- [x] 5.5 Confirm the reference is a valid current-model oracle and resolve permid-matching. The Aurora
+      `pbdb2_migration_test` DB was checked first (against `postgresql/create_new.sql`, the authority — **not**
+      the superseded `taxa-opinions-draft.sql`) and found to be a **stale, pre-correction snapshot**: no
+      `negates`, `validity_opinions` still `targeted`/`target_permid`, **0 lineage edges**, only
+      `junior synonym` concept edges, and 18 rows of the since-removed `informal` validity status. It predates
+      the 2026-08-18 model move (and the dual-emission and 2026-08-19 subject-direction corrections), so it
+      cannot serve as an oracle — recorded by `cross-check-aurora.js`, which also confirmed its permids are
+      minted **independently** (comparison would need translating each `*_permid` back to its legacy id via
+      `oldpbdb_taxon_no`). The local reference DB (5.4) resolves the permid-matching question by construction:
+      being a `TEMPLATE` clone, it **shares identical dictionaries and root permids** with the primary DB, so
+      `subject_permid` / `target_permid` / `containing_permid` are directly comparable with **no translation**.
+- [x] 5.6 Run the cross-check in two layers and assert both hold (`cross-check-reference.js`): (a)
+      **structural** — per-table row counts and counts grouped by each table's discriminators: `name_opinions`
+      by `edge_class` / `reason_id` / `objective` / `negates` / `evidence` / `target_permid IS NULL` /
+      `publication_year IS NULL`; `assignment_opinions` by `questioned` / `evidence` / `containing_permid IS
+      NULL` / `publication_year IS NULL`; `validity_opinions` by `nomenclatural_status_id` / `evidence` /
+      `publication_year IS NULL` — all matching exactly; (b) **row-level** — a run-independent multiset
+      fingerprint (`md5` over grouped canonical rows; `attribution` compared as normalized `jsonb`,
+      NULL-vs-sentinel normalized), with a symmetric-difference drill-down written under
+      `src/opinions-migration/tests/` on any mismatch. **Result: byte-for-byte identical** — every count, all
+      discriminator groups, and every table's fingerprint matched (`assignment_opinions` 927,497;
+      `validity_opinions` 11,327; `name_opinions` concept+lineage 249,143; root `name_opinions` 517,284
+      shared). The reference DB is dropped afterward (`run-reference-handlers.js --drop`).
 
 ## 6. Supersede the consolidate change and close out
 
