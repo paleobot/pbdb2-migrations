@@ -89,7 +89,7 @@
 - [x] 5.3 Cross-check a handful of migrated rows against Classic (e.g. a `misspelling of` row where
       `parent_spelling_no != child_no`, an asserted-rootless `belongs to`, a targeted vs. untargeted
       `nomen oblitum`) to confirm the corrected targets landed
-- [ ] 5.4 Add a read-only cross-check harness under `src/opinions-migration/` that compares the freshly
+- [x] 5.4 Add a read-only cross-check harness under `src/opinions-migration/` that compares the freshly
       migrated localhost `assignment_opinions` / `name_opinions` / `validity_opinions` against the
       reference full-run in the Aurora `pbdb2_migration_test` DB (the archived output of
       `migration_exploration`'s 48 handlers). Read Aurora **only** through the existing read-only
@@ -98,7 +98,7 @@
       **exclude the per-run generated columns** that legitimately differ between two independent
       migrations — `id`, `permid`, `created_at`, `preceded_by_id`, `succeeded_by_id` — and compare only
       run-independent content.
-- [ ] 5.5 First confirm the Aurora reference conforms to the current `postgresql/create_new.sql` schema
+- [x] 5.5 First confirm the Aurora reference conforms to the current `postgresql/create_new.sql` schema
       (the authority — **not** the superseded `taxa-opinions-draft.sql`): `publication_year` (not `pubyr`),
       `name_opinions.oldpbdb_taxon_no` + `negates` present and no `pages`/`figures`, nullable
       `assignment_opinions.containing_permid`, and untargeted-only `validity_opinions`
