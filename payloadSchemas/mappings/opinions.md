@@ -24,6 +24,55 @@
 |`nomen dubium` | (all get this record) | NA | validity_opinions | NA | NA | NA | fk to nomen dubium id in dictionaries.nomenclatural_statuses | permid of name_opinions record with oldpbdbid = child_spelling_no | NA |
 |''| != `original spelling` ? add additional record | NA | name_opinions | linguistic | reason from namechange_reasons record that is closest match to spelling_reason (use "rank change" = "reranked", "reassignment" = "assignment") | NA | NA | permid of name_opinions record with oldpbdbid = child_spelling_no | permid of name_opinions record with oldpbdbid = child_no|
 
+## Behavioral rules
+
+The table above states *what maps to what*; these rules state *how the mapper must behave* — the
+constraints a mapping table cannot express. They are the migration's behavioral contract; see
+`openspec/changes/create-opinions-migration/specs/opinions-migration/spec.md` for the same rules as
+testable scenarios.
+
+1. **Status closure / no fall-through.** Every `status` value present in the source `opinions` table
+   resolves to exactly one of: an assignment mapping (`assignment_opinions`), a concept mapping
+   (`name_opinions`, `edge_class = concept`), a validity mapping (`validity_opinions`), or one of the two
+   named structural exceptions (`misspelling of`, `nomen oblitum`). No status is treated as ambiguous or
+   left to a default. `nomen oblitum` is the one status whose primary disposition is chosen **per row**
+   (on `parent_spelling_no`), not per pair.
+
+2. **Primary vs. lineage are resolved and skipped independently.** The primary disposition (assignment /
+   concept / validity) and the universal lineage backfill (the "additional record" rows, `edge_class =
+   linguistic`) are two independent outputs. Each is resolved, and if necessary skipped-and-logged, on its
+   own; a failure to resolve or write one SHALL NOT prevent the other from being written.
+
+3. **Self-referential edges are never written.** No output whose `subject_permid` would equal its
+   `target_permid` (concept/lineage edges) or its `containing_permid` (assignment edges) is written. Such
+   rows are skipped-and-logged (per output type), never allowed to reach the DB constraint. This covers
+   both same-taxon assignment (`child_spelling_no == parent_spelling_no`) and lineage self-reference
+   (`child_spelling_no == child_no` despite a non-`original spelling` `spelling_reason`).
+
+4. **Rootless is a mapping, not a skip.** `parent_spelling_no = 0` on a `belongs to` row is Classic's own
+   assertion that the subject has no container: write the `assignment_opinions` row with `containing_permid
+   = NULL` (logged as a warning). A **nonzero** `parent_spelling_no` that resolves to no migrated name is a
+   genuine orphan: skip-and-log, never written as `NULL`, so `containing_permid IS NULL` in the output
+   unambiguously means "Classic asserted none."
+
+5. **Per-output reconciliation.** For each independent output type a pair can produce (primary disposition,
+   lineage backfill), `written + skipped-with-a-logged-reason == source rows read` for that pair. No row is
+   silently dropped from either count. Each run emits a run-summary file (per-output written/skipped counts
+   and whether the invariant held) and an anomaly ledger CSV
+   (`opinion_no,script,target_table,severity,issue,description`) recording every skip and warning.
+
+6. **Why `historical misspelling` for `misspelling of`.** The `misspelling of` lineage edge uses the
+   `historical misspelling` reason token, not the generic `misspelling` token from the universal crosswalk:
+   this status's *entire content* is a formally published misspelling claim, whereas the crosswalk
+   `misspelling` records one noticed incidentally while entering some other opinion. Its lineage target is
+   `parent_spelling_no` (the specific correct spelling this opinion asserts) — **not** `child_no` — which
+   differs from `child_no` on 104 of the 875 rows (live-confirmed).
+
+7. **Why `nomen oblitum` branches per row.** `nomen oblitum` carries a real target on some rows and none on
+   others. When `parent_spelling_no != 0` it is a concept edge (reason `nomen oblitum`, target
+   `parent_spelling_no`); when `parent_spelling_no = 0` it is untargeted validity testimony
+   (`nomenclatural_status_id → nomen oblitum`). This per-row branch is independent of the lineage backfill.
+
 ## Notes
 
 **[†] Mistagged `original spelling` — a per-`opinion_no` exception, not a rule.**
