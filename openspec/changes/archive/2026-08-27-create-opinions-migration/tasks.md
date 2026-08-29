@@ -1,0 +1,135 @@
+## 1. Scaffold the `src/` structure and self-contained `src/lib/`
+
+- [x] 1.1 Create `src/` and `src/lib/` directories (leave `migration_exploration/` and the root-level
+      `migrate-*.js` untouched)
+- [x] 1.2 Copy the four utility modules verbatim into `src/lib/`: `identity.js`, `evidence.js`,
+      `anomaly-log.js` from `migration_exploration/lib/` (no edits needed)
+- [x] 1.3 Copy `migration_exploration/lib/attribution.js` into `src/lib/attribution.js`, repointing its two
+      imports: `opinionAttribution.schema.js` → `../../payloadSchemas/opinionAttribution.schema.js`, and the
+      citation builders → `./authorities-builders.js` (see 1.4)
+- [x] 1.4 Create `src/lib/authorities-builders.js` by extracting `decodeEntities`,
+      `buildCitationFromFields`, and `buildDescriptorsFromFields` from `migrate-authorities.js` (verbatim
+      logic; export the three)
+- [x] 1.5 Copy the infrastructure utilities into `src/lib/`: `uuidv7.js`, `mariadb-pool.js`, `pg-pool.js`
+      (verbatim; their only deps are npm packages + `process.env`)
+- [x] 1.6 Create the simplified `src/lib/db.js`: export `{ mariadb, pg, closeAll }` from
+      `./mariadb-pool.js` + `./pg-pool.js`, with **no** `MIGRATION_TEST_MODE` branch
+- [x] 1.7 Sanity-check imports resolve: `node --check` each `src/lib/*.js`, and a throwaway `import` of
+      `src/lib/db.js` + `src/lib/attribution.js` to confirm no path/module errors
+
+## 2. Add the Behavioral rules section to `opinions.md`
+
+- [x] 2.1 Add a `## Behavioral rules` section to `payloadSchemas/mappings/opinions.md`, after the table and
+      before `## Notes`, distilled from the superseded `opinions-pair-handlers` spec: status closure / no
+      fall-through; primary vs. lineage resolved and skipped independently; per-output reconciliation
+      invariant; self-referential edges skipped; and the two "why this token" notes (`misspelling of` uses
+      `historical misspelling`; `nomen oblitum` branches per row)
+- [x] 2.2 Confirm the section states the `misspelling of` lineage target as `parent_spelling_no` (corrected),
+      not `child_no`, consistent with table row 17 and the spec
+
+## 3. Implement `migrate-opinions.js`
+
+- [x] 3.1 Create `src/opinions-migration/migrate-opinions.js` with the standard skeleton (read MariaDB via
+      `mariadb`, resolve identity/reference/person maps via `src/lib/identity.js`, write `pg` in batches),
+      importing utilities from `../lib/`
+- [x] 3.2 Encode the rule tables in-code: `CONCEPT` (`status → [reason, objective]`), `VALIDITY`
+      (`status → nomenclatural_status`), `CROSSWALK` (`spelling_reason → lineage reason token`) — transcribed
+      from `opinions.md`; resolve reason/status ids from `dictionaries.namechange_reasons` /
+      `dictionaries.nomenclatural_statuses` at startup (fail fast if any token is missing)
+- [x] 3.3 Implement the assignment disposition (`belongs to`): `subject = child_spelling_no`,
+      `containing = parent_spelling_no`; `parent_spelling_no = 0` → `containing_permid = NULL` (warning, not
+      skip); nonzero-but-unresolvable → skip-and-log
+- [x] 3.4 Implement the concept disposition (4 statuses) and the validity disposition (3 statuses) from the
+      in-code tables; validity rows carry no target
+- [x] 3.5 Implement the universal dual emission: when `spelling_reason != 'original spelling'`, emit a second
+      `name_opinions` lineage edge (`subject = child_spelling_no`, `target = child_no`, reason via
+      `CROSSWALK`), resolved and skipped independently of the primary output
+- [x] 3.6 Implement the `misspelling of` exception: lineage-only, `reason = 'historical misspelling'`,
+      `target = permid(parent_spelling_no)`; skip-and-log when `child_spelling_no == parent_spelling_no`
+- [x] 3.7 Implement the `nomen oblitum` per-row branch on `parent_spelling_no`: `!= 0` → concept edge
+      (`reason = 'nomen oblitum'`, `target = parent_spelling_no`); `= 0` → `validity_opinions`; independent of
+      the lineage backfill
+- [x] 3.8 Implement the mistagged-`original spelling` backfill for `belongs to` / `replaced by` /
+      `subjective synonym of`: load `mistagged-original-spelling.csv` (repo root) into an
+      `opinion_no → inferred_reason` map plus the 3 hard-coded instances (955925→assignment, 71324→reranked,
+      912640→assignment); translate `inferred_reason` → token (`duplicate-or-homonym→assignment`,
+      `reranked→reranked`, `recombination→recombination`, `correction→correction`); a matching row absent from
+      the worklist is skipped-and-logged
+- [x] 3.9 Implement the self-reference guard for every output type (`subject == target` / `subject ==
+      containing`): skip-and-log, never let it reach the DB constraint
+- [x] 3.10 Wire attribution/evidence/persons: `resolveSecondHand` + `assertValidAttribution` (payload-validate
+      each attribution), `evidenceFromBasis`, `resolvePersons` — from `../lib/`
+- [x] 3.11 Emit the two run artifacts into `src/opinions-migration/`: the anomaly CSV via `createAnomalyLog`
+      (`script = migrate-opinions.js`) and a run-summary file with per-output written/skipped counts and the
+      reconciliation result; assert `written + skipped == source rows` per output type
+- [x] 3.12 Add keyset pagination for large reads (e.g. `belongs to`'s ~743k rows) so memory stays bounded
+- [x] 3.13 `node --check` the script
+
+## 4. Build the test harness
+
+- [x] 4.1 Create the harness under `src/opinions-migration/` (rebuilt from the design of
+      `migration_exploration/testing/seed-and-run-sample.js` / `run-full-migration.js`): reset the target,
+      seed the dependency layer (persons/refs/authorities/root `name_opinions`), run the migration, assert
+      per-output reconciliation — targeting the real `pg` (localhost), driving the single script, not 48
+      spawns
+- [x] 4.2 Support a `--sample` mode (a few real opinions per `(status, spelling_reason)` pair) and a `--full`
+      mode
+- [x] 4.3 Wire the spec's acceptance scenarios (`specs/opinions-migration/spec.md`) into harness assertions —
+      at minimum: rootless→NULL vs. unresolvable→skip, dual-emission independence, `misspelling of` target =
+      `parent_spelling_no`, `nomen oblitum` per-row branch, mistagged backfill fires, self-reference skipped,
+      reconciliation holds
+
+## 5. Validate end-to-end
+
+- [x] 5.1 Run `--sample` and confirm it completes with reconciliation holding and an anomaly CSV + summary
+      written into `src/opinions-migration/`
+- [x] 5.2 Run `--full` against the localhost `pg`; confirm per-output reconciliation (written + skipped ==
+      source) across all statuses, and spot-check the anomaly ledger for expected buckets
+      (`asserted_rootless`, `self_reference`, `parent_spelling_orphan`, `mislabeled_original_spelling`)
+- [x] 5.3 Cross-check a handful of migrated rows against Classic (e.g. a `misspelling of` row where
+      `parent_spelling_no != child_no`, an asserted-rootless `belongs to`, a targeted vs. untargeted
+      `nomen oblitum`) to confirm the corrected targets landed
+- [x] 5.4 Add a read-only cross-check harness under `src/opinions-migration/tests/` that compares the
+      freshly migrated localhost `assignment_opinions` / `name_opinions` / `validity_opinions` against an
+      independent reference produced by re-running all 48 `migration_exploration/opinions/` handlers. The
+      reference is a throwaway **local** DB, not a remote one: `run-reference-handlers.js` makes a `TEMPLATE`
+      clone of the primary DB, clears its opinion outputs while keeping the identical dictionaries + root
+      `name_opinions`, then re-runs the 48 handlers over the same MariaDB source (real `db.js`,
+      `MIGRATION_TEST_MODE` unset); `--drop` tears the clone down. The comparison (`cross-check-reference.js`)
+      **excludes the per-run generated columns** that legitimately differ between two independent
+      migrations — `id`, `permid`, `created_at`, `preceded_by_id`, `succeeded_by_id` — and compares only
+      run-independent content. (An earlier attempt targeted the Aurora `pbdb2_migration_test` DB through the
+      read-only `pg-migrated-pool.js`, with `PG_MIGRATED_*` added to `.env`; that read-only probe survives as
+      `tests/cross-check-aurora.js` but was abandoned once the DB was found stale — see 5.5.)
+- [x] 5.5 Confirm the reference is a valid current-model oracle and resolve permid-matching. The Aurora
+      `pbdb2_migration_test` DB was checked first (against `postgresql/create_new.sql`, the authority — **not**
+      the superseded `taxa-opinions-draft.sql`) and found to be a **stale, pre-correction snapshot**: no
+      `negates`, `validity_opinions` still `targeted`/`target_permid`, **0 lineage edges**, only
+      `junior synonym` concept edges, and 18 rows of the since-removed `informal` validity status. It predates
+      the 2026-08-18 model move (and the dual-emission and 2026-08-19 subject-direction corrections), so it
+      cannot serve as an oracle — recorded by `cross-check-aurora.js`, which also confirmed its permids are
+      minted **independently** (comparison would need translating each `*_permid` back to its legacy id via
+      `oldpbdb_taxon_no`). The local reference DB (5.4) resolves the permid-matching question by construction:
+      being a `TEMPLATE` clone, it **shares identical dictionaries and root permids** with the primary DB, so
+      `subject_permid` / `target_permid` / `containing_permid` are directly comparable with **no translation**.
+- [x] 5.6 Run the cross-check in two layers and assert both hold (`cross-check-reference.js`): (a)
+      **structural** — per-table row counts and counts grouped by each table's discriminators: `name_opinions`
+      by `edge_class` / `reason_id` / `objective` / `negates` / `evidence` / `target_permid IS NULL` /
+      `publication_year IS NULL`; `assignment_opinions` by `questioned` / `evidence` / `containing_permid IS
+      NULL` / `publication_year IS NULL`; `validity_opinions` by `nomenclatural_status_id` / `evidence` /
+      `publication_year IS NULL` — all matching exactly; (b) **row-level** — a run-independent multiset
+      fingerprint (`md5` over grouped canonical rows; `attribution` compared as normalized `jsonb`,
+      NULL-vs-sentinel normalized), with a symmetric-difference drill-down written under
+      `src/opinions-migration/tests/` on any mismatch. **Result: byte-for-byte identical** — every count, all
+      discriminator groups, and every table's fingerprint matched (`assignment_opinions` 927,497;
+      `validity_opinions` 11,327; `name_opinions` concept+lineage 249,143; root `name_opinions` 517,284
+      shared). The reference DB is dropped afterward (`run-reference-handlers.js --drop`).
+
+## 6. Supersede the consolidate change and close out
+
+- [x] 6.1 Abandon `consolidate-opinions-pair-handlers`: remove its change directory (its rules now live in
+      `opinions.md` + `specs/opinions-migration/spec.md`; content remains in git history) — do NOT archive it
+      (nothing to promote, since this change owns the canonical spec)
+- [x] 6.2 Run `openspec validate create-opinions-migration --strict` and resolve any issues
+- [x] 6.3 Archive this change with `openspec archive create-opinions-migration` once the maintainer confirms
+      the implementation matches these artifacts

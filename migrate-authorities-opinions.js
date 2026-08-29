@@ -46,7 +46,7 @@ function makeSampleLogger(label) {
 // ---------- Main ----------
 async function main() {
   const startTime = new Date();
-  console.log(`[${startTime.toISOString()}] Starting name_opinions migration...`);
+  console.log(`[${startTime.toISOString()}] Starting authorities → name_opinions migration...`);
 
   // ---- 1.2 Resolve dictionary ids ----
   const { rows: reasonRows } = await pg.query(
@@ -58,15 +58,6 @@ async function main() {
   }
   const originalReasonId = reasonRows[0].id;
 
-  const { rows: statusRows } = await pg.query(
-    `SELECT id FROM dictionaries.nomenclatural_statuses WHERE status = 'informal'`,
-  );
-  if (statusRows.length !== 1) {
-    console.error(`  FATAL: expected exactly one nomenclatural_statuses row for status='informal', got ${statusRows.length}`);
-    process.exit(1);
-  }
-  const informalStatusId = statusRows[0].id;
-
   const { rows: rankRows } = await pg.query(
     `SELECT id, taxonomy_rank FROM dictionaries.taxonomy_ranks`,
   );
@@ -76,7 +67,7 @@ async function main() {
     console.error(`  FATAL: no taxonomy_ranks row for 'unranked'`);
     process.exit(1);
   }
-  console.log(`  Dict ids: original reason=${originalReasonId}, informal status=${informalStatusId}, unranked rank=${unrankedId}`);
+  console.log(`  Dict ids: original reason=${originalReasonId}, unranked rank=${unrankedId}`);
 
   // ---- 1.3 Preload new authorities → resolution Map ----
   const { rows: authRows } = await pg.query(`
@@ -114,7 +105,6 @@ async function main() {
 
   // Accumulate all records in memory, validating attribution BEFORE any insert.
   const nameOpinions = [];      // one per resolvable source row
-  const validityOpinions = [];  // one per informal-rank source row
 
   // ---- 2.1 Stream from MariaDB ----
   const conn = await mariadb.getConnection();
@@ -189,19 +179,11 @@ async function main() {
         newName: src.taxon_name,
       });
 
-      // ---- 2.8 Informal rows: also emit a validity_opinions row ----
+      // ---- 2.8 Count informal-rank rows (rank-collapsed to 'unranked' above).
+      // These migrate as ordinary root name_opinions only -- no validity_opinions
+      // row (removed 2026-08-26; informality is captured by rank_id='unranked').
       if (src.taxon_rank === 'informal') {
         informalCount++;
-        validityOpinions.push({
-          permid: uuidv7(),
-          authorizerPersonId: authNo,
-          entererPersonId: entNo,
-          subjectPermid: permid,     // ties back to the name_opinion
-          nomenclaturalStatusId: informalStatusId,
-          referenceId: authEntry.reference_id,
-          publicationYear,
-          attribution,
-        });
       }
     }
   } finally {
@@ -211,7 +193,7 @@ async function main() {
   console.log('');
   console.log(`  Source rows read:        ${sourceRows}`);
   console.log(`  name_opinions to insert: ${nameOpinions.length}`);
-  console.log(`  validity_opinions (informal): ${validityOpinions.length}`);
+  console.log(`  informal-rank rows (rank-collapsed to 'unranked'): ${informalCount}`);
   console.log(`  Skipped (orphan authority):   ${skipped}`);
 
   // ---- 3.3 Reconcile totals ----
@@ -224,7 +206,6 @@ async function main() {
   // ---- 3.1 Transaction-wrapped bulk insert ----
   const pgClient = await pg.connect();
   let insertedNO = 0;
-  let insertedVO = 0;
   try {
     await pgClient.query('BEGIN');
 
@@ -271,41 +252,8 @@ async function main() {
       }
     }
 
-    // validity_opinions (12 columns) — only the 18 informal rows
-    if (validityOpinions.length > 0) {
-      const values = [];
-      const params = [];
-      let p = 1;
-      for (const r of validityOpinions) {
-        values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11})`);
-        params.push(
-          r.permid,               // permid
-          r.authorizerPersonId,   // authorizer_person_id
-          r.entererPersonId,      // enterer_person_id
-          r.subjectPermid,        // subject_permid
-          r.nomenclaturalStatusId,// nomenclatural_status_id
-          false,                  // targeted
-          null,                   // target_permid
-          r.referenceId,          // reference_id
-          r.publicationYear,      // publication_year
-          JSON.stringify(r.attribution), // attribution
-          false,                  // evidence
-          false,                  // removed
-        );
-        p += 12;
-      }
-      await pgClient.query(
-        `INSERT INTO validity_opinions
-           (permid, authorizer_person_id, enterer_person_id, subject_permid, nomenclatural_status_id,
-            targeted, target_permid, reference_id, publication_year, attribution, evidence, removed)
-         VALUES ${values.join(',')}`,
-        params,
-      );
-      insertedVO = validityOpinions.length;
-    }
-
     await pgClient.query('COMMIT');
-    console.log(`  Committed: ${insertedNO} name_opinions, ${insertedVO} validity_opinions`);
+    console.log(`  Committed: ${insertedNO} name_opinions`);
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});
     console.error('  Insert failed, transaction rolled back:', err.message);
@@ -314,16 +262,14 @@ async function main() {
   }
   pgClient.release();
 
-  // ---- 3.2 Reset identity sequences ----
+  // ---- 3.2 Reset identity sequence ----
   await pg.query(`SELECT setval(pg_get_serial_sequence('name_opinions','id'), (SELECT MAX(id) FROM name_opinions))`);
-  await pg.query(`SELECT setval(pg_get_serial_sequence('validity_opinions','id'), (SELECT MAX(id) FROM validity_opinions))`);
 
   const { rows: noCnt } = await pg.query('SELECT COUNT(*)::int AS n FROM name_opinions');
-  const { rows: voCnt } = await pg.query('SELECT COUNT(*)::int AS n FROM validity_opinions');
-  console.log(`  Final counts in PG: name_opinions=${noCnt[0].n}, validity_opinions=${voCnt[0].n}`);
+  console.log(`  Final counts in PG: name_opinions=${noCnt[0].n}`);
 
   const elapsed = ((new Date() - startTime) / 1000).toFixed(1);
-  console.log(`[${new Date().toISOString()}] name_opinions migration complete in ${elapsed}s`);
+  console.log(`[${new Date().toISOString()}] authorities → name_opinions migration complete in ${elapsed}s`);
 }
 
 // Only run main() when invoked directly, so pure transforms can be imported for unit tests

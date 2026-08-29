@@ -5,8 +5,17 @@ column maps filled (**§9**, 2026-08-07). Ledger model + root-only identity DECI
 2026-08-17). **Nomen-family / validity routing revised (§5.2, 2026-08-18):** `invalid subgroup of`
 and targeted `nomen oblitum` move to `name_opinions` as concept-class folds; `nomen dubium`,
 `nomen vanum`, `nomen nudum`, and untargeted `nomen oblitum` stay in `validity_opinions`, with
-`nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. Next is starting B4
-(§8).
+`nomen nudum` alone able to bar its own subject's accepted-spelling candidacy. **Rootless `belongs
+to` is migrated, not dropped (§9.6, 2026-08-19):** `assignment_opinions.containing_permid` is now
+nullable; the 332 `parent_spelling_no = 0` rows are inserted with `containing_permid = NULL`
+instead of being skipped — supersedes the exclusion in §9.3 and the disposition in §9.5. **Concept-axis
+synonymy reversals FLAGGED for B4 (§10, 2026-08-20):** ~6,170 taxa currently resolve as valid/independent
+in Classic despite an unretracted concept-class opinion in their history; migration will not
+auto-synthesize a negation for them — see §10 for the live counts and the deferred worklist.
+**`misspelling of` target column corrected (§11, 2026-08-21):** dedicated `status = 'misspelling of'`
+opinions target `parent_spelling_no`, not `child_no` — supersedes the §6.1 aside and the LINEAGE
+column of §9.1 for this one status; `child_no`/`parent_no` are both just same-name anchors, not the
+target. Next is starting B4 (§8).
 **Scope:** the legacy→new *opinion* migration (OpenSpec change **B4 = `migrate-taxa-opinions`**,
 not yet started). This is the detailed, laid-out successor to the flat
 `payloadSchemas/mappings/collections.txt`, needed because the opinion migration is a
@@ -196,7 +205,7 @@ construction.
 **Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `lineage` rows *within the
 authorities pass*, drawing identity from `authorities`) and the §9.8.2 language "that minting row carries
 the permid's immutable identity" — which now holds for `root` only. Under the ledger decomposition the
-authorities pass mints **roots only** (already implemented in `migrate-name-opinions.js`); `lineage`
+authorities pass mints **roots only** (already implemented in `migrate-authorities-opinions.js`); `lineage`
 edges are written by the per-slice opinion migrations and carry no identity. §9.1's root-vs-lineage
 split (shape decided by the top-ranked introducing opinion) does not apply to the ledger migration.
 
@@ -511,9 +520,17 @@ separate the two (live-probed 2026-08-19: 43.9% of `misspelling of` rows are `st
 28.9% of `spelling_reason='misspelling'` rows — a skew, not a clean split), so the distinction needed its
 own dictionary token rather than being inferable from an existing column. Both are `lineage`-class and
 `never_accepted`; for `misspelling of` rows, live data shows `child_no` and `parent_no` both anchor to the
-correct name (equal in effectively every row) while `child_spelling_no` is the distinct misspelling, so
-it resolves under the same subject/target convention as every other lineage pair
-(`subject = child_spelling_no`, `target = child_no`) with no special-cased fields needed.
+correct name (equal in **all** 875 rows, live-probed 2026-08-21) while `child_spelling_no` is the distinct
+misspelling. ~~so it resolves under the same subject/target convention as every other lineage pair
+(`subject = child_spelling_no`, `target = child_no`) with no special-cased fields needed.~~
+
+> ⚠ **SUPERSEDED, 2026-08-21, §11.** The struck sentence's target column is wrong for dedicated
+> `status = 'misspelling of'` opinions. `child_no`/`parent_no` being equal only proves the opinion is
+> about one name-group — it is not the target. The actual target is `parent_spelling_no`, which is a
+> *different* specific spelling than `child_no` in 104 of 875 rows (12%) — live examples and the
+> corrected mapping are in §11. This does **not** change the curatorial case
+> (`spelling_reason = 'misspelling'` on a `belongs to` opinion), where `target = child_no` (Q1(a)) is
+> still correct — see §11 for why the two cases differ.
 
 ### 6.2 `status` (residual nomen family) → `validity_opinions.status` (`nomenclatural_statuses`)
 
@@ -596,6 +613,12 @@ See §5.2 for the full per-token targeted/untargeted breakdown behind the 1,479 
       updated to match; `derive_taxa()` itself still needs the ledger-model rewrite tracked in
       `docs/classic-taxa-opinions.md` §9.8.4.1–.2 before B4 can rely on it.
 - [ ] Then start B4 (`/opsx:new migrate-taxa-opinions`).
+- **Parallel exploratory validation (2026-08-19, not B4 itself):** `migration_exploration/` prototypes the
+  full `opinions` → `name_opinions`/`assignment_opinions`/`validity_opinions` translation as 48 individual
+  `(status, spelling_reason)` handlers, each validated against live `pg_classic` data — see its own
+  `DESIGN.md`. It's a parallel rewrite, not a start on B4 proper; nothing above is superseded by it, but
+  several of its live-probed findings (dictionary-token gaps, the `containing_permid` nullability decision,
+  new anomaly classes) are folded into this doc above as they were confirmed.
 
 ---
 
@@ -660,7 +683,7 @@ text carries from whichever source row the pass names.
 > below describe a **pre-ledger** design where this single pass decides ROOT-vs-LINEAGE **shape** by
 > ranking candidate opinions and mints exactly one row per `authorities.taxon_no` either way. That is
 > no longer correct. Under the ledger model:
-> - This pass (now `migrate-name-opinions.js`) mints **ROOT rows only**, unconditionally, one per
+> - This pass (now `migrate-authorities-opinions.js`) mints **ROOT rows only**, unconditionally, one per
 >   `authorities.taxon_no`, with no ranking and no dependency on any `opinions` row at all.
 > - **LINEAGE** rows are NOT minted here. Every opinion satisfying `child_spelling_no ≠ child_no` is
 >   migrated as its own separate `lineage` row by whichever per-slice migration owns that opinion —
@@ -678,7 +701,7 @@ One row per `authorities.taxon_no`. ~~**Shape** is decided by the **top-ranked i
 | target column | ROOT (404,229: 403,559 originals + 670 orphans) | LINEAGE (113,058, refined by winning intro opinion `w`) |
 |---|---|---|
 | `subject_permid` | `permid(taxon_no)` | `permid(taxon_no)` (= `w.child_spelling_no`) |
-| `target_permid` | `NULL` | `permid(w.child_no)` — direct-to-original, Q1(a) |
+| `target_permid` | `NULL` | `permid(w.child_no)` — direct-to-original, Q1(a). **Exception: `permid(w.parent_spelling_no)` when `w.status = 'misspelling of'` — §11, 2026-08-21.** |
 | `reason_id` | `'original'` | `map(w.spelling_reason)` via §6.1 (`recombination`/`assignment`/`correction`/`reranked`/`misspelling`) |
 | `edge_class` | `'root'` | `'lineage'` (pinned; FK-composite with `reason_id`) |
 | `objective` | `NULL` | `NULL` (only concept junior-synonym rows carry it) |
@@ -714,6 +737,10 @@ columns stay `NULL`. `invalid subgroup of` and targeted `nomen oblitum` join thi
 | `reference_id`, `pubyr`/`attribution`, `evidence` | from the `opinions` row (shared §9.0) |
 
 ### 9.3 `assignment_opinions` (iterate `opinions` `belongs to`, ~927,178 rows)
+
+*(⚠ The 332-row exclusion below is SUPERSEDED, 2026-08-19, §9.6 — those rows are now migrated with
+`containing_permid = NULL`, not dropped. Left as-is per this doc's decision-log convention; read §9.6
+before relying on the counts in this section.)*
 
 Source: `status = 'belongs to'` = 927,512, **minus 332** with `parent_spelling_no = 0` (no containing
 taxon → rootless in the tree; derive_taxa treats absent containment as a tree root — emit **no** row)
@@ -762,7 +789,18 @@ silently dropped:
 | concept self-edge `child_spelling_no = parent_spelling_no` (synonymy family) | **110** | 2 | skip (would violate `name_opinion_not_self`; self-synonymy is meaningless) |
 | concept self-edge `child_spelling_no = parent_spelling_no` (`invalid subgroup of`) | **1** | 2 | skip, same reason (probed 2026-08-18, §5.2) |
 | assignment self-edge `child_spelling_no = parent_spelling_no` | **2** | 3 | skip (would violate `assignment_not_self`) |
-| `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | emit no assignment row (already in §9.3 count) |
+| `belongs to` with `parent_spelling_no = 0` (rootless) | 332 | 3 | ⚠ SUPERSEDED, 2026-08-19, §9.6 — now emitted with `containing_permid = NULL`, not skipped |
+
+**`parent_spelling_no ∉ authorities`/`child_spelling_no ∉ authorities` — root cause confirmed, 2026-08-19.**
+Live-probed against `pg_classic`: every one of these orphaned `taxon_no` values (and `319671`, a `parent_no`
+concept anchor behind two of them) is **entirely absent from Classic's own `authorities` table**, not
+merely excluded by this project's separate authorities-migration pass. Each sits as a single-id gap inside
+an otherwise dense, taxonomically coherent id neighborhood (e.g. `100716`, referenced by 5 `belongs to`
+opinions, sits directly between real neighbors `100715 Eschrichtidae`/`100717 Grampidae`) — the signature
+of an `authorities` row that existed and was later deleted without Classic cascading the delete into
+`opinions`. Genuine Classic-side data defect, not a migration gap; the skip disposition above is correct
+and no fix applies on this side. Full detail (affected opinion_no list) in
+`migration_exploration/DESIGN.md` §3.
 
 `child_spelling_no = 0`: **0 rows** — every opinion has a resolvable subject candidate.
 
@@ -770,6 +808,52 @@ silently dropped:
 dubium`/`nomen nudum`/`nomen vanum`/`nomen oblitum` (routing to §9.2 or dropped per §5.2 as applicable),
 **0** self-edges and **0** unresolvable `parent_spelling_no` — no skip-register entries needed for this
 slice.
+
+### 9.6 Rootless `belongs to` is migrated, not skipped *(DECIDED, 2026-08-19)*
+
+**Supersedes** the 332-row exclusion in §9.3 and the "emit no assignment row" disposition in §9.5.
+`parent_spelling_no = 0` is Classic's own assertion that the opinion's subject has no containing
+taxon — a real, qualifying opinion under the ledger model (§3.2's boundary: migration writes every
+qualifying opinion unconditionally, never deciding one doesn't matter), not unresolvable data like
+`parent_spelling_no ∉ authorities` (§9.5, still skipped).
+
+`assignment_opinions.containing_permid` (`postgresql/create_new.sql`) is now **nullable**. All six
+`belongs to` migration handlers insert these 332 rows with `containing_permid = NULL` instead of
+skipping them. This matters beyond completeness: `assignment_opinions` rows are pooled per concept and
+ranked by `derive_taxa()`'s usual `evidence DESC, pubyr DESC, id DESC` contest (§9.3's per-table note).
+Dropping a rootless opinion outright meant `derive_taxa()` could never let it win that contest against
+an older, worse-evidenced real assignment — silently keeping a taxon under a parent a better-evidenced
+opinion says it doesn't have. Migrating the row lets the ranking decide, same as everywhere else.
+
+`derive_taxa()` (`postgresql/create_new.sql` LAYER 2) needed **no code change**: its containment joins
+(`_dt_assign`, `_dt_node`) are already `LEFT JOIN`s keyed on `containing_permid`, so a NULL value simply
+fails to match and produces `containing_concept_permid = NULL` — the same shape `taxa` already uses for
+"no assignment opinion at all" (`-- NULL = root`, `create_new.sql` ~L4913). The one difference is
+`winning_assignment_opinion_id` is now populated instead of NULL for these permids, which is strictly
+more informative: it distinguishes "explicitly asserted rootless, by this opinion" from "no opinion on
+containment exists at all," a distinction the pre-change behavior erased.
+
+**Invariant, load-bearing:** `containing_permid IS NULL` means "Classic asserted no parent," never "we
+couldn't resolve the parent." An unresolvable/orphaned `parent_spelling_no` (§9.5's 8-row
+`parent_spelling_orphan` case) is always skipped and logged, never written as NULL. If a future change
+ever makes an unresolvable parent migrate as NULL too, this invariant breaks and the two populations
+become indistinguishable by inspecting the table alone.
+
+**Two more anomaly classes surfaced during the exploratory pair-based validation (2026-08-19), not
+previously catalogued anywhere in this doc — full write-ups in `migration_exploration/DESIGN.md` §3, not
+duplicated here:**
+- **"Convergent correction"** (`replaced-by`/`correction`, 9 rows): a correction's `child_spelling_no`
+  coincides with the `replaced by` target's identity — confirmed benign, every case a genuine
+  unavailable/replacement-name event (e.g. *Tianchiasaurus* → *Tianchisaurus*). The concept edge is
+  correctly skipped as a self-loop while the independent lineage edge still emits the same fact; no data
+  is lost and no fix applies.
+- **Lineage self-reference** (224 rows: `child_spelling_no = child_no` despite a non-`'original spelling'`
+  `spelling_reason`): root cause genuinely unclear. Sibling-opinion evidence suggests Classic curators
+  sometimes populate `spelling_reason` from a taxon's general nomenclatural history rather than strictly
+  this row's own values; for `misspelling of` specifically, the deviation shows up on `parent_spelling_no`
+  (a field this pair's handler never reads) rather than `child_spelling_no`, likely a vestigial data-entry
+  artifact. Doesn't change migration behavior — the existing no-lineage-edge skip is correct regardless of
+  why — but worth raising with Classic's curatorial team for their own documentation.
 
 ### 9.7 Residual column calls (made inline; two flagged for confirmation)
 
@@ -801,3 +885,128 @@ basis field, so "the reference's basis" must be derived from the legacy side dur
 candidate: the modal non-NULL `basis` among all `opinions`/`authorities` sharing that `reference_no`,
 falling back to `false` when the reference has no basis anywhere. 298,470 opinions (~30%) depend on it.
 Not a design reopen; an implementation detail B4 must specify and log.
+
+---
+
+## 10. Concept-axis synonymy "reversals" — FLAGGED for B4 (2026-08-20)
+
+**The trigger.** Design work on the OpenSpec change `openspec/changes/rework-derive-taxa/` (which, since
+2026-08-20, also covers what was drafted as a separate `contest-lineage-concept-edges` change — folded
+in once the two turned out to touch the same `derive_taxa()` body too closely to keep apart) — giving
+`derive_taxa()` a per-subject ranked contest over lineage/concept edges, plus an explicit, targeted
+`negates` opinion so a later opinion can contest an earlier one — see that change's `design.md`
+Decisions 5-7 — surfaced a structural mismatch this doc needs to carry forward into B4. Classic ranks **every** opinion about a taxon — `belongs to` and the
+synonymy/spelling family alike — in one pool (`getMostRecentClassification`, `docs/classic-taxa-opinions.md`
+§4.2); whichever wins defines the taxon's current disposition regardless of type. pbdb2 deliberately
+splits classification (`assignment_opinions`) from synonymy (`name_opinions` concept-class) into
+independent per-subject contests (§8/§9.1 of the companion doc — motivated by clean edge-following for
+the tree query and per-edge-type rank rules, not by a considered ranking philosophy). One consequence
+of that split: a `belongs to` opinion can never contest a concept-class claim in the new model, even
+though in Classic it routinely does exactly that — reclassifying a taxon as a valid, independently
+allocated name is how Classic's engine (implicitly) un-synonymizes it, simply because it's the most
+recent, reliable word on that taxon of *any* type.
+
+**Live counts** (probed 2026-08-20 against the Postgres-ported `pbdb_archive` mirror via
+`pg-classic-pool.js`, concept-class opinions only — `subjective synonym of`, `objective synonym of`,
+`replaced by`, `invalid subgroup of`, and targeted `nomen oblitum`; `misspelling of` is lineage-class
+and excluded here, ~875 rows total, small enough to size separately if wanted):
+
+| population | count |
+|---|---|
+| taxa with both a concept-class opinion and a `belongs to` opinion on file | 36,312 |
+| …of those, currently resolved by Classic's own `taxa_tree_cache` (`synonym_no = taxon_no`) as their own senior, not a junior synonym | 6,170 |
+
+The first row is mostly unremarkable — routine junior-synonym classification-borrowing (spec
+requirement "Classification is pooled across the whole concept") produces real `assignment_opinions`
+history for taxa that are stably, uncontestedly synonyms; that's expected, not a gap. The second row is
+the actionable population: for these 6,170 taxa, a naive migration plus the fixed `derive_taxa()` would
+resolve them as synonymous (per their raw, unretracted concept-class opinion), while Classic's live
+engine currently treats them as independent.
+
+**Decision: migration does NOT synthesize a `negates` opinion for any of the 6,170, in B4 or otherwise.**
+Two independent reasons, not one:
+
+1. Deciding *which* `belongs to` opinion "counts" as a reversal of *which* concept-class opinion
+   requires exactly the evidence/pubyr/id ranking this doc's header rule reserves for `derive_taxa()`
+   alone — migration writing every qualifying legacy opinion unconditionally, never comparing candidates
+   to pick a winner, is the entire point of the migration/derivation split.
+2. Even Classic's own resolution can't distinguish a genuine scientific rebuttal from an unrelated,
+   later classification opinion that simply happens to be more reliable — the two are indistinguishable
+   in the data shape (subject, evidence, reference; nothing records whether the classifying author ever
+   engaged with the synonymy question at all). An auto-synthesized negation, attributed to that opinion's
+   own reference, risks putting words in an author's mouth they never said. This is a case where pbdb2's
+   split model is *more* precise than Classic's, not less (see `rework-derive-taxa/design.md`'s Context
+   and Decisions 5-6 for the fuller discussion) — but that precision means the ambiguity in Classic's
+   historical data can't be losslessly resolved after the fact.
+
+**Disposition.** `belongs to` → `assignment_opinions` and the concept-class family → `name_opinions`
+concept-class rows migrate exactly as §9.2/§9.3 already specify — unconditionally, no inference layered
+on top. The 6,170 taxa will resolve as synonymous immediately post-migration, contra Classic's current
+live state, until a curator reviews and re-enters a real opinion.
+
+**Follow-up (a B4 deliverable, not a schema or `derive_taxa()` change):** produce a dated curatorial
+worklist — the 6,170 `child_no` values, each joined to its currently-asserted senior/synonym target and
+its competing `belongs to` opinion(s) — as a read-only review report, not a ledger write. A curator
+judges each case and, where warranted, enters a genuine, self-attributed `negates` opinion via the
+mechanism `rework-derive-taxa` adds. Same treatment as this project's existing anomaly-log ledger
+pattern for other migration edge cases: a quantified, actionable list handed to a human, not a silent
+gap and not an automated guess.
+
+---
+
+## 11. `misspelling of` target column corrected: `parent_spelling_no`, not `child_no` (2026-08-21)
+
+**The trigger.** A review question challenged the §6.1/§9.1 claim that a dedicated `status =
+'misspelling of'` opinion's lineage target is `permid(w.child_no)`, on the grounds that it doesn't
+match the general `child <status> parent` construction used everywhere else in `opinions` (`belongs
+to`, `synonym of`, `replaced by`) — under that construction, a `misspelling of` opinion should read as
+"`child_spelling_no` is a misspelling **of** `parent_spelling_no`," making `parent_spelling_no` the
+target, not `child_no`.
+
+**Live-probed 2026-08-21** (Postgres-ported `pbdb_archive` mirror via `pg-classic-pool.js`, all 875
+`status = 'misspelling of'` rows):
+
+| comparison | result |
+|---|---|
+| `parent_no` vs `child_no` | equal in **all 875** rows (0 mismatches) |
+| `parent_spelling_no` vs `child_no` | differ in **104** rows (11.9%) |
+| `child_spelling_no` vs `parent_spelling_no` | **never** equal (0 of 875) |
+| `child_spelling_no` vs `child_no` | equal in 29 rows (3.3%) |
+
+`child_no`/`parent_no` being equal in every row does not make `child_no` the target — it only proves
+the opinion is about one name-group (a misspelling isn't a distinct taxonomic concept, unlike
+synonymy). The real target is `parent_spelling_no`, which is a specific spelling of that name-group —
+usually the original combination (hence 88% agreement with `child_no`), but in 104 rows a *different,
+non-original* correct spelling, which only `parent_spelling_no` captures.
+
+**Confirmed against real names** (the 104 divergent rows), joining `child_spelling_no` and
+`parent_spelling_no` through `authorities.taxon_name`:
+
+| `child_spelling_no` name (the misspelling) | `parent_spelling_no` name (the correct spelling) |
+|---|---|
+| `Betyokites` | `Betiokytes` |
+| `Padragosiceras` | `Padagrosites` |
+| `Euscelesaurus` | `Euskelosaurus` |
+| `Caulastraea` | `Caulastrea` |
+| `Delphinus brochii` | `Delphinus brocchii` |
+| `Syncylonema travisanus` | `Syncyclonema travisanus` |
+
+`Caulastraea`/`Caulastrea` is an independently verifiable real-world case — `Caulastrea` is the
+accepted coral genus spelling — confirming the direction: `child_spelling_no` is asserted as the
+misspelling *of* `parent_spelling_no`, not the reverse, and not of `child_no`.
+
+**Corrected mapping** for the LINEAGE case of §9.1, when the winning introducing opinion `w` has
+`w.status = 'misspelling of'`:
+
+| target column | value |
+|---|---|
+| `subject_permid` | `permid(w.child_spelling_no)` — unchanged |
+| `target_permid` | **`permid(w.parent_spelling_no)`** — corrected; was `permid(w.child_no)` |
+
+**Scope: this does not touch the curatorial case.** `spelling_reason = 'misspelling'` on an ordinary
+`belongs to` opinion is structurally different — there, `parent_no`/`parent_spelling_no` point to the
+*classification* parent (e.g. the genus), a genuinely different taxon, not an alternate spelling of
+the same name. `child_no` there is the only sensible target (Q1(a), direct-to-original), and that
+reasoning is untouched by this correction. The distinguishing signal is exactly the one probed above:
+for dedicated `misspelling of`, `parent_no = child_no` always; for an ordinary `belongs to` opinion,
+it generally does not.

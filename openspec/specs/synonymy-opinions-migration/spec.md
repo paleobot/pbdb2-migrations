@@ -208,7 +208,7 @@ The script SHALL log in-scope rows read, `name_opinions` concept rows inserted, 
 
 
 ### Requirement: Reset the identity sequence after insert
-After a successful commit the script SHALL reset the `name_opinions` id sequence to `MAX(id)` (as in `migrate-name-opinions.js` and `migrate-assignment-opinions.js`), so subsequent inserts do not collide with the migrated rows' identity values.
+After a successful commit the script SHALL reset the `name_opinions` id sequence to `MAX(id)` (as in `migrate-authorities-opinions.js` and `migrate-assignment-opinions.js`), so subsequent inserts do not collide with the migrated rows' identity values.
 
 #### Scenario: Sequence reset
 - **WHEN** the bulk insert has committed

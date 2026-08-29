@@ -1073,6 +1073,14 @@ A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `
   `edge_class` value rather than NULL, so the A1 composite FK that pins `edge_class` onto each opinion row
   can enforce it — D9.)
 
+> **Reason-token lists above are stale (2026-08-18/19).** Two rounds of dictionary growth happened after
+> this section was written, both after D7 (§10.6) too: `lineage` gained `historical misspelling`
+> (`status = 'misspelling of'`, distinct from curatorial `misspelling` — a formally published misspelling
+> claim vs. an incidental one noticed while entering an opinion about something else; `evidence`/`basis`
+> doesn't reliably separate the two), and `concept` gained `invalid subgroup` and `nomen oblitum`
+> (targeted only) per §9.8.4.2's nomen-family routing decision. The mapping doc's §6.1 crosswalk is the
+> current, complete token list — read it over the lists here.
+
 A permid is **minted** by the row that first introduces it as subject (`original`, or a `lineage`
 reason for a spelling introduced as a form of an earlier one). That minting row carries the permid's
 immutable identity — `new_name`, **`rank_id`**, and the naming-act provenance (`authority_id`, `pages`,
@@ -1312,7 +1320,12 @@ taxon* ladder.
   `misspelling`/`never_accepted`. See the mapping doc §3.1 for this collision on real data
   (*Amphymenium* / *Amphimenium*) and the orphan-severance case (*Canis littoralis*, a Q2(a) orphan).
 - **`belongs to` opinions → `assignment_opinions`**, `subject_permid` = the `child_spelling_no`'s permid,
-  `containing_permid` = the `parent_spelling_no`'s permid.
+  `containing_permid` = the `parent_spelling_no`'s permid. **`containing_permid` is nullable** (decided
+  2026-08-19, mapping doc §9.6): legacy `parent_spelling_no = 0` is Classic's own assertion of no
+  containing taxon (a real, rankable claim, not a gap), migrated as `containing_permid = NULL` rather than
+  dropped — reserved for that asserted case only, never used for an unresolvable/orphaned parent, which is
+  still skipped. `derive_taxa()`'s containment joins already treat NULL as "no containing concept," the
+  same shape `taxa.containing_concept_permid` uses for a permid with no assignment opinion at all.
 - **Synonymy `status` → `concept`-class `name_opinions`**; the nomen family → `validity_opinions`.
 - **No `orig_no` clustering pass.** The lineage is rebuilt from the edges, which **heals** the 81 bad
   `orig_no` rows and turns the FK orphans / "two candidate originals" into ordinary competing opinions
@@ -1521,7 +1534,11 @@ or a documented Classic pathology.
 
 Two cleanups en route: **81 `orig_no` values** point at a taxon_no that is not its own original, and
 the anomaly report lists a handful of FK orphans (1 `child_no`, 5 `parent_no`, 8
-`parent_spelling_no`, 10 `reference_no`).
+`parent_spelling_no`, 10 `reference_no`). **Root cause confirmed, 2026-08-19** (mapping doc §9.5): the
+orphaned `taxon_no` values are entirely absent from Classic's own `authorities` table — not a migration
+gap — each sitting as a single-id gap in an otherwise dense, taxonomically coherent id neighborhood, the
+signature of a deleted `authorities` row Classic never cascaded the delete from. A genuine Classic-side
+data defect; these opinions are permanently unmigratable as-is.
 
 ### 10.6 Status and the open-items register
 
@@ -1538,9 +1555,14 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
 
 #### B. Implementation not yet written (design settled)
 
-- **B1 — `derive()` itself.** Layer 2 has no code. The two union-finds, the ordered ranking, and the
-  §9.5.6 obligations — **totality, determinism, and cycle handling** (A synonym-of B, B synonym-of A) —
-  all live in this one function and none of it exists yet. The largest remaining piece.
+- **B1 — `derive()` itself.** ⚠ Partially stale (2026-08-19): `derive_taxa()` now exists as a real function
+  in `postgresql/create_new.sql` (the two union-finds, the ordered ranking, the §9.5.6 cycle guard are all
+  written). But it predates the ledger-model deltas §9.8.4.1/§9.8.4.2 record and is **not authoritative**
+  — confirmed live, 2026-08-19: it still fans out multiple output rows per permid instead of one (break-
+  point 1), and its `never_accepted`/`nomen nudum` candidacy exclusion is row-scoped rather than
+  permid-scoped (break-point 3) — a permid whose *own* `root` row happens to out-rank its disqualifying
+  lineage edge can still win the accepted-spelling contest it should be barred from. The rework §9.8.4.1/
+  .2 describe is still the largest remaining piece, just starting from working code instead of nothing.
 - **B2 — `dependency_closure` rewrite for the inversion.** The §9.6.4 query still uses `senior_permid`
   and has no **lineage-lateral pass**, but under the inversion a name edge merges permids at two levels,
   so the closure must seed the affected *lineage* as well as the concept. §9.6.6's claim that the §9.6.4
@@ -1622,6 +1644,14 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   keeps `derive()` a present-tense function (§9.5.2.1). The "if that requirement is ever dropped, `taxa`
   could become a plain rebuildable cache" escape hatch is now closed by decision.
 
+  **⚠ Superseded, 2026-08-23.** The escape hatch above was reopened and taken: `taxa` is no longer
+  versioned. `install_version_triggers('taxa')` and the `preceded_by_id`/`succeeded_by_id` columns are
+  removed; `taxa` is a plain `UNIQUE (permid)` ledger, upserted in place by `rebuild_taxa()`. Point-in-time
+  reconstruction of the *derived ledger* is no longer supported — Layer 1 opinions remain fully versioned,
+  so what was asserted, when, is still recoverable; only the pre-computed per-version derivation result is
+  gone. See `openspec/changes/de-version-taxa/` (once archived, `openspec/specs/taxa-opinions/spec.md`'s
+  "Versioning regimes are applied correctly per table" requirement) for the current, authoritative design.
+
 - **D7 — `namechange_reasons` dictionary reconciled (was A3): DECIDED (2026-07-31).** Eight final
   tokens, each mapping 1:1 to a legacy vocabulary value. Three calls settled the overlaps:
   (1) **`assignment` and `recombination` both kept** — they are two distinct legacy `spelling_reason`
@@ -1634,6 +1664,12 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   set: `original`, `misspelling`, `reranked`, `recombination`, `assignment`, `correction` (lineage);
   `junior synonym`, `replaced by` (concept). Applied in the draft; `create_new.sql` seed edit deferred to
   B3.
+
+  **⚠ Superseded in part, 2026-08-18/19.** Two later decisions grew this set past "final": §9.8.4.2 added
+  `invalid subgroup` and `nomen oblitum` (concept-class) for the nomen-family routing, and a dedicated
+  `historical misspelling` (lineage-class) token was added to distinguish `status = 'misspelling of'`'s
+  formally-published misspelling claim from the curatorial `misspelling` token (§9.8.2 note above). The
+  mapping doc's §6.1 is the current, authoritative token list.
 
 - **D6 — `type_opinions` + `trait_opinions` DROPPED (was A4/A5): DECIDED (2026-07-31).** Both
   attribute-opinion tables are removed from the draft schema and the migration spec. The legacy type
