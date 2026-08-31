@@ -3,7 +3,7 @@
 // hand-written (status, spelling_reason) handlers under
 // migration_exploration/opinions/ with one streamlined script whose structure
 // mirrors payloadSchemas/mappings/opinions.md: three canonical dispositions
-// (assignment / concept / validity), one universal spelling_reason → lineage
+// (assignment / concept / validity), one universal spelling_reason → name
 // crosswalk applied as an independent second (dual) emission, and the named
 // exceptions (misspelling of; nomen oblitum's per-row branch; the mistagged
 // original-spelling backfill).
@@ -45,10 +45,10 @@ const VALIDITY = {
   'nomen vanum':  'nomen vanum',
 };
 
-// Universal lineage crosswalk: spelling_reason → lineage reason token. Applied as
+// Universal name crosswalk: spelling_reason → name reason token. Applied as
 // an independent second emission for EVERY status (except 'misspelling of', whose
 // single output is its own historical-misspelling edge). 'original spelling' has
-// no entry: it produces no lineage edge by default (see the mistagged exception).
+// no entry: it produces no name edge by default (see the mistagged exception).
 const CROSSWALK = {
   'correction':    'correction',
   'rank change':   'reranked',
@@ -58,7 +58,7 @@ const CROSSWALK = {
 };
 
 // Mistagged original-spelling worklist: the CSV's human `inferred_reason` label →
-// a namechange_reasons lineage token.
+// a namechange_reasons name token.
 const MISTAGGED_LABEL_TO_TOKEN = {
   'reranked':            'reranked',
   'recombination':       'recombination',
@@ -68,7 +68,7 @@ const MISTAGGED_LABEL_TO_TOKEN = {
 
 // The three pairs (all with spelling_reason = 'original spelling') the mistagged
 // backfill covers; every other status/original-spelling combination gets no
-// lineage edge even when child_spelling_no != child_no.
+// name edge even when child_spelling_no != child_no.
 const MISTAGGED_STATUSES = new Set(['belongs to', 'replaced by', 'subjective synonym of']);
 
 // The full closed set of source statuses, for status-closure validation.
@@ -80,8 +80,8 @@ const KNOWN_SPELLING_REASONS = new Set(['original spelling', ...Object.keys(CROS
 
 // ---------- Reconciliation bookkeeping ----------
 // recon[pair][outputKey] = { attempted, written, skipped }. outputKey is one of
-// assignment | concept | validity | historical_misspelling | lineage. A row can
-// carry a primary output and, independently, a 'lineage' backfill — distinct keys.
+// assignment | concept | validity | historical_misspelling | name. A row can
+// carry a primary output and, independently, a 'name' backfill — distinct keys.
 const recon = new Map();
 function rec(pair, key) {
   let m = recon.get(pair);
@@ -138,11 +138,11 @@ async function main(opts = {}) {
   const conceptReasonId = {};
   for (const s of Object.values(CONCEPT)) conceptReasonId[s.reason] = reasonId(s.reason, 'concept');
   const nomenOblitumConceptReasonId = reasonId('nomen oblitum', 'concept');
-  const historicalMisspellingReasonId = reasonId('historical misspelling', 'lineage');
+  const historicalMisspellingReasonId = reasonId('historical misspelling', 'name');
   const crosswalkReasonId = {};
-  for (const token of new Set(Object.values(CROSSWALK))) crosswalkReasonId[token] = reasonId(token, 'lineage');
+  for (const token of new Set(Object.values(CROSSWALK))) crosswalkReasonId[token] = reasonId(token, 'name');
   for (const token of new Set(Object.values(MISTAGGED_LABEL_TO_TOKEN))) {
-    if (!(token in crosswalkReasonId)) crosswalkReasonId[token] = reasonId(token, 'lineage');
+    if (!(token in crosswalkReasonId)) crosswalkReasonId[token] = reasonId(token, 'name');
   }
 
   const { rows: statusRows } = await pg.query(`SELECT id, status FROM dictionaries.nomenclatural_statuses`);
@@ -238,24 +238,24 @@ async function main(opts = {}) {
           : primaryKey === 'validity' ? 'validity_opinions'
           : 'name_opinions';
 
-        // Does this row attempt a universal/backfill lineage edge? (Never for
+        // Does this row attempt a universal/backfill name edge? (Never for
         // 'misspelling of', whose only output is the historical-misspelling edge.)
-        let lineageAttempted = false;
-        let lineageToken = null;
+        let nameAttempted = false;
+        let nameToken = null;
         if (status !== 'misspelling of') {
           if (spellingReason !== 'original spelling') {
-            lineageAttempted = true;
-            lineageToken = CROSSWALK[spellingReason];
+            nameAttempted = true;
+            nameToken = CROSSWALK[spellingReason];
           } else if (MISTAGGED_STATUSES.has(status) && childSpelling !== childNo) {
             // Mistagged original-spelling exception (only these three statuses).
-            lineageAttempted = true;
-            lineageToken = mistaggedTokens.get(Number(src.opinion_no)) || null; // null → skip-and-log below
+            nameAttempted = true;
+            nameToken = mistaggedTokens.get(Number(src.opinion_no)) || null; // null → skip-and-log below
           }
         }
 
         // Count attempts.
         rec(pair, primaryKey).attempted++;
-        if (lineageAttempted) rec(pair, 'lineage').attempted++;
+        if (nameAttempted) rec(pair, 'name').attempted++;
 
         // ---- Shared prerequisites: childSpelling permid + reference ----
         // A failure here skips every attempted output for the row, independently
@@ -267,9 +267,9 @@ async function main(opts = {}) {
             : `reference_no=${src.reference_no} not found in migrated refs`;
           rec(pair, primaryKey).skipped++;
           logSkip(src.opinion_no, primaryTable, issue, `${primaryKey} output skipped: ${detail}`);
-          if (lineageAttempted) {
-            rec(pair, 'lineage').skipped++;
-            logSkip(src.opinion_no, 'name_opinions', issue, `lineage backfill skipped: ${detail}`);
+          if (nameAttempted) {
+            rec(pair, 'name').skipped++;
+            logSkip(src.opinion_no, 'name_opinions', issue, `name backfill skipped: ${detail}`);
           }
           continue;
         }
@@ -319,47 +319,47 @@ async function main(opts = {}) {
             validities.push({ permid: uuidv7(), ...base, subjectPermid: childSpellingPermid, statusId: validityStatusId['nomen oblitum'] });
           }
         } else if (primaryKey === 'historical_misspelling') {
-          // misspelling of: lineage-only, reason 'historical misspelling', target = parent_spelling_no.
+          // misspelling of: name-only, reason 'historical misspelling', target = parent_spelling_no.
           const targetPermid = parentSpelling ? nameMap.get(parentSpelling) : undefined;
           if (!targetPermid) {
             rec(pair, 'historical_misspelling').skipped++;
             logSkip(src.opinion_no, 'name_opinions', 'parent_spelling_unresolved',
-              `lineage (historical misspelling) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
+              `name (historical misspelling) edge skipped: parent_spelling_no=${src.parent_spelling_no} has no migrated permid`);
           } else if (childSpelling === parentSpelling) {
             rec(pair, 'historical_misspelling').skipped++;
             logSkip(src.opinion_no, 'name_opinions', 'self_reference',
-              `lineage (historical misspelling) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no}) — asserts no actual spelling deviation`);
+              `name (historical misspelling) edge skipped: child_spelling_no == parent_spelling_no (${src.child_spelling_no}) — asserts no actual spelling deviation`);
           } else {
             rec(pair, 'historical_misspelling').written++;
-            nameOpinions.push({ permid: uuidv7(), ...base, subjectPermid: childSpellingPermid, targetPermid, reasonId: historicalMisspellingReasonId, edgeClass: 'lineage', objective: null });
+            nameOpinions.push({ permid: uuidv7(), ...base, subjectPermid: childSpellingPermid, targetPermid, reasonId: historicalMisspellingReasonId, edgeClass: 'name', objective: null });
           }
         }
 
         // ================= UNIVERSAL / BACKFILL LINEAGE (independent) =================
-        if (lineageAttempted) {
-          const c = rec(pair, 'lineage');
-          if (!lineageToken) {
+        if (nameAttempted) {
+          const c = rec(pair, 'name');
+          if (!nameToken) {
             // Mistagged original-spelling row not present in the worklist.
             c.skipped++;
             logSkip(src.opinion_no, 'name_opinions', 'mislabeled_original_spelling',
-              `child_spelling_no (${src.child_spelling_no}) != child_no (${src.child_no}) despite spelling_reason='original spelling', but absent from the mistagged worklist — lineage claim NOT migrated`);
+              `child_spelling_no (${src.child_spelling_no}) != child_no (${src.child_no}) despite spelling_reason='original spelling', but absent from the mistagged worklist — name claim NOT migrated`);
           } else {
             const targetPermid = childNo ? nameMap.get(childNo) : undefined;
             if (!targetPermid) {
               c.skipped++;
               logSkip(src.opinion_no, 'name_opinions', 'child_no_unresolved',
-                `lineage (${lineageToken}) edge skipped: child_no=${src.child_no} has no migrated permid`);
+                `name (${nameToken}) edge skipped: child_no=${src.child_no} has no migrated permid`);
             } else if (childSpelling === childNo) {
               c.skipped++;
               logSkip(src.opinion_no, 'name_opinions', 'self_reference',
-                `lineage (${lineageToken}) edge skipped: child_spelling_no == child_no (${src.child_spelling_no}) — no actual spelling deviation`);
+                `name (${nameToken}) edge skipped: child_spelling_no == child_no (${src.child_spelling_no}) — no actual spelling deviation`);
             } else {
               c.written++;
               if (spellingReason === 'original spelling') {
                 logWarning(src.opinion_no, 'name_opinions', 'mislabeled_original_spelling',
-                  `child_spelling_no (${src.child_spelling_no}) != child_no (${src.child_no}) despite spelling_reason='original spelling' — worklist backfill emitted as lineage edge, reason='${lineageToken}'`);
+                  `child_spelling_no (${src.child_spelling_no}) != child_no (${src.child_no}) despite spelling_reason='original spelling' — worklist backfill emitted as name edge, reason='${nameToken}'`);
               }
-              nameOpinions.push({ permid: uuidv7(), ...base, subjectPermid: childSpellingPermid, targetPermid, reasonId: crosswalkReasonId[lineageToken], edgeClass: 'lineage', objective: null });
+              nameOpinions.push({ permid: uuidv7(), ...base, subjectPermid: childSpellingPermid, targetPermid, reasonId: crosswalkReasonId[nameToken], edgeClass: 'name', objective: null });
             }
           }
         }

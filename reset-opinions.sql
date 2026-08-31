@@ -49,19 +49,19 @@ CREATE TABLE dictionaries.namechange_reasons (
     description text,
     edge_class text NOT NULL,
     never_accepted boolean NOT NULL DEFAULT false,
-    CONSTRAINT namechange_reasons_edge_class_check CHECK (edge_class IN ('root', 'lineage', 'concept')),
+    CONSTRAINT namechange_reasons_edge_class_check CHECK (edge_class IN ('root', 'name', 'concept')),
     -- composite unique key referenced by name_opinions' (reason_id, edge_class) FK:
     CONSTRAINT namechange_reasons_id_edge_class_key UNIQUE (id, edge_class)
 );
 INSERT INTO dictionaries.namechange_reasons (reason, description, edge_class, never_accepted)
     VALUES
         ('original',         'The original published name',                                        'root',    false),
-        ('correction',       'Grammatical/orthographic correction (incl. ICZN-code-mandated changes)', 'lineage', false),
-        ('reranked',         'The taxon has changed rank (from genus to family, implies re-assignment)', 'lineage', false),
-        ('recombination',    'Species combined with a different genus',                            'lineage', false),
-        ('assignment',       'The assignment of the taxon changed (e.g., new genus for species)',  'lineage', false),
-        ('misspelling',      'The taxon''s name was misspelled (noticed incidentally, e.g. while entering a belongs-to opinion; legacy spelling_reason=''misspelling'')', 'lineage', true),
-        ('historical misspelling', 'A formally published opinion whose entire content is the claim that this name is a misspelling (legacy status=''misspelling of'')', 'lineage', true),
+        ('correction',       'Grammatical/orthographic correction (incl. ICZN-code-mandated changes)', 'name',    false),
+        ('reranked',         'The taxon has changed rank (from genus to family, implies re-assignment)', 'name',    false),
+        ('recombination',    'Species combined with a different genus',                            'name',    false),
+        ('assignment',       'The assignment of the taxon changed (e.g., new genus for species)',  'name',    false),
+        ('misspelling',      'The taxon''s name was misspelled (noticed incidentally, e.g. while entering a belongs-to opinion; legacy spelling_reason=''misspelling'')', 'name',    true),
+        ('historical misspelling', 'A formally published opinion whose entire content is the claim that this name is a misspelling (legacy status=''misspelling of'')', 'name',    true),
         ('junior synonym',   'The taxon is a junior synonym of another taxon',                     'concept', false),
         ('replaced by',      'Name replaced (e.g. homonymy)',                                      'concept', false),
         ('invalid subgroup', 'The taxon is an invalid subgroup, folded into the target''s concept', 'concept', false),
@@ -104,7 +104,7 @@ CREATE TABLE name_opinions (
                                            -- fact about this opinion, not a permanent property of the
                                            -- reason token. `edge_class = 'root'` rows are never negated
                                            -- (see name_opinion_shape). See taxa-opinions spec, "An opinion
-                                           -- can assert the negation of a lineage or concept relationship."
+                                           -- can assert the negation of a name or concept relationship."
     objective boolean,                     -- 'junior synonym' edges only: objective (true) vs subjective (false).
                                            -- SOLE carrier of the split (D7): no separate synonym reason tokens.
 
@@ -136,16 +136,16 @@ CREATE TABLE name_opinions (
 
     -- THE MINTING SHAPE, a plain same-row CHECK because edge_class is on the row.
     -- Identity (new_name, rank_id) is set IFF edge_class = 'root': a permid's name
-    -- and rank are minted once, on its root row (from authorities); lineage and
+    -- and rank are minted once, on its root row (from authorities); name and
     -- concept edges assert relationships between permids whose identities already
     -- live on their own root rows, so they carry a target and NO identity.
     -- (Ledger model — mapping doc §3.2, 2026-08-17.)
     --   'root'    ('original')    ⇒ no target; mints identity  (new_name, rank_id set)
-    --   'lineage' (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
+    --   'name'    (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
     --   'concept' (synonymy edge) ⇒ target set; NO identity     (new_name, rank_id NULL)
     CONSTRAINT name_opinion_shape CHECK (
            (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL AND negates = false)
-        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
+        OR (edge_class = 'name'    AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
         OR (edge_class = 'concept' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
     )
     -- RESIDUAL (not covered here): "objective NOT NULL iff reason = 'junior synonym'"

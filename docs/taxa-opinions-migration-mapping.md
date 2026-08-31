@@ -119,7 +119,7 @@ is an original spelling or a derived orphan.
  │  reason + target REFINED by the introducing opinion (child_spelling_no = this, child_no ≠ this).
  │  orig_no is never consulted; taxon_no==orig_no below is descriptive, not the decision input.
  │
- ├─ 113,058  HAS a spelling-change opinion → mint 'lineage'
+ ├─ 113,058  HAS a spelling-change opinion → mint 'name'
  │             reason  = map(spelling_reason)   [misspelling ⇒ never_accepted — see §3.1]
  │             target  = permid(child_no)       [Q1(a): direct to original]
  │
@@ -130,7 +130,7 @@ is an original spelling or a derived orphan.
 
 **Why the reason must come from the opinion, not a blanket `'original'` (Option 1 vs. a rejected
 uniform rule).** A tempting simplification is "*every* `authorities` row mints `reason = 'original'`,
-1:1, and lineage edges are separate opinions." It breaks on **misspellings**: a misspelling has its
+1:1, and name edges are separate opinions." It breaks on **misspellings**: a misspelling has its
 own `authorities` row, so a blanket `'original'` minter would be `never_accepted = false` —
 accepted-spelling-*eligible* — while its `misspelling` edge is `never_accepted = true`. `derive_taxa()`
 step 3 (§9.8.4) could then rank the typo as a concept's accepted name. Sourcing the minting reason
@@ -146,7 +146,7 @@ names-as-spelled; the species was shuffled across three genera. None is a misspe
 | taxon_no | orig_no | name | introducing opinion(s) | mints |
 |---|---|---|---|---|
 | 52684 | 52684 | *Vulpes littoralis* | 2 × `belongs to` / **original spelling** | `root` `'original'` |
-| 52595 | 52684 | *Urocyon littoralis* | 6 × `belongs to` / **recombination** → *Urocyon* | `lineage` `recombination`, target → permid(52684) |
+| 52595 | 52684 | *Urocyon littoralis* | 6 × `belongs to` / **recombination** → *Urocyon* | `name` `recombination`, target → permid(52684) |
 | **44859** | 52684 | ***Canis littoralis*** | **none — 0 opinions in any role** | `root` `'original'` — **severed** |
 
 *Canis littoralis* is a derived spelling (`taxon_no ≠ orig_no`) with no opinion — a textbook Q2 orphan.
@@ -179,7 +179,7 @@ special-cased ref 6930, §4.2, maps to `evidence = false` — §6.3.)
 ### 3.2 Identity columns are root-only (ledger model) *(DECIDED, 2026-08-17)*
 
 **Decision.** In `name_opinions`, `new_name` and `rank_id` are populated **only** on `root` rows.
-Every non-root row — `lineage` and `concept` alike — carries `new_name = NULL` and `rank_id = NULL`.
+Every non-root row — `name` and `concept` alike — carries `new_name = NULL` and `rank_id = NULL`.
 The `name_opinion_shape` CHECK is tightened to the single invariant:
 
 ```
@@ -191,21 +191,21 @@ Under the **ledger model** — the opinions tables (`name_opinions`, `assignment
 `validity_opinions`) are append-only records of *every* opinion ever entered, and all collapse
 (canonical-winner, accepted-spelling, misspelling exclusion) happens only when `taxa` is derived — every
 name-as-spelled gets its identity **once**, on the `root` row minted from its `authorities` row. A
-`lineage` or `concept` edge is a pure relationship between two permids whose identities already live on
+`name` or `concept` edge is a pure relationship between two permids whose identities already live on
 their own root rows; restating identity on the edge can only duplicate the subject's root row (redundant)
 or contradict it (a bug — e.g. the belongs-to/misspelling mapping that copied the *target's* name onto
 the edge). Concept edges already encode this (identity `NULL`, commit a64c85f); this decision recognizes
-that lineage edges are the same kind of thing.
+that name edges are the same kind of thing.
 
 **Guarding invariant.** Every retained non-root edge's `subject_permid` resolves to a root row (its
 authorities-minted identity). The skip-and-log framework already drops any edge whose subject is
 unresolvable (`child_spelling_unresolved`), so every retained lineage/concept row satisfies this by
 construction.
 
-**Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `lineage` rows *within the
+**Supersedes.** This reverses the Option-1 rule in §9.1 (which minted `name` rows *within the
 authorities pass*, drawing identity from `authorities`) and the §9.8.2 language "that minting row carries
 the permid's immutable identity" — which now holds for `root` only. Under the ledger decomposition the
-authorities pass mints **roots only** (already implemented in `migrate-authorities-opinions.js`); `lineage`
+authorities pass mints **roots only** (already implemented in `migrate-authorities-opinions.js`); `name`
 edges are written by the per-slice opinion migrations and carry no identity. §9.1's root-vs-lineage
 split (shape decided by the top-ranked introducing opinion) does not apply to the ledger migration.
 
@@ -215,7 +215,7 @@ split (shape decided by the top-ranked introducing opinion) does not apply to th
 
 ### Q1 — Lineage-edge target: direct-to-original vs. chained  *(DECIDED — (a), 2026-08-06)*
 
-For a derived spelling with an introducing opinion, the lineage edge's `target_permid` can be either:
+For a derived spelling with an introducing opinion, the name edge's `target_permid` can be either:
 
 - **(a) direct to the original** — `target = permid(child_no)` (the opinion's own `child_no`). Simple;
   fully connects the lineage union-find; loses the order in which spellings were introduced.
@@ -285,7 +285,7 @@ accepted. The earlier lean to (b) is **reversed.**
 **Sub-decision — the canonical winner *(DECIDED, 2026-08-06 — ⚠ SUPERSEDED, 2026-08-17, §3.2)*.**
 This sub-decision predates the ledger model and describes a **migration-time** ranking. Under §3.2
 there is no single "minting row" for a derived spelling to be won — every qualifying opinion
-(any row with `child_spelling_no ≠ child_no`) is migrated as its own `lineage` ledger row,
+(any row with `child_spelling_no ≠ child_no`) is migrated as its own `name` ledger row,
 unconditionally, with no ranking or comparison across candidates. The `evidence`/`pubyr`/`id`
 ranking described below is real and still used — but only by `derive_taxa()`, later, reading the
 full ledger this migration produced, never by migration code itself. Kept here for history; do
@@ -398,17 +398,17 @@ alike (Q2(a)).
 Under the **ledger model** each opinion slice writes rows for the opinions it owns, and slices key off
 `spelling_reason` (the misspelling slice does `WHERE spelling_reason = 'misspelling'`; the future
 recombination slice will do `= 'recombination'`; etc.). That is unsafe as the test for "does this
-`belongs to` opinion introduce a lineage edge?" — because the legacy `spelling_reason` label is
+`belongs to` opinion introduce a name edge?" — because the legacy `spelling_reason` label is
 **wrong on ~50 rows**. The reliable discriminator is the one §3 already names: an opinion mints/asserts a
-lineage edge **iff `child_spelling_no ≠ child_no`**, regardless of the label. `spelling_reason` supplies
+name edge **iff `child_spelling_no ≠ child_no`**, regardless of the label. `spelling_reason` supplies
 the reason *token* only when it is trustworthy.
 
 **The anomaly.** `SELECT count(*) FROM opinions WHERE status='belongs to' AND spelling_reason='original
 spelling' AND child_spelling_no <> child_no` = **50** (live `pbdb_archive`, 2026-08-17). These are
 `belongs to`/`original spelling` opinions whose spelling genuinely differs from `child_no`. As currently
 routed (original spelling → `assignment_opinions` only, no `name_opinions` edge), each gets a containment
-row but **no lineage edge** — silently severing `child_spelling` from `child_no`. The assignment slice
-has already run and taken these as `assignment_opinions`, so the missing lineage edges are a **backfill**
+row but **no name edge** — silently severing `child_spelling` from `child_no`. The assignment slice
+has already run and taken these as `assignment_opinions`, so the missing name edges are a **backfill**
 owed by whichever slice ends up owning them (most naturally the recombination slice).
 
 **Their reason is inferred from the name relationship, not the label** (49 rows resolve to an
@@ -419,7 +419,7 @@ owed by whichever slice ends up owning them (most naturally the recombination sl
 | `reranked` | 16 | `taxon_rank` differs | *Cetacea* order → superorder (36652→147596) |
 | `recombination` | 10 | genus (first word) differs | *Atrypa transversa* → *Pterotheca transversa* (72526→75879) |
 | `correction` | 1 | same genus/rank, spelling differs | *Perrisonota* → *Perissonota* (61690→61684) |
-| `duplicate-or-homonym` | 22 | name **and** rank identical, different `taxon_no` | *Sirenia*/*Sirenia* — no spelling change; a lineage edge would merge duplicate records (or is a homonym/merge decision, possibly no edge) |
+| `duplicate-or-homonym` | 22 | name **and** rank identical, different `taxon_no` | *Sirenia*/*Sirenia* — no spelling change; a name edge would merge duplicate records (or is a homonym/merge decision, possibly no edge) |
 
 The full worklist — `opinion_no`, both names/ranks, parent, and `inferred_reason` per row — is in
 `mistagged-original-spelling.csv`. Only the 10 `recombination` rows answer to `recombination`; the label
@@ -427,12 +427,12 @@ must never be trusted to set the reason here.
 
 > Not to be confused with the *reversion* case (a `belongs to`/`original spelling` opinion where
 > `child_spelling_no = child_no`, re-preferring the original combination after a recombination). That one
-> has no second endpoint and is **not** a lineage edge — see §9.8.4.1's "accepted divergence."
+> has no second endpoint and is **not** a name edge — see §9.8.4.1's "accepted divergence."
 
 ### 5.2 The nomen family, re-routed per token *(DECIDED, 2026-08-18)*
 
 **The trigger.** `derive()`'s accepted-spelling contest (§9.8.4 step 3) excludes a candidate for exactly
-one reason — `never_accepted` on a lineage edge (misspellings). It never consulted `validity_opinions` at
+one reason — `never_accepted` on a name edge (misspellings). It never consulted `validity_opinions` at
 all, so a `nomen nudum` spelling was fully eligible to win its lineage's accepted name. Chasing the fix
 required checking, status by status, how Classic's own resolution code (`classic/lib/PBDB/{Opinion,
 TaxonInfo,Classification}.pm`) actually treats each of the five nomenclatural-status tokens — the answer
@@ -493,12 +493,12 @@ accepted for `status_old` (§4 Q4).
 | legacy source | new `reason` | edge_class | legacy count |
 |---|---|---|---|
 | `spelling_reason`: original spelling | `original` | root | — |
-| `spelling_reason`: recombination | `recombination` | lineage | — |
-| `spelling_reason`: reassignment | `assignment` | lineage | — |
-| `spelling_reason`: correction | `correction` | lineage | — |
-| `spelling_reason`: rank change | `reranked` | lineage | — |
-| `spelling_reason`: misspelling (any status other than `misspelling of`) | `misspelling` (never_accepted) | lineage | — |
-| `status`: misspelling of | `historical misspelling` (never_accepted) | lineage | 875 [see below] |
+| `spelling_reason`: recombination | `recombination` | name | — |
+| `spelling_reason`: reassignment | `assignment` | name | — |
+| `spelling_reason`: correction | `correction` | name | — |
+| `spelling_reason`: rank change | `reranked` | name | — |
+| `spelling_reason`: misspelling (any status other than `misspelling of`) | `misspelling` (never_accepted) | name | — |
+| `status`: misspelling of | `historical misspelling` (never_accepted) | name | 875 [see below] |
 | `status`: subjective/objective synonym of | `junior synonym` (`objective` bool) | concept | 52,106 / 1,246 |
 | `status`: replaced by | `replaced by` | concept | 4,020 |
 | `status`: invalid subgroup of | `invalid subgroup` | concept | 1,420 [§5.2] |
@@ -518,7 +518,7 @@ opinion, with its own reference and evidence, is a formally published claim that
 (the PBDB user guide's own term for this is "historical misspelling"). `evidence` does not reliably
 separate the two (live-probed 2026-08-19: 43.9% of `misspelling of` rows are `stated with evidence` vs.
 28.9% of `spelling_reason='misspelling'` rows — a skew, not a clean split), so the distinction needed its
-own dictionary token rather than being inferable from an existing column. Both are `lineage`-class and
+own dictionary token rather than being inferable from an existing column. Both are `name`-class and
 `never_accepted`; for `misspelling of` rows, live data shows `child_no` and `parent_no` both anchor to the
 correct name (equal in **all** 875 rows, live-probed 2026-08-21) while `child_spelling_no` is the distinct
 misspelling. ~~so it resolves under the same subject/target convention as every other lineage pair
@@ -686,7 +686,7 @@ text carries from whichever source row the pass names.
 > - This pass (now `migrate-authorities-opinions.js`) mints **ROOT rows only**, unconditionally, one per
 >   `authorities.taxon_no`, with no ranking and no dependency on any `opinions` row at all.
 > - **LINEAGE** rows are NOT minted here. Every opinion satisfying `child_spelling_no ≠ child_no` is
->   migrated as its own separate `lineage` row by whichever per-slice migration owns that opinion —
+>   migrated as its own separate `name` row by whichever per-slice migration owns that opinion —
 >   unconditionally, with no ranking or "winning opinion" selection at migration time (see the notice
 >   at the top of this document). `derive_taxa()` ranks among them later, at read time.
 > - The LINEAGE column's per-row *derivations* below (how to populate a lineage row from a single
@@ -703,7 +703,7 @@ One row per `authorities.taxon_no`. ~~**Shape** is decided by the **top-ranked i
 | `subject_permid` | `permid(taxon_no)` | `permid(taxon_no)` (= `w.child_spelling_no`) |
 | `target_permid` | `NULL` | `permid(w.child_no)` — direct-to-original, Q1(a). **Exception: `permid(w.parent_spelling_no)` when `w.status = 'misspelling of'` — §11, 2026-08-21.** |
 | `reason_id` | `'original'` | `map(w.spelling_reason)` via §6.1 (`recombination`/`assignment`/`correction`/`reranked`/`misspelling`) |
-| `edge_class` | `'root'` | `'lineage'` (pinned; FK-composite with `reason_id`) |
+| `edge_class` | `'root'` | `'name'` (pinned; FK-composite with `reason_id`) |
 | `objective` | `NULL` | `NULL` (only concept junior-synonym rows carry it) |
 | `new_name` | `authorities.taxon_name` | `authorities.taxon_name` |
 | `rank_id` | `map(authorities.taxon_rank)` — §9.7(iii) | same |
@@ -845,7 +845,7 @@ duplicated here:**
 - **"Convergent correction"** (`replaced-by`/`correction`, 9 rows): a correction's `child_spelling_no`
   coincides with the `replaced by` target's identity — confirmed benign, every case a genuine
   unavailable/replacement-name event (e.g. *Tianchiasaurus* → *Tianchisaurus*). The concept edge is
-  correctly skipped as a self-loop while the independent lineage edge still emits the same fact; no data
+  correctly skipped as a self-loop while the independent name edge still emits the same fact; no data
   is lost and no fix applies.
 - **Lineage self-reference** (224 rows: `child_spelling_no = child_no` despite a non-`'original spelling'`
   `spelling_reason`): root cause genuinely unclear. Sibling-opinion evidence suggests Classic curators
@@ -908,7 +908,7 @@ recent, reliable word on that taxon of *any* type.
 
 **Live counts** (probed 2026-08-20 against the Postgres-ported `pbdb_archive` mirror via
 `pg-classic-pool.js`, concept-class opinions only — `subjective synonym of`, `objective synonym of`,
-`replaced by`, `invalid subgroup of`, and targeted `nomen oblitum`; `misspelling of` is lineage-class
+`replaced by`, `invalid subgroup of`, and targeted `nomen oblitum`; `misspelling of` is name-class
 and excluded here, ~875 rows total, small enough to size separately if wanted):
 
 | population | count |

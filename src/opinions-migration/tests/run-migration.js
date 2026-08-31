@@ -74,7 +74,7 @@ async function clearOutputsKeepingRoots() {
   console.log('  Clearing opinion-migration outputs (keeping root name_opinions)...');
   await pg.query(`DELETE FROM assignment_opinions`);
   await pg.query(`DELETE FROM validity_opinions`);
-  await pg.query(`DELETE FROM name_opinions WHERE edge_class IN ('concept', 'lineage')`);
+  await pg.query(`DELETE FROM name_opinions WHERE edge_class IN ('concept', 'name')`);
 }
 
 // --full: drop+recreate the opinion tables + dictionaries from the schema
@@ -127,10 +127,10 @@ async function verifyScenarios(summary) {
   check('rootless→NULL matches asserted_rootless warnings', nullContaining === assertedRootless,
     `${nullContaining} NULL-containing rows vs ${assertedRootless} asserted_rootless warnings`);
 
-  // Concept/lineage edges always carry a target; validity rows a status (shape/NOT NULL
+  // Concept/name edges always carry a target; validity rows a status (shape/NOT NULL
   // constraints guarantee this — assert anyway as a spec-scenario smoke check).
-  const conceptNoTarget = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class IN ('concept','lineage') AND target_permid IS NULL`)).rows[0].n;
-  check('every concept/lineage edge has a target', conceptNoTarget === 0, `${conceptNoTarget} without target`);
+  const conceptNoTarget = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class IN ('concept','name') AND target_permid IS NULL`)).rows[0].n;
+  check('every concept/name edge has a target', conceptNoTarget === 0, `${conceptNoTarget} without target`);
 
   // objective is set only for junior-synonym concept edges; NULL for every other reason.
   const objOnNonSynonym = (await pg.query(`
@@ -140,11 +140,11 @@ async function verifyScenarios(summary) {
   check('objective set only for junior synonym', objOnNonSynonym === 0, `${objOnNonSynonym} non-synonym edges carry objective`);
 
   // historical misspelling edges exist iff misspelling-of source rows were migrated;
-  // and they are lineage-class (spec: misspelling of produces ONLY a lineage edge).
+  // and they are name-class (spec: misspelling of produces ONLY a name edge).
   const histMisspell = (await pg.query(`
     SELECT COUNT(*)::int AS n FROM name_opinions no
     JOIN dictionaries.namechange_reasons r ON r.id = no.reason_id
-    WHERE r.reason = 'historical misspelling' AND no.edge_class = 'lineage'`)).rows[0].n;
+    WHERE r.reason = 'historical misspelling' AND no.edge_class = 'name'`)).rows[0].n;
   const histWritten = (summary.totals.historical_misspelling || {}).written || 0;
   check('historical-misspelling edges match summary', histMisspell === histWritten,
     `${histMisspell} in DB vs ${histWritten} written`);
@@ -154,16 +154,29 @@ async function verifyScenarios(summary) {
   const dbAssign = (await pg.query(`SELECT COUNT(*)::int AS n FROM assignment_opinions`)).rows[0].n;
   const dbValidity = (await pg.query(`SELECT COUNT(*)::int AS n FROM validity_opinions`)).rows[0].n;
   const dbConcept = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class = 'concept'`)).rows[0].n;
-  const dbLineage = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class = 'lineage'`)).rows[0].n;
+  const dbName = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class = 'name'`)).rows[0].n;
   const t = summary.totals;
   const wAssign = (t.assignment || {}).written || 0;
   const wValidity = (t.validity || {}).written || 0;
   const wConcept = (t.concept || {}).written || 0;
-  const wLineage = ((t.lineage || {}).written || 0) + ((t.historical_misspelling || {}).written || 0);
+  const wName = ((t.name || {}).written || 0) + ((t.historical_misspelling || {}).written || 0);
   check('assignment_opinions count matches summary', dbAssign === wAssign, `${dbAssign} vs ${wAssign}`);
   check('validity_opinions count matches summary', dbValidity === wValidity, `${dbValidity} vs ${wValidity}`);
   check('name_opinions concept count matches summary', dbConcept === wConcept, `${dbConcept} vs ${wConcept}`);
-  check('name_opinions lineage count matches summary', dbLineage === wLineage, `${dbLineage} vs ${wLineage}`);
+  check('name_opinions name count matches summary', dbName === wName, `${dbName} vs ${wName}`);
+
+  // The retired 'lineage' edge_class is gone everywhere: no opinion row carries it, and
+  // the dictionary admits exactly the three current classes (spec: taxa-opinions, "No
+  // dictionary row carries the retired 'lineage' class" / "The retired 'lineage' token is
+  // not accepted").
+  const staleClass = (await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class = 'lineage'`)).rows[0].n;
+  check("no name_opinions row carries the retired 'lineage' class", staleClass === 0, `${staleClass} rows still 'lineage'`);
+  const dictClasses = (await pg.query(`SELECT edge_class, COUNT(*)::int AS n FROM dictionaries.namechange_reasons GROUP BY edge_class ORDER BY edge_class`)).rows;
+  const classNames = dictClasses.map((r) => r.edge_class).join(',');
+  check('namechange_reasons has exactly the three current edge_class values',
+    classNames === 'concept,name,root', `got: ${classNames}`);
+  const nameReasons = (dictClasses.find((r) => r.edge_class === 'name') || {}).n || 0;
+  check('six namechange_reasons tokens are name-class', nameReasons === 6, `${nameReasons} name-class reasons`);
 
   if (failures.length) {
     console.error('\n  SCENARIO FAILURES:');

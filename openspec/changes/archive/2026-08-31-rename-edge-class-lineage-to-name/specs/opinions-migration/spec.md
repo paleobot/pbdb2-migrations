@@ -1,108 +1,15 @@
-# opinions-migration Specification
+## RENAMED Requirements
 
-## Purpose
-TBD - created by archiving change create-opinions-migration. Update Purpose after archive.
-## Requirements
-### Requirement: Every pair resolves to exactly one primary disposition or a named structural exception
-A legacy `opinions` row's `status` SHALL determine its primary disposition from a closed set of three —
-**assignment** (`assignment_opinions`), **concept** (a `name_opinions` edge with `edge_class = 'concept'`),
-or **validity** (`validity_opinions`) — except for the two statuses named as structural exceptions
-(`misspelling of`, which has no primary disposition, and `nomen oblitum`, whose disposition is chosen per
-row). No `status` value present in the source table SHALL be treated as ambiguous or left to fall through
-to a default.
+- FROM: `### Requirement: One universal crosswalk determines the lineage backfill reason for every disposition`
+- TO: `### Requirement: One universal crosswalk determines the name backfill reason for every disposition`
 
-#### Scenario: belongs to resolves to assignment
-- **WHEN** a row has `status = 'belongs to'`
-- **THEN** its primary disposition is assignment, written to `assignment_opinions`
+- FROM: `### Requirement: The primary disposition and the lineage backfill are resolved and skipped independently`
+- TO: `### Requirement: The primary disposition and the name backfill are resolved and skipped independently`
 
-#### Scenario: subjective synonym of resolves to concept
-- **WHEN** a row has `status = 'subjective synonym of'`
-- **THEN** its primary disposition is concept, written to `name_opinions` with `edge_class = 'concept'`
+- FROM: `### Requirement: Mistagged original-spelling rows are a named exception to the no-lineage-edge default`
+- TO: `### Requirement: Mistagged original-spelling rows are a named exception to the no-name-edge default`
 
-#### Scenario: nomen dubium resolves to validity
-- **WHEN** a row has `status = 'nomen dubium'`
-- **THEN** its primary disposition is validity, written to `validity_opinions`
-
-#### Scenario: No status is left unmapped
-- **WHEN** any `status` value present in the legacy `opinions` table is considered
-- **THEN** it is accounted for by exactly one of: an assignment mapping, a concept mapping, a validity
-  mapping, or one of the two named structural exceptions — never silently ignored
-
-### Requirement: Assignment disposition parameters are fixed within belongs to
-For the assignment disposition, `subject_permid` SHALL resolve from `child_spelling_no` and
-`containing_permid` SHALL resolve from `parent_spelling_no`. These parameters SHALL NOT vary by
-`spelling_reason` — every `belongs to` row uses the same two fields for the same two roles.
-
-#### Scenario: Standard assignment write
-- **WHEN** a `belongs to` row has a resolvable `child_spelling_no` and a nonzero, resolvable
-  `parent_spelling_no`
-- **THEN** an `assignment_opinions` row is written with `subject_permid = permid(child_spelling_no)` and
-  `containing_permid = permid(parent_spelling_no)`
-
-### Requirement: A rootless assignment is an asserted claim, not a skip
-A `belongs to` row with `parent_spelling_no = 0` SHALL be treated as Classic's own assertion that the
-subject has no containing taxon, and written with `containing_permid = NULL` — not skipped. A nonzero
-`parent_spelling_no` with no matching migrated name SHALL instead be skipped and logged; it SHALL NOT be
-written as `NULL`, so that `containing_permid IS NULL` in the output unambiguously means "Classic asserted
-none."
-
-#### Scenario: Asserted rootless row is written with a NULL containing_permid
-- **WHEN** a `belongs to` row has `parent_spelling_no = 0`
-- **THEN** an `assignment_opinions` row is written with `containing_permid = NULL`, logged as a warning,
-  not a skip
-
-#### Scenario: Unresolvable parent_spelling_no is skipped, not written as NULL
-- **WHEN** a `belongs to` row has a nonzero `parent_spelling_no` with no corresponding migrated name
-- **THEN** no `assignment_opinions` row is written for it, and the row is logged as a skip
-
-### Requirement: Concept disposition parameters are determined solely by status
-For the concept disposition, `subject_permid` SHALL resolve from `child_spelling_no` and `target_permid`
-SHALL resolve from `parent_spelling_no`, for every status in this disposition. The edge's reason token and
-`objective` value SHALL be determined solely by `status`, from exactly these four mappings, with no other
-source of variation:
-
-| status | reason token | objective |
-|---|---|---|
-| subjective synonym of | junior synonym | false |
-| objective synonym of | junior synonym | true |
-| invalid subgroup of | invalid subgroup | NULL |
-| replaced by | replaced by | NULL |
-
-#### Scenario: Subjective synonym maps to junior synonym, objective=false
-- **WHEN** a row has `status = 'subjective synonym of'`
-- **THEN** its concept edge has `reason = 'junior synonym'` and `objective = false`
-
-#### Scenario: Objective synonym maps to junior synonym, objective=true
-- **WHEN** a row has `status = 'objective synonym of'`
-- **THEN** its concept edge has `reason = 'junior synonym'` and `objective = true`
-
-#### Scenario: Invalid subgroup of maps to its own reason, objective=NULL
-- **WHEN** a row has `status = 'invalid subgroup of'`
-- **THEN** its concept edge has `reason = 'invalid subgroup'` and `objective = NULL`
-
-#### Scenario: Replaced by maps to its own reason, objective=NULL
-- **WHEN** a row has `status = 'replaced by'`
-- **THEN** its concept edge has `reason = 'replaced by'` and `objective = NULL`
-
-### Requirement: Validity disposition parameters are determined solely by status
-For the validity disposition, `subject_permid` SHALL resolve from `child_spelling_no`; a validity row
-carries no target field. The `nomenclatural_status_id` SHALL be determined solely by `status`, from exactly
-these three mappings, with no other source of variation:
-
-| status | nomenclatural_status |
-|---|---|
-| nomen dubium | nomen dubium |
-| nomen nudum | nomen nudum |
-| nomen vanum | nomen vanum |
-
-#### Scenario: Nomen nudum maps to its own status
-- **WHEN** a row has `status = 'nomen nudum'`
-- **THEN** a `validity_opinions` row is written with `nomenclatural_status_id` resolving to `nomen nudum`
-
-#### Scenario: Validity rows carry no target
-- **WHEN** a row resolves to the validity disposition
-- **THEN** the written row has no target-bearing field, regardless of any `parent_no`/`parent_spelling_no`
-  present on the source row
+## MODIFIED Requirements
 
 ### Requirement: One universal crosswalk determines the name backfill reason for every disposition
 Independent of `status` and of which primary disposition applies, `spelling_reason` SHALL determine whether
@@ -248,4 +155,3 @@ matching the `edge_class` the rows carry.
 - **THEN** it has written an anomaly CSV (with the `opinion_no,script,target_table,severity,issue,description`
   columns) and a run-summary file reporting per-output-type written/skipped counts and the reconciliation
   result, with the crosswalk backfill reported under the `name` output-type label
-

@@ -87,7 +87,7 @@ INSERT INTO dictionaries.notable_features (name)
 -- `status` ∪ the fold-shaped half of legacy nomenclatural-status opinions, reconciled
 -- to eleven tokens (§10.6 D7; extended by the concept-fold decision, mapping doc §5.2,
 -- 2026-08-18; extended again by the historical-misspelling split, migration_exploration
--- pair-24 discussion, 2026-08-19). edge_class ('root' | 'lineage' | 'concept') tells
+-- pair-24 discussion, 2026-08-19). edge_class ('root' | 'name' | 'concept') tells
 -- derive() which of its two union-finds a name_opinions edge feeds; it is denormalized
 -- onto each opinion row and FK-pinned to the composite key (id, edge_class) below, so
 -- name_opinions' minting-shape rule can be a plain CHECK (Way 2 / A1 / §10.6 D9). 'root'
@@ -110,7 +110,7 @@ INSERT INTO dictionaries.notable_features (name)
 --     'misspelling of' rows are `stated with evidence` vs. 28.9% of `spelling_reason =
 --     'misspelling'` rows — a skew, not a clean separator), so the distinction needed
 --     its own token rather than being inferable from existing columns. Both tokens are
---     'lineage'-class and never_accepted, differing only in how the claim originated.
+--     'name'-class and never_accepted, differing only in how the claim originated.
 --   * 'invalid subgroup' and 'nomen oblitum' are concept-class folds, not synonymy in
 --     the ordinary sense — Classic's own getSeniorSynonym/getMostRecentClassification
 --     (classic/lib/PBDB/TaxonInfo.pm) fold both into the same senior-synonym chase as
@@ -132,19 +132,19 @@ CREATE TABLE dictionaries.namechange_reasons (
     description text,
     edge_class text NOT NULL,
     never_accepted boolean NOT NULL DEFAULT false,
-    CONSTRAINT namechange_reasons_edge_class_check CHECK (edge_class IN ('root', 'lineage', 'concept')),
+    CONSTRAINT namechange_reasons_edge_class_check CHECK (edge_class IN ('root', 'name', 'concept')),
     -- composite unique key referenced by name_opinions' (reason_id, edge_class) FK:
     CONSTRAINT namechange_reasons_id_edge_class_key UNIQUE (id, edge_class)
 );
 INSERT INTO dictionaries.namechange_reasons (reason, description, edge_class, never_accepted)
     VALUES
         ('original',         'The original published name',                                        'root',    false),
-        ('correction',       'Grammatical/orthographic correction (incl. ICZN-code-mandated changes)', 'lineage', false),
-        ('reranked',         'The taxon has changed rank (from genus to family, implies re-assignment)', 'lineage', false),
-        ('recombination',    'Species combined with a different genus',                            'lineage', false),
-        ('assignment',       'The assignment of the taxon changed (e.g., new genus for species)',  'lineage', false),
-        ('misspelling',      'The taxon''s name was misspelled (noticed incidentally, e.g. while entering a belongs-to opinion; legacy spelling_reason=''misspelling'')', 'lineage', true),
-        ('historical misspelling', 'A formally published opinion whose entire content is the claim that this name is a misspelling (legacy status=''misspelling of'')', 'lineage', true),
+        ('correction',       'Grammatical/orthographic correction (incl. ICZN-code-mandated changes)', 'name',    false),
+        ('reranked',         'The taxon has changed rank (from genus to family, implies re-assignment)', 'name',    false),
+        ('recombination',    'Species combined with a different genus',                            'name',    false),
+        ('assignment',       'The assignment of the taxon changed (e.g., new genus for species)',  'name',    false),
+        ('misspelling',      'The taxon''s name was misspelled (noticed incidentally, e.g. while entering a belongs-to opinion; legacy spelling_reason=''misspelling'')', 'name',    true),
+        ('historical misspelling', 'A formally published opinion whose entire content is the claim that this name is a misspelling (legacy status=''misspelling of'')', 'name',    true),
         ('junior synonym',   'The taxon is a junior synonym of another taxon',                     'concept', false),
         ('replaced by',      'Name replaced (e.g. homonymy)',                                      'concept', false),
         ('invalid subgroup', 'The taxon is an invalid subgroup, folded into the target''s concept', 'concept', false),
@@ -164,7 +164,7 @@ INSERT INTO dictionaries.namechange_reasons (reason, description, edge_class, ne
 --     the winning validity opinion per subject permid (evidence/pubyr/id, same
 --     discipline as everywhere else) and, if it is nomen nudum, excludes that permid
 --     from its own lineage's accepted-spelling contest (bars_candidacy = true) — the
---     candidacy-bar mechanism, symmetric with never_accepted on lineage edges.
+--     candidacy-bar mechanism, symmetric with never_accepted on name edges.
 --   * nomen oblitum (untargeted only, no recorded protectum): treated the same as
 --     nomen dubium/vanum — recorded testimony, no derive() effect. The targeted case
 --     is a concept fold (see namechange_reasons); an untargeted "forgotten name" with
@@ -4662,7 +4662,7 @@ SELECT install_version_triggers('authorities');
 -- table and NO rank fan-out (rank_id rides the minting name_opinion).
 --
 -- name_opinions are typed EDGES between permids (subject → target); the reason's
--- edge_class ('root' | 'lineage' | 'concept') selects which of derive()'s two
+-- edge_class ('root' | 'name' | 'concept') selects which of derive()'s two
 -- union-finds the edge feeds. edge_class is pinned onto each row and FK-checked,
 -- so the minting shape is a plain CHECK (Way 2 / A1 / §10.6 D9).
 --
@@ -4699,14 +4699,14 @@ SELECT install_version_triggers('authorities');
 -- is deliberately no permid registry table (§9.5.1); integrity is by construction
 -- and re-checked by the derive(all) ≡ heads invariant. A permid is MINTED by the
 -- name_opinions row that first introduces it as subject (reason 'original' for a
--- root, or a 'lineage' reason for a spelling introduced as a form of an earlier
+-- root, or a 'name' reason for a spelling introduced as a form of an earlier
 -- one); that row carries the permid's immutable identity (new_name + rank_id +
 -- authority provenance) and nothing ever changes it.
 -- ============================================================================
 
 -- Name, spelling, synonymy. A row is a typed EDGE: subject_permid defers to
--- target_permid in the manner given by reason_id (whose edge_class selects lineage
--- vs concept grouping in derive()). MINTING rows (reason 'original', or a 'lineage'
+-- target_permid in the manner given by reason_id (whose edge_class selects the name-lineage
+-- vs concept grouping in derive()). MINTING rows (reason 'original', or a 'name'
 -- reason introducing a new spelling) carry new_name / rank_id / authority_id /
 -- pages / figures — the immutable identity of subject_permid. NON-MINTING rows (a
 -- 'concept'-class synonymy/replacement edge about an already-minted permid) carry
@@ -4734,7 +4734,7 @@ CREATE TABLE name_opinions (
                                            -- fact about this opinion, not a permanent property of the
                                            -- reason token. `edge_class = 'root'` rows are never negated
                                            -- (see name_opinion_shape). See taxa-opinions spec, "An opinion
-                                           -- can assert the negation of a lineage or concept relationship."
+                                           -- can assert the negation of a name or concept relationship."
     objective boolean,                     -- 'junior synonym' edges only: objective (true) vs subjective (false).
                                            -- SOLE carrier of the split (D7): no separate synonym reason tokens.
 
@@ -4766,16 +4766,16 @@ CREATE TABLE name_opinions (
 
     -- THE MINTING SHAPE, a plain same-row CHECK because edge_class is on the row.
     -- Identity (new_name, rank_id) is set IFF edge_class = 'root': a permid's name
-    -- and rank are minted once, on its root row (from authorities); lineage and
+    -- and rank are minted once, on its root row (from authorities); name and
     -- concept edges assert relationships between permids whose identities already
     -- live on their own root rows, so they carry a target and NO identity.
     -- (Ledger model — mapping doc §3.2, 2026-08-17.)
     --   'root'    ('original')    ⇒ no target; mints identity  (new_name, rank_id set)
-    --   'lineage' (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
+    --   'name'    (new spelling)  ⇒ target set; NO identity     (new_name, rank_id NULL)
     --   'concept' (synonymy edge) ⇒ target set; NO identity     (new_name, rank_id NULL)
     CONSTRAINT name_opinion_shape CHECK (
            (edge_class = 'root'    AND target_permid IS NULL     AND new_name IS NOT NULL AND rank_id IS NOT NULL AND negates = false)
-        OR (edge_class = 'lineage' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
+        OR (edge_class = 'name'    AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
         OR (edge_class = 'concept' AND target_permid IS NOT NULL AND new_name IS NULL     AND rank_id IS NULL)
     )
     -- RESIDUAL (not covered here): "objective NOT NULL iff reason = 'junior synonym'"
@@ -4876,7 +4876,7 @@ CREATE TABLE validity_opinions (
 -- LAYER 2 — THE DERIVATION
 -- ----------------------------------------------------------------------------
 -- derive_taxa(permids) is a pure function over Layer 1 and the single definition
--- of truth (§9.5.2, §9.8): two union-finds (lineage over 'lineage' edges →
+-- of truth (§9.5.2, §9.8): two union-finds (lineage over 'name' edges →
 -- name-lineages ≈ orig_no; concept over 'concept' edges → concepts ≈ synonym_no),
 -- an ordered ranking for the accepted spelling per lineage, and the winning
 -- assignment pooled across the whole concept. Called by both the hot path (B2
@@ -5095,6 +5095,12 @@ BEGIN
     END IF;
 
     -- ---- candidate introducing edges: one row per (permid, opinion) --------
+    -- Both classes that can INTRODUCE a permid: 'root' mints identity (new_name +
+    -- rank_id, no target), 'name' asserts this spelling is a form of an earlier one
+    -- (target, no identity). A 'root' row is name-shaped too -- it is about a name --
+    -- so read the enum as {mint, name-relationship, concept-relationship}, not as
+    -- "root vs name": 'root' is kept distinct because it mints rather than relates,
+    -- which is why it can never contribute a union-find edge (see _dt_lin_winner).
     DROP TABLE IF EXISTS _dt_edge_cand;
     CREATE TEMP TABLE _dt_edge_cand AS
     SELECT n.subject_permid AS permid, n.id AS opinion_id, n.edge_class, n.target_permid,
@@ -5105,11 +5111,11 @@ BEGIN
     JOIN dictionaries.namechange_reasons nr ON nr.id = n.reason_id
     LEFT JOIN refs r ON r.id = n.reference_id
     WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
-      AND n.edge_class IN ('root','lineage');
+      AND n.edge_class IN ('root','name');
     CREATE INDEX ON _dt_edge_cand(permid);
     ANALYZE _dt_edge_cand;
 
-    -- each permid's own canonical introducing edge (root or lineage, whichever
+    -- each permid's own canonical introducing edge (root or name, whichever
     -- ranks highest) -- feeds eligibility (below), never union-find membership.
     -- Negating rows are excluded from this ranking pool entirely (not merely
     -- filtered afterward): a negation rejects a RELATIONSHIP to something else,
@@ -5157,14 +5163,14 @@ BEGIN
                row_number() OVER (PARTITION BY permid
                    ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
         FROM _dt_edge_cand
-        WHERE edge_class = 'lineage'
+        WHERE edge_class = 'name'
     )
     SELECT permid, target_permid, negates FROM ranked WHERE rn = 1;
     CREATE INDEX ON _dt_lin_winner(permid);
     ANALYZE _dt_lin_winner;
 
     -- ---- lineage union-find (connected components over each subject's own -
-    -- winning, non-negating lineage edge only -- not every current one) ------
+    -- winning, non-negating name edge only -- not every current one) ------
     -- (lin_undir is marked MATERIALIZED; reach is the recursive term itself
     -- and can't be inlined regardless, so it's left as-is.)
     DROP TABLE IF EXISTS _dt_lin;
@@ -5237,7 +5243,7 @@ BEGIN
           AND COALESCE(dv.bars_candidacy, false) = false
     ),
     -- a permid is a lineage-sink iff it has no ACTIVE (winning, non-negating)
-    -- outgoing lineage edge -- checked against _dt_lin_winner, not raw
+    -- outgoing name edge -- checked against _dt_lin_winner, not raw
     -- name_opinions existence: a winning negation still has a raw row naming
     -- the permid as subject but contributes no edge, so raw existence would
     -- wrongly deny it sink status
@@ -5779,7 +5785,7 @@ BEGIN
     -- minted identity, which is exactly the lineage's accepted rank, and it's unique
     -- per original_permid by construction (derive_taxa() already selects exactly one
     -- accepted_spelling_permid per lineage). Lineage grouping itself (name_opinions
-    -- 'lineage'-class edges, _dt_lin in derive_taxa()) is rank-agnostic and already
+    -- 'name'-class edges, _dt_lin in derive_taxa()) is rank-agnostic and already
     -- correct here -- recomputing it would be pure duplication.
     --
     -- acc_ev/acc_yr/acc_id (the accepted spelling's own canonical introducing

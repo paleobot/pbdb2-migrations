@@ -22,7 +22,7 @@ and already correct in `taxa`. It SHALL NOT read its own output table, and SHALL
 - **WHEN** `derive_taxa_clades()` runs
 - **THEN** it reads `original_permid`/`accepted_spelling_permid`/`rank_id` for unranked/unranked-clade
   lineages directly from `taxa`'s own lineage-level output, rather than re-deriving `name_opinions`
-  `lineage`-class edges itself
+  `name`-class edges itself
 
 #### Scenario: Output does not depend on a prior run
 

@@ -742,7 +742,7 @@ column names, and the one piece §9.5 left as a sketch (`dependency_closure`). T
 
 > **Extended by §9.8.** The three-relationship vocabulary (succession / concept / classification)
 > stands. Under the inversion, `senior_permid` generalizes to `target_permid` (concept target for
-> synonymy edges, form-of target for lineage edges), `subject_permid` denotes a spelling rather than a
+> synonymy edges, form-of target for name edges), `subject_permid` denotes a spelling rather than a
 > lineage, and a fourth *derived* grouping — the name-lineage (`original_permid`) — joins the concept.
 
 The model has three structurally different relationships, and Classic overloaded "parent" / "lineage"
@@ -1051,7 +1051,7 @@ for the reasoning that led here.*
 | Level | Meaning | Classic | Stored? |
 |---|---|---|---|
 | **name-as-spelled** = `permid` | one spelling, one rank | `taxon_no` | **stored, stable** |
-| **name-lineage** | spellings/rank-forms of one name | `orig_no` | **derived** (union-find over `lineage`-class edges); root = `original_permid` |
+| **name-lineage** | spellings/rank-forms of one name | `orig_no` | **derived** (union-find over `name`-class edges); root = `original_permid` |
 | **concept** | names judged the same taxon | `synonym_no` | **derived** (union-find over `concept`-class edges) |
 
 The load-bearing consequence: **`name` and `rank` are immutable attributes of a `permid`.**
@@ -1064,7 +1064,7 @@ never touches name/rank; it only moves the *pointers* (accepted spelling, concep
 A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `reason_id` whose
 `edge_class` selects the union-find it feeds:
 
-- **`lineage`** (`correction`, `reranked`, `recombination`, `assignment`/reassignment, `misspelling`) —
+- **`name`** (`correction`, `reranked`, `recombination`, `assignment`/reassignment, `misspelling`) —
   subject is a spelling/rank *form of* target; groups the name-lineage.
 - **`concept`** (`junior synonym`, `replaced by`) — subject's
   name is the same *taxon* as target's; groups the concept. (The subjective/objective synonym split is
@@ -1074,21 +1074,21 @@ A `name_opinions` row is an **edge** `subject_permid → target_permid` with a `
   can enforce it — D9.)
 
 > **Reason-token lists above are stale (2026-08-18/19).** Two rounds of dictionary growth happened after
-> this section was written, both after D7 (§10.6) too: `lineage` gained `historical misspelling`
+> this section was written, both after D7 (§10.6) too: `name` gained `historical misspelling`
 > (`status = 'misspelling of'`, distinct from curatorial `misspelling` — a formally published misspelling
 > claim vs. an incidental one noticed while entering an opinion about something else; `evidence`/`basis`
 > doesn't reliably separate the two), and `concept` gained `invalid subgroup` and `nomen oblitum`
 > (targeted only) per §9.8.4.2's nomen-family routing decision. The mapping doc's §6.1 crosswalk is the
 > current, complete token list — read it over the lists here.
 
-A permid is **minted** by the row that first introduces it as subject (`original`, or a `lineage`
+A permid is **minted** by the row that first introduces it as subject (`original`, or a `name`
 reason for a spelling introduced as a form of an earlier one). That minting row carries the permid's
 immutable identity — `new_name`, **`rank_id`**, and the naming-act provenance (`authority_id`, `pages`,
 `figures`).
 
 > **Superseded for identity by the ledger model (mapping doc §3.2, 2026-08-17).** Under the append-only
 > ledger migration the authorities pass mints a `root` row for *every* name-as-spelled, so identity
-> (`new_name`, `rank_id`) is carried **only** by `root` rows; `lineage` (and `concept`) edges carry
+> (`new_name`, `rank_id`) is carried **only** by `root` rows; `name` (and `concept`) edges carry
 > `new_name = NULL` / `rank_id = NULL`. Read "that minting row carries the permid's immutable identity"
 > as `root`-only. The naming-act provenance columns (`authority_id`, `pages`, `figures`) are a separate
 > question, unaffected by that decision. This is exactly where correction 1 lands: `authorities.taxon_rank` is the definitive rank of
@@ -1137,7 +1137,7 @@ rationale is in the DDL comment at `install_version_triggers('taxa')`.
 
 ```
 derive(permids):
-  1. LINEAGE union-find  over lineage-class name edges → lineages; root = original_permid
+  1. LINEAGE union-find  over name-class edges → lineages; root = original_permid
   2. CONCEPT  union-find over concept-class name edges → concepts; pick SENIOR lineage per concept
   3. ACCEPTED SPELLING per lineage = subject of the lineage's top-ranked opinion
         (excluding never_accepted misspellings), by
@@ -1184,13 +1184,13 @@ its original combination after a recombination is an **accepted divergence** fro
 `root` row (~517K) plus N edges, where Option-1 gave each permid exactly one mint row:
 
 1. **Output is one row per permid**, not one per `name_opinions` row. A permid now has a `root` row plus
-   any number of lineage edges (e.g. 11 `misspelling` edges for *Iguanodon prestwichi* / 168579);
+   any number of name edges (e.g. 11 `misspelling` edges for *Iguanodon prestwichi* / 168579);
    iterating opinion rows fans the `taxa` output out. Iterate **distinct permids** (their `root` rows).
 2. **Identity comes from the `root` row.** `name`/`rank_id`/`authority_id` are a plain 1:1 lookup on the
    permid's `root` row — cut the identity plumbing that threads `new_name`/`rank_id` through the ranking
-   (lineage/concept edges now carry NULL identity by CHECK).
+   (name/concept edges now carry NULL identity by CHECK).
 3. **`never_accepted` is permid-scoped, not row-scoped.** A permid is misspelling-excluded from
-   accepted-spelling candidacy iff its **canonical-winner** lineage edge — top by
+   accepted-spelling candidacy iff its **canonical-winner** name edge — top by
    `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` among its introducing edges — is
    `never_accepted`. Row-scoped exclusion fails because the typo's own `root` row is `never_accepted =
    false` and would keep it eligible (168579's root id 168281 > the correct spelling's 64264 ⇒ the typo
@@ -1198,12 +1198,12 @@ its original combination after a recombination is an **accepted divergence** fro
    to derive time** — the ledger keeps all edges; `derive()` picks the winner.
 4. **`original_permid` is topological, not "earliest-year root."** Every spelling now has a `root` row, so
    "the `root` member of the lineage" is no longer unique. The original is the lineage node that is a
-   lineage **target but never a lineage subject** (the direct-to-original sink, Q1(a)); fall back to
+   name-edge **target but never a name-edge subject** (the direct-to-original sink, Q1(a)); fall back to
    year-rank only for the 0-/2-candidate components (two-competing-originals, §9.8.5).
 
 **Also:** define `winning_name_opinion_id` under duplicates (the canonical-winner introducing edge, or the
-`root` if the permid has no lineage edge). The `taxa-opinions` spec's derive requirements
-(`spec.md:190`, `:255-260`) still describe identity coming from a "`lineage` reason" minting row and a
+`root` if the permid has no name edge). The `taxa-opinions` spec's derive requirements
+(`spec.md:190`, `:255-260`) still describe identity coming from a "`name` reason" minting row and a
 row-scoped exclusion; they are corrected by the future derive-rework change's delta, not here.
 
 ### 9.8.4.2 Validity feeding the name and concept contests (2026-08-18)
@@ -1214,7 +1214,7 @@ row-scoped exclusion; they are corrected by the future derive-rework change's de
 > *other* contests, which the "three independent winner-elections" framing (§9.8.4.1) understates.
 
 **The gap.** `derive()` step 3 (accepted spelling) excludes a candidate for exactly one reason —
-`never_accepted` on its canonical-winner lineage edge. It never consulted `validity_opinions` at all, so
+`never_accepted` on its canonical-winner name edge. It never consulted `validity_opinions` at all, so
 a spelling carrying a winning `nomen nudum` opinion was fully eligible to become its lineage's accepted
 name. Investigating the fix (2026-08-18 session) required checking, opinion by opinion, how Classic's own
 `getSeniorSynonym`/`getMostRecentClassification`/`Classification.pm` treat each of the five
@@ -1258,7 +1258,7 @@ nomenclatural-status tokens (`invalid subgroup of`, `nomen dubium`, `nomen nudum
   per `subject_permid` (`evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC` — the same discipline as
   every other contest in this design), and if that winner's status is `nomen nudum`
   (`bars_candidacy = true`), the permid is excluded from its own lineage's accepted-spelling contest in
-  step 3 — symmetric with how a `never_accepted` lineage edge already excludes misspellings. Because the
+  step 3 — symmetric with how a `never_accepted` name edge already excludes misspellings. Because the
   winner is re-computed, a later, better-evidenced validity opinion of a non-barring status on the same
   permid reverses the bar; the "priority rules of evidence and publication year" decide whether the
   rejection stands, exactly as they decide every other contest here.
@@ -1312,7 +1312,7 @@ taxon* ladder.
 - **One permid per legacy `authorities` row** (~517K); mint a `name_opinions` row carrying its
   `new_name` + `rank_id` + naming-act provenance, with the row's real `reference_id` / `attribution` /
   `pubyr` and `evidence = false`. The minting reason comes from the `spelling_reason` of the opinion
-  that introduced the spelling (or `original`); the lineage edge's `target_permid` is that opinion's
+  that introduced the spelling (or `original`); the name edge's `target_permid` is that opinion's
   `child_no`. **The reason must come from the introducing opinion, not a blanket `'original'`** — a
   misspelling has its own `authorities` row, so a uniform `'original'` minter would be
   `never_accepted = false` and thus accepted-spelling-eligible, letting a typo win the accepted name
@@ -1339,7 +1339,7 @@ taxon* ladder.
 - **§9.5.2 step 2** — the winner `ORDER BY` loses its `synthesized` first key; rank is no longer one of
   the ranked dimensions.
 - **§9.6.1 / §9.6.2** — `senior_permid` generalizes to `target_permid` (it is the concept target for
-  synonymy edges and the form-of target for lineage edges); `subject_permid` now denotes a spelling, not
+  synonymy edges and the form-of target for name edges); `subject_permid` now denotes a spelling, not
   a lineage. The three-relationship vocabulary (succession / concept / classification) stands, with
   name-lineage added as a fourth, derived, grouping.
 
@@ -1396,7 +1396,7 @@ constraint violation. Classic needed a bad-data branch in `getOriginalCombinatio
 because it had no way to represent two candidate originals.
 
 A permid is therefore **minted by a `name_opinions` row** — `reason = 'original'` for a lineage's root
-spelling, or (under the inversion, §9.8) a `lineage`-class reason for a later spelling introduced as a
+spelling, or (under the inversion, §9.8) a `name`-class reason for a later spelling introduced as a
 form of an earlier one, e.g. *Acervoschwagerina* minted by a `reranked` edge onto
 *Paraschwagerina (Acervoschwagerina)*. Either way the minting row carries the permid's immutable
 `new_name` + `rank_id` + naming provenance, and nothing else creates a taxon.
@@ -1561,7 +1561,7 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   — confirmed live, 2026-08-19: it still fans out multiple output rows per permid instead of one (break-
   point 1), and its `never_accepted`/`nomen nudum` candidacy exclusion is row-scoped rather than
   permid-scoped (break-point 3) — a permid whose *own* `root` row happens to out-rank its disqualifying
-  lineage edge can still win the accepted-spelling contest it should be barred from. The rework §9.8.4.1/
+  name edge can still win the accepted-spelling contest it should be barred from. The rework §9.8.4.1/
   .2 describe is still the largest remaining piece, just starting from working code instead of nothing.
 - **B2 — `dependency_closure` rewrite for the inversion.** The §9.6.4 query still uses `senior_permid`
   and has no **lineage-lateral pass**, but under the inversion a name edge merges permids at two levels,
@@ -1604,7 +1604,7 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   a tripwire, making `derive()` fail loudly if it ever tries to materialize a permid with no minting
   opinion (a dangling permid) rather than emitting a rankless taxon. **`name_opinions.rank_id` — no
   change**, subsumed by D9: the shape `CHECK` already enforces `rank_id` *conditionally* (non-NULL on
-  minting `root`/`lineage` rows, NULL on `concept` edges), which is strictly better than a blanket column
+  minting `root`/`name` rows, NULL on `concept` edges), which is strictly better than a blanket column
   `NOT NULL` — and the column *must* stay nullable because concept edges require it NULL. (This premise
   is load-bearing for D9: the B4 migration must resolve any legacy `authorities.taxon_rank` of NULL to
   `'unranked'` before inserting a minting row.) Applied in the draft.
@@ -1667,7 +1667,7 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
 
   **⚠ Superseded in part, 2026-08-18/19.** Two later decisions grew this set past "final": §9.8.4.2 added
   `invalid subgroup` and `nomen oblitum` (concept-class) for the nomen-family routing, and a dedicated
-  `historical misspelling` (lineage-class) token was added to distinguish `status = 'misspelling of'`'s
+  `historical misspelling` (name-class) token was added to distinguish `status = 'misspelling of'`'s
   formally-published misspelling claim from the curatorial `misspelling` token (§9.8.2 note above). The
   mapping doc's §6.1 is the current, authoritative token list.
 
@@ -1682,8 +1682,8 @@ A-items (A1–A6) are now decided** (D-register below); what remains is implemen
   `validity_opinions`. Of the three, `validity_opinions` is the one that had to stay (the nomen family
   has nowhere else to go, §10.5).
 
-- **D5 — `misspelling` is a `lineage` edge (was A2): DECIDED.** Kept as the draft has it —
-  `edge_class = 'lineage'` + `never_accepted = true`. A misspelling is a bad rendering of *the same
+- **D5 — `misspelling` is a `name` edge (was A2): DECIDED.** Kept as the draft has it —
+  `edge_class = 'name'` + `never_accepted = true`. A misspelling is a bad rendering of *the same
   name*, so it belongs in the name-lineage union-find (it collapses into the same lineage) and is folded
   in for lookup but is never eligible to be the accepted spelling. Classic files `misspelling of` under
   its *synonymy* status family, but that is an artifact of Classic's flat status enum, not a claim that a
