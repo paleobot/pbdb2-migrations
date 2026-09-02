@@ -6822,6 +6822,15 @@ DECLARE
     walk_containing_permid uuid;
     walk_step integer;
     cycle_start_step integer;
+    -- optimize-derive-taxa-cycle-loop: incremental _dtu_assign/_dtu_node
+    -- recompute after the first loop pass (see that change's design.md).
+    affected_con_rep uuid;
+    new_opinion_id bigint;
+    new_containing_permid uuid;
+    new_containing_con_rep uuid;
+    new_evidence boolean;
+    new_yr integer;
+    new_is_senior boolean;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dtu_identity;
@@ -7279,17 +7288,83 @@ BEGIN
 
     <<cycle_break>>
     LOOP
-        DROP TABLE IF EXISTS _dtu_assign;
-        CREATE TEMP TABLE _dtu_assign AS
-        WITH cand AS MATERIALIZED (
-            SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
-                   a.evidence,
-                   COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
-                   (sl.lin_rep = cm.senior_lin) AS is_senior
+        -- optimize-derive-taxa-cycle-loop: only the FIRST pass rebuilds
+        -- _dtu_assign/_dtu_node from scratch. Every subsequent pass instead
+        -- recomputes just the one con_rep whose previously-winning opinion
+        -- was excluded by the PRIOR iteration's cut (affected_con_rep) --
+        -- every other con_rep's candidate pool and ranking are provably
+        -- unaffected by one more row in _dtu_excluded_opinions. See that
+        -- change's design.md ("Why the single-con_rep recompute is safe").
+        -- _dtu_peel/walk_single below are UNCHANGED and still re-verify the
+        -- whole graph every pass -- a replacement edge can introduce a path
+        -- through arbitrary other parts of the graph, so global
+        -- cycle re-detection is not something this optimization touches.
+        IF affected_con_rep IS NULL THEN
+            DROP TABLE IF EXISTS _dtu_assign;
+            CREATE TEMP TABLE _dtu_assign AS
+            WITH cand AS MATERIALIZED (
+                SELECT cm.con_rep, a.id AS opinion_id, a.containing_permid,
+                       a.evidence,
+                       COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+                       (sl.lin_rep = cm.senior_lin) AS is_senior
+                FROM assignment_opinions a
+                JOIN _dtu_lin sl ON sl.permid = a.subject_permid
+                JOIN _dtu_con  sc ON sc.lin_rep = sl.lin_rep
+                JOIN _dtu_conmeta cm ON cm.con_rep = sc.con_rep
+                JOIN _dtu_linmeta lm ON lm.lin_rep = sl.lin_rep
+                LEFT JOIN refs r ON r.id = a.reference_id
+                LEFT JOIN _dtu_lin ccl ON ccl.permid = a.containing_permid
+                LEFT JOIN _dtu_con ccc ON ccc.lin_rep = ccl.lin_rep
+                LEFT JOIN _dtu_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
+                WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
+                  AND ( sl.lin_rep = cm.senior_lin
+                        OR (cm.concept_rank_name <> 'species'
+                            AND lm.accepted_rank_id = cm.concept_rank_id) )
+                  AND ccc.con_rep IS DISTINCT FROM cm.con_rep
+                  AND (lm.accepted_rank_height IS NULL OR ccm.accepted_rank_height IS NULL
+                       OR ccm.accepted_rank_height >= lm.accepted_rank_height)
+                  AND NOT EXISTS (SELECT 1 FROM _dtu_excluded_opinions eo WHERE eo.opinion_id = a.id)
+            ),
+            win AS MATERIALIZED (
+                SELECT con_rep, opinion_id, containing_permid, evidence, yr, is_senior,
+                       row_number() OVER (PARTITION BY con_rep
+                           ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
+                FROM cand
+            )
+            SELECT w.con_rep, w.opinion_id AS winning_assignment_opinion_id,
+                   cc.con_rep AS containing_con_rep, w.evidence, w.yr, w.is_senior
+            FROM win w
+            LEFT JOIN _dtu_lin cl ON cl.permid = w.containing_permid
+            LEFT JOIN _dtu_con cc ON cc.lin_rep = cl.lin_rep
+            WHERE w.rn = 1;
+            CREATE INDEX ON _dtu_assign(con_rep);
+            ANALYZE _dtu_assign;
+
+            -- ---- per-concept node (concept_permid, containing_concept_permid) --
+            DROP TABLE IF EXISTS _dtu_node;
+            CREATE TEMP TABLE _dtu_node AS
+            SELECT cm.con_rep, cm.concept_permid, cm.concept_rank_id,
+                   ccm.concept_permid AS containing_concept_permid,
+                   a.winning_assignment_opinion_id, a.evidence, a.yr, a.is_senior
+            FROM _dtu_conmeta cm
+            LEFT JOIN _dtu_assign a ON a.con_rep = cm.con_rep
+            LEFT JOIN _dtu_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
+            CREATE INDEX ON _dtu_node(con_rep);
+            CREATE INDEX ON _dtu_node(concept_permid);
+            CREATE INDEX ON _dtu_node(containing_concept_permid);
+            ANALYZE _dtu_node;
+        ELSE
+            -- Same cand logic as the full build above, scoped to the one
+            -- affected con_rep and simplified accordingly (no PARTITION BY
+            -- needed once already scoped to a single con_rep).
+            SELECT a.id, a.containing_permid, a.evidence,
+                   COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int),
+                   (sl.lin_rep = cm.senior_lin)
+            INTO new_opinion_id, new_containing_permid, new_evidence, new_yr, new_is_senior
             FROM assignment_opinions a
             JOIN _dtu_lin sl ON sl.permid = a.subject_permid
             JOIN _dtu_con  sc ON sc.lin_rep = sl.lin_rep
-            JOIN _dtu_conmeta cm ON cm.con_rep = sc.con_rep
+            JOIN _dtu_conmeta cm ON cm.con_rep = sc.con_rep AND cm.con_rep = affected_con_rep
             JOIN _dtu_linmeta lm ON lm.lin_rep = sl.lin_rep
             LEFT JOIN refs r ON r.id = a.reference_id
             LEFT JOIN _dtu_lin ccl ON ccl.permid = a.containing_permid
@@ -7303,35 +7378,45 @@ BEGIN
               AND (lm.accepted_rank_height IS NULL OR ccm.accepted_rank_height IS NULL
                    OR ccm.accepted_rank_height >= lm.accepted_rank_height)
               AND NOT EXISTS (SELECT 1 FROM _dtu_excluded_opinions eo WHERE eo.opinion_id = a.id)
-        ),
-        win AS MATERIALIZED (
-            SELECT con_rep, opinion_id, containing_permid, evidence, yr, is_senior,
-                   row_number() OVER (PARTITION BY con_rep
-                       ORDER BY evidence DESC, yr DESC NULLS LAST, opinion_id DESC) AS rn
-            FROM cand
-        )
-        SELECT w.con_rep, w.opinion_id AS winning_assignment_opinion_id,
-               cc.con_rep AS containing_con_rep, w.evidence, w.yr, w.is_senior
-        FROM win w
-        LEFT JOIN _dtu_lin cl ON cl.permid = w.containing_permid
-        LEFT JOIN _dtu_con cc ON cc.lin_rep = cl.lin_rep
-        WHERE w.rn = 1;
-        CREATE INDEX ON _dtu_assign(con_rep);
-        ANALYZE _dtu_assign;
+            ORDER BY a.evidence DESC,
+                     COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                     a.id DESC
+            LIMIT 1;
 
-        -- ---- per-concept node (concept_permid, containing_concept_permid) --
-        DROP TABLE IF EXISTS _dtu_node;
-        CREATE TEMP TABLE _dtu_node AS
-        SELECT cm.con_rep, cm.concept_permid, cm.concept_rank_id,
-               ccm.concept_permid AS containing_concept_permid,
-               a.winning_assignment_opinion_id, a.evidence, a.yr, a.is_senior
-        FROM _dtu_conmeta cm
-        LEFT JOIN _dtu_assign a ON a.con_rep = cm.con_rep
-        LEFT JOIN _dtu_conmeta ccm ON ccm.con_rep = a.containing_con_rep;
-        CREATE INDEX ON _dtu_node(con_rep);
-        CREATE INDEX ON _dtu_node(concept_permid);
-        CREATE INDEX ON _dtu_node(containing_concept_permid);
-        ANALYZE _dtu_node;
+            IF new_opinion_id IS NOT NULL THEN
+                SELECT cc.con_rep INTO new_containing_con_rep
+                FROM _dtu_lin cl JOIN _dtu_con cc ON cc.lin_rep = cl.lin_rep
+                WHERE cl.permid = new_containing_permid;
+
+                UPDATE _dtu_assign SET
+                    winning_assignment_opinion_id = new_opinion_id,
+                    containing_con_rep = new_containing_con_rep,
+                    evidence = new_evidence, yr = new_yr, is_senior = new_is_senior
+                WHERE con_rep = affected_con_rep;
+
+                UPDATE _dtu_node SET
+                    containing_concept_permid = (SELECT ccm.concept_permid FROM _dtu_conmeta ccm
+                                                   WHERE ccm.con_rep = new_containing_con_rep),
+                    winning_assignment_opinion_id = new_opinion_id,
+                    evidence = new_evidence, yr = new_yr, is_senior = new_is_senior
+                WHERE con_rep = affected_con_rep;
+            ELSE
+                DELETE FROM _dtu_assign WHERE con_rep = affected_con_rep;
+
+                UPDATE _dtu_node SET
+                    containing_concept_permid = NULL, winning_assignment_opinion_id = NULL,
+                    evidence = NULL, yr = NULL, is_senior = NULL
+                WHERE con_rep = affected_con_rep;
+            END IF;
+
+            new_opinion_id := NULL;
+            new_containing_permid := NULL;
+            new_containing_con_rep := NULL;
+            new_evidence := NULL;
+            new_yr := NULL;
+            new_is_senior := NULL;
+            affected_con_rep := NULL;
+        END IF;
 
         -- ---- cheap survivor set via iterative peeling ----------------------
         -- Delete any node whose own parent is not itself still present,
@@ -7398,8 +7483,10 @@ BEGIN
 
         -- weakest winning edge among just this one cycle's members -- same
         -- tiebreak order derive_linnaean()/derive_taxa_clades() already use
-        -- (see this function's header comment)
-        SELECT a.winning_assignment_opinion_id INTO cut_opinion_id
+        -- (see this function's header comment). Also captures which con_rep
+        -- that edge belongs to (affected_con_rep) -- optimize-derive-taxa-
+        -- cycle-loop's incremental recompute on the next pass needs it.
+        SELECT a.winning_assignment_opinion_id, a.con_rep INTO cut_opinion_id, affected_con_rep
         FROM _dtu_walk_path wp
         JOIN _dtu_node a ON a.con_rep = wp.con_rep
         WHERE wp.step >= cycle_start_step
