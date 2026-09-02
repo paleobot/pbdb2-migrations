@@ -147,7 +147,8 @@ async function main() {
   }
   console.log(`  Loaded ${refMap.size} refs (current head versions)`);
 
-  // Persons: persons.id == legacy person_no by construction (migrate-persons.js).
+  // Persons: persons.id == legacy person_no by construction
+  // (src/persons-migration/migrate-persons.js).
   // No pre-load needed; legacy authorizer_no/enterer_no are used directly as FK values.
   // Same pattern as migrate-refs.js.
 

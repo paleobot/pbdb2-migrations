@@ -1,4 +1,4 @@
-import { pg, closePg } from './pg-pool.js';
+import { pg, closePg } from '../lib/pg-pool.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
