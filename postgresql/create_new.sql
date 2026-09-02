@@ -5799,8 +5799,15 @@ CREATE OR REPLACE FUNCTION rebuild_linnaean()
 RETURNS integer LANGUAGE plpgsql AS $fn$
 DECLARE
     changed integer := 0;
+    deleted integer := 0;
 BEGIN
-    -- Insert a row for every permid derive_linnaean() returns; where the permid
+    -- Materialize derive_linnaean()'s output once, so the insert/update below
+    -- and the orphan deletion further down both read the same snapshot
+    -- instead of calling derive_linnaean(NULL) twice.
+    DROP TABLE IF EXISTS _rebuild_linnaean_src;
+    CREATE TEMP TABLE _rebuild_linnaean_src AS SELECT * FROM derive_linnaean(NULL);
+
+    -- Insert a row for every permid in the snapshot; where the permid
     -- already has a row, update it in place. The DO UPDATE ... WHERE guard makes
     -- this a true no-op (0 rows touched, per Postgres's own ON CONFLICT row-count
     -- semantics) when nothing has actually changed.
@@ -5812,7 +5819,7 @@ BEGIN
         accepted_spelling_permid, concept_permid, containing_concept_permid,
         classification_path, nomenclatural_status_id, winning_name_opinion_id,
         winning_assignment_opinion_id, winning_validity_opinion_id
-    FROM derive_linnaean(NULL)
+    FROM _rebuild_linnaean_src
     ON CONFLICT (permid) DO UPDATE SET
         name                          = EXCLUDED.name,
         rank_id                       = EXCLUDED.rank_id,
@@ -5839,6 +5846,14 @@ BEGIN
        OR taxa_linnaean.winning_assignment_opinion_id IS DISTINCT FROM EXCLUDED.winning_assignment_opinion_id
        OR taxa_linnaean.winning_validity_opinion_id   IS DISTINCT FROM EXCLUDED.winning_validity_opinion_id;
     GET DIAGNOSTICS changed = ROW_COUNT;
+
+    -- Remove rows for permids no longer produced by derive_linnaean() -- e.g.
+    -- a lineage that lost its last remaining candidate. The upsert above has
+    -- no way to detect or handle this: ON CONFLICT only ever inserts/updates.
+    DELETE FROM taxa_linnaean t
+    WHERE NOT EXISTS (SELECT 1 FROM _rebuild_linnaean_src s WHERE s.permid = t.permid);
+    GET DIAGNOSTICS deleted = ROW_COUNT;
+    changed := changed + deleted;
 
     -- Snapshot this run's cuts (left behind in _dt_excluded_opinions by the
     -- derive_linnaean() call above, in this same session) into the permanent log.
@@ -6411,8 +6426,15 @@ CREATE OR REPLACE FUNCTION rebuild_taxa_clades()
 RETURNS integer LANGUAGE plpgsql AS $fn$
 DECLARE
     changed integer := 0;
+    deleted integer := 0;
 BEGIN
-    -- Insert a row for every permid derive_taxa_clades() returns; where the permid
+    -- Materialize derive_taxa_clades()'s output once, so the insert/update
+    -- below and the orphan deletion further down both read the same
+    -- snapshot instead of calling derive_taxa_clades(NULL) twice.
+    DROP TABLE IF EXISTS _rebuild_taxa_clades_src;
+    CREATE TEMP TABLE _rebuild_taxa_clades_src AS SELECT * FROM derive_taxa_clades(NULL);
+
+    -- Insert a row for every permid in the snapshot; where the permid
     -- already has a row, update it in place. Same no-op-on-no-change pattern as
     -- rebuild_taxa().
     INSERT INTO taxa_clades (permid, name, rank_id, authority_id, original_permid,
@@ -6423,7 +6445,7 @@ BEGIN
         accepted_spelling_permid, concept_permid, containing_concept_permid,
         nomenclatural_status_id, winning_name_opinion_id,
         winning_assignment_opinion_id, winning_validity_opinion_id
-    FROM derive_taxa_clades(NULL)
+    FROM _rebuild_taxa_clades_src
     ON CONFLICT (permid) DO UPDATE SET
         name                          = EXCLUDED.name,
         rank_id                       = EXCLUDED.rank_id,
@@ -6448,6 +6470,15 @@ BEGIN
        OR taxa_clades.winning_assignment_opinion_id IS DISTINCT FROM EXCLUDED.winning_assignment_opinion_id
        OR taxa_clades.winning_validity_opinion_id   IS DISTINCT FROM EXCLUDED.winning_validity_opinion_id;
     GET DIAGNOSTICS changed = ROW_COUNT;
+
+    -- Remove rows for permids no longer produced by derive_taxa_clades() --
+    -- e.g. a lineage that lost its last remaining candidate, or was excluded
+    -- by a rank/validity rule. The upsert above has no way to detect or
+    -- handle this: ON CONFLICT only ever inserts/updates.
+    DELETE FROM taxa_clades t
+    WHERE NOT EXISTS (SELECT 1 FROM _rebuild_taxa_clades_src s WHERE s.permid = t.permid);
+    GET DIAGNOSTICS deleted = ROW_COUNT;
+    changed := changed + deleted;
 
     -- Snapshot this run's cuts (left behind in _dtc_excluded_opinions by the
     -- derive_taxa_clades() call above, in this same session) into the
@@ -6602,19 +6633,41 @@ CREATE OR REPLACE FUNCTION rebuild_clade_attachments()
 RETURNS integer LANGUAGE plpgsql AS $fn$
 DECLARE
     changed integer := 0;
+    deleted integer := 0;
 BEGIN
-    -- Insert a row for every edge derive_clade_attachments() returns; where the
-    -- edge already has a row (matched on the (concept_permid, direction,
+    -- Materialize derive_clade_attachments()'s output once, so the
+    -- insert/update below and the orphan deletion further down both read the
+    -- same snapshot instead of calling derive_clade_attachments(NULL) twice.
+    DROP TABLE IF EXISTS _rebuild_clade_attachments_src;
+    CREATE TEMP TABLE _rebuild_clade_attachments_src AS SELECT * FROM derive_clade_attachments(NULL);
+
+    -- Insert a row for every edge in the snapshot; where the edge already
+    -- has a row (matched on the (concept_permid, direction,
     -- attached_to_concept_permid) triple, its natural key), update it in place.
     -- Same no-op-on-no-change pattern as rebuild_linnaean()/rebuild_taxa_clades().
     INSERT INTO taxa_attachments (concept_permid, direction, attached_to_concept_permid,
         winning_assignment_opinion_id)
     SELECT concept_permid, direction, attached_to_concept_permid, winning_assignment_opinion_id
-    FROM derive_clade_attachments(NULL)
+    FROM _rebuild_clade_attachments_src
     ON CONFLICT (concept_permid, direction, attached_to_concept_permid) DO UPDATE SET
         winning_assignment_opinion_id = EXCLUDED.winning_assignment_opinion_id
     WHERE taxa_attachments.winning_assignment_opinion_id IS DISTINCT FROM EXCLUDED.winning_assignment_opinion_id;
     GET DIAGNOSTICS changed = ROW_COUNT;
+
+    -- Remove edges no longer produced by derive_clade_attachments() -- e.g.
+    -- the assignment opinion that supported a cross-boundary attachment was
+    -- superseded or removed. The upsert above has no way to detect or
+    -- handle this: ON CONFLICT only ever inserts/updates.
+    DELETE FROM taxa_attachments t
+    WHERE NOT EXISTS (
+        SELECT 1 FROM _rebuild_clade_attachments_src s
+        WHERE s.concept_permid = t.concept_permid
+          AND s.direction = t.direction
+          AND s.attached_to_concept_permid = t.attached_to_concept_permid
+    );
+    GET DIAGNOSTICS deleted = ROW_COUNT;
+    changed := changed + deleted;
+
     RETURN changed;
 END;
 $fn$;
@@ -7422,8 +7475,15 @@ CREATE OR REPLACE FUNCTION rebuild_taxa()
 RETURNS integer LANGUAGE plpgsql AS $fn$
 DECLARE
     changed integer := 0;
+    deleted integer := 0;
 BEGIN
-    -- Insert a row for every permid derive_taxa() returns; where the permid
+    -- Materialize derive_taxa()'s output once, so the insert/update below
+    -- and the orphan deletion further down both read the same snapshot
+    -- instead of calling derive_taxa(NULL) twice.
+    DROP TABLE IF EXISTS _rebuild_taxa_src;
+    CREATE TEMP TABLE _rebuild_taxa_src AS SELECT * FROM derive_taxa(NULL);
+
+    -- Insert a row for every permid in the snapshot; where the permid
     -- already has a row, update it in place. The DO UPDATE ... WHERE guard makes
     -- this a true no-op (0 rows touched, per Postgres's own ON CONFLICT row-count
     -- semantics) when nothing has actually changed.
@@ -7435,7 +7495,7 @@ BEGIN
         accepted_spelling_permid, concept_permid, containing_concept_permid,
         classification_path, nomenclatural_status_id, winning_name_opinion_id,
         winning_assignment_opinion_id, winning_validity_opinion_id
-    FROM derive_taxa(NULL)
+    FROM _rebuild_taxa_src
     ON CONFLICT (permid) DO UPDATE SET
         name                          = EXCLUDED.name,
         rank_id                       = EXCLUDED.rank_id,
@@ -7462,6 +7522,14 @@ BEGIN
        OR taxa.winning_assignment_opinion_id IS DISTINCT FROM EXCLUDED.winning_assignment_opinion_id
        OR taxa.winning_validity_opinion_id   IS DISTINCT FROM EXCLUDED.winning_validity_opinion_id;
     GET DIAGNOSTICS changed = ROW_COUNT;
+
+    -- Remove rows for permids no longer produced by derive_taxa() -- e.g. a
+    -- lineage that lost its last remaining candidate. The upsert above has
+    -- no way to detect or handle this: ON CONFLICT only ever inserts/updates.
+    DELETE FROM taxa t
+    WHERE NOT EXISTS (SELECT 1 FROM _rebuild_taxa_src s WHERE s.permid = t.permid);
+    GET DIAGNOSTICS deleted = ROW_COUNT;
+    changed := changed + deleted;
 
     -- Snapshot this run's cuts (left behind in _dtu_excluded_opinions by the
     -- derive_taxa() call above, in this same session) into the permanent log.
