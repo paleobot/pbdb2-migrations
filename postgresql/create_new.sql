@@ -6032,6 +6032,36 @@ BEGIN
     CREATE INDEX ON _dtc_permid_lineage(original_permid);
     ANALYZE _dtc_permid_lineage;
 
+    -- ---- best concept-class opinion targeting each clade lineage -----------
+    -- (fix-nomen-dubium-concept-seniority, ported from derive_taxa()/
+    -- derive_linnaean() -- this function's own concept-seniority tiebreak
+    -- below never received that fix.) For each clade lin_rep, the best-rated
+    -- (evidence DESC, yr DESC, id DESC) current, non-negating concept-class
+    -- opinion whose target resolves to it -- counter-signal (b) for the
+    -- validity veto below. Scoped to _dtc_permid_lineage on both sides,
+    -- matching _dtc_con_winner's own scope.
+    DROP TABLE IF EXISTS _dtc_concept_target_best;
+    CREATE TEMP TABLE _dtc_concept_target_best AS
+    WITH cand AS MATERIALIZED (
+        SELECT lt.original_permid AS lin_rep,
+               n.evidence,
+               COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) AS yr,
+               n.id AS opinion_id,
+               row_number() OVER (PARTITION BY lt.original_permid
+                   ORDER BY n.evidence DESC,
+                            COALESCE(n.publication_year, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                            n.id DESC) AS rn
+        FROM name_opinions n
+        JOIN _dtc_permid_lineage ls ON ls.permid = n.subject_permid
+        JOIN _dtc_permid_lineage lt ON lt.permid = n.target_permid
+        LEFT JOIN refs r ON r.id = n.reference_id
+        WHERE n.removed IS NOT TRUE AND n.succeeded_by_id IS NULL
+          AND n.edge_class = 'concept' AND n.negates = false
+    )
+    SELECT lin_rep, evidence, yr, opinion_id FROM cand WHERE rn = 1;
+    CREATE INDEX ON _dtc_concept_target_best(lin_rep);
+    ANALYZE _dtc_concept_target_best;
+
     -- ---- concept grouping (clade-to-clade synonymy union-find) -------------
     -- Mirrors derive_linnaean()'s _dt_con_winner: each lineage's own top-ranked current
     -- concept-class opinion, pooled across all of that lineage's member permids
@@ -6082,26 +6112,99 @@ BEGIN
     CREATE INDEX ON _dtc_con(con_rep);
     ANALYZE _dtc_con;
 
+    -- ---- validity veto: which clade lineages are excluded from concept ----
+    -- seniority (fix-nomen-dubium-concept-seniority, ported from
+    -- derive_taxa()/derive_linnaean()). A lineage whose accepted spelling's
+    -- winning validity opinion (already resolved by derive_linnaean() and
+    -- reused here via _dtc_lineage) has invalidates = true is excluded from
+    -- senior candidacy only if that opinion's own rating outranks the best
+    -- of (a) the accepted spelling's own canonical introducing edge
+    -- (_dtc_lineage.acc_ev/acc_yr/acc_id) and (b) any live, non-negating
+    -- clade concept-class opinion naming this lineage as target
+    -- (_dtc_concept_target_best) -- unless every candidate lineage in the
+    -- concept is invalidated (the escape hatch below). Static, not
+    -- iterative, for the same reason as derive_taxa()'s own veto: it never
+    -- depends on who wins any ranking contest.
+    DROP TABLE IF EXISTS _dtc_lin_invalidated;
+    CREATE TEMP TABLE _dtc_lin_invalidated AS
+    SELECT cl.original_permid AS lin_rep
+    FROM _dtc_lineage cl
+    JOIN dictionaries.nomenclatural_statuses ns ON ns.id = cl.nomenclatural_status_id
+    JOIN validity_opinions v ON v.id = cl.winning_validity_opinion_id
+    LEFT JOIN refs r ON r.id = v.reference_id
+    LEFT JOIN _dtc_concept_target_best ctb ON ctb.lin_rep = cl.original_permid
+    WHERE ns.invalidates = true
+      AND (v.evidence,
+           COALESCE(COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int), -999999),
+           v.id)
+        > (cl.acc_ev, COALESCE(cl.acc_yr, -999999), cl.acc_id)
+      AND (v.evidence,
+           COALESCE(COALESCE(v.publication_year, NULLIF(r.reference->>'publicationYear','')::int), -999999),
+           v.id)
+        > (COALESCE(ctb.evidence, false), COALESCE(ctb.yr, -999999), COALESCE(ctb.opinion_id, -1));
+    CREATE INDEX ON _dtc_lin_invalidated(lin_rep);
+    ANALYZE _dtc_lin_invalidated;
+
+    DROP TABLE IF EXISTS _dtc_con_all_invalidated;
+    CREATE TEMP TABLE _dtc_con_all_invalidated AS
+    SELECT c.con_rep
+    FROM _dtc_con c
+    GROUP BY c.con_rep
+    HAVING bool_and(EXISTS (SELECT 1 FROM _dtc_lin_invalidated li WHERE li.lin_rep = c.lin_rep));
+    CREATE INDEX ON _dtc_con_all_invalidated(con_rep);
+    ANALYZE _dtc_con_all_invalidated;
+
+    -- Concepts genuinely narrowed by the veto (some but not all members
+    -- invalidated) -- see derive_taxa()'s _dtu_con_has_invalidated comment
+    -- for why priority must be promoted ahead of the mechanical tiebreak for
+    -- exactly these concepts, and no others.
+    DROP TABLE IF EXISTS _dtc_con_has_invalidated;
+    CREATE TEMP TABLE _dtc_con_has_invalidated AS
+    SELECT DISTINCT c.con_rep
+    FROM _dtc_con c
+    JOIN _dtc_lin_invalidated li ON li.lin_rep = c.lin_rep
+    WHERE c.con_rep NOT IN (SELECT con_rep FROM _dtc_con_all_invalidated);
+    CREATE INDEX ON _dtc_con_has_invalidated(con_rep);
+    ANALYZE _dtc_con_has_invalidated;
+
     -- ---- senior lineage per concept + concept_permid/rank -------------------
-    -- Mirrors derive_linnaean()'s _dt_conmeta seniority tiebreak exactly: a lineage
-    -- never proposed junior to anything (con_sources) is preferred senior; ties
-    -- break on the accepted spelling's own evidence/pubyr/id, then oldest original
-    -- pubyr, then lowest permid.
+    -- Mirrors derive_taxa()'s/derive_linnaean()'s _dtu_conmeta/_dt_conmeta
+    -- seniority tiebreak exactly, including the validity veto
+    -- (fix-nomen-dubium-concept-seniority): a lineage never proposed junior
+    -- to anything (con_sources) is preferred senior; ties break on the
+    -- accepted spelling's own evidence/pubyr/id, then oldest original pubyr
+    -- (promoted ahead of that mechanical tiebreak for concepts genuinely
+    -- narrowed by the veto -- see _dtc_con_has_invalidated above), then
+    -- lowest permid. con_sources drops an edge whose target is invalidated
+    -- (unless the target's whole concept is all-invalidated) -- deferring to
+    -- a lineage that can't win isn't a genuine deferral.
     DROP TABLE IF EXISTS _dtc_conmeta;
     CREATE TEMP TABLE _dtc_conmeta AS
     WITH con_sources AS MATERIALIZED (
-        SELECT DISTINCT jr FROM _dtc_con_winner WHERE negates = false
+        SELECT DISTINCT cw.jr
+        FROM _dtc_con_winner cw
+        JOIN _dtc_con c ON c.lin_rep = cw.jr
+        WHERE cw.negates = false
+          AND (
+            c.con_rep IN (SELECT con_rep FROM _dtc_con_all_invalidated)
+            OR NOT EXISTS (SELECT 1 FROM _dtc_lin_invalidated li WHERE li.lin_rep = cw.sr)
+          )
     ),
     ranked AS MATERIALIZED (
         SELECT c.con_rep, c.lin_rep,
                row_number() OVER (PARTITION BY c.con_rep ORDER BY
-                   (cs.jr IS NULL) DESC,
-                   cl.acc_ev DESC, cl.acc_yr DESC NULLS LAST, cl.acc_id DESC,
-                   cl.original_yr ASC,
-                   cl.original_permid ASC) AS rn
+                   (li.lin_rep IS NULL OR aic.con_rep IS NOT NULL) DESC,      -- validity exclusion
+                   (cs.jr IS NULL) DESC,                                     -- (a) sink preference
+                   CASE WHEN hic.con_rep IS NOT NULL THEN cl.original_yr END ASC NULLS LAST,  -- (c) promoted iff narrowed
+                   cl.acc_ev DESC, cl.acc_yr DESC NULLS LAST, cl.acc_id DESC, -- (b) mechanical tiebreak
+                   CASE WHEN hic.con_rep IS NULL THEN cl.original_yr END ASC NULLS LAST,      -- (c) original position otherwise
+                   cl.original_permid ASC) AS rn                             -- (d)
         FROM _dtc_con c
         JOIN _dtc_lineage cl ON cl.original_permid = c.lin_rep
         LEFT JOIN con_sources cs ON cs.jr = c.lin_rep
+        LEFT JOIN _dtc_lin_invalidated li ON li.lin_rep = c.lin_rep
+        LEFT JOIN _dtc_con_all_invalidated aic ON aic.con_rep = c.con_rep
+        LEFT JOIN _dtc_con_has_invalidated hic ON hic.con_rep = c.con_rep
     )
     SELECT r.con_rep, r.lin_rep AS senior_lin,
            cl.accepted_spelling_permid AS concept_permid,
