@@ -256,7 +256,7 @@ The script SHALL skip any source row whose `reference_no` does not resolve to a 
 
 
 ### Requirement: Resolve person FKs with zero-sentinel fallback
-The script SHALL use `authorizer_no` and `enterer_no` directly as `persons.id` values (the `migrate-persons.js` migration inserted persons with `id = person_no`, so legacy and new ids are identical; no lookup map is required). When `authorizer_no=0` or `enterer_no=0` (MariaDB sentinel for "missing"), the script SHALL substitute the other field's value. When both are 0, the script SHALL fall back to `person_no=1`. Same fallback as `migrate-refs.js`. Approximate count: 1 row with `authorizer_no=0`, 1 with `enterer_no=0`.
+The script SHALL use `authorizer_no` and `enterer_no` directly as `persons.id` values (the `src/persons-migration/migrate-persons.js` migration inserted persons with `id = person_no`, so legacy and new ids are identical; no lookup map is required). When `authorizer_no=0` or `enterer_no=0` (MariaDB sentinel for "missing"), the script SHALL substitute the other field's value. When both are 0, the script SHALL fall back to `person_no=1`. Same fallback as `migrate-refs.js`. Approximate count: 1 row with `authorizer_no=0`, 1 with `enterer_no=0`.
 
 #### Scenario: Both populated
 - **WHEN** a source row has `authorizer_no=5`, `enterer_no=7`

@@ -38,4 +38,4 @@
 ## 7. Finish
 
 - [x] 7.1 Commit the move, the reference updates, and the change artifacts together on the current branch
-- [ ] 7.2 Run `/opsx:verify` before archiving
+- [x] 7.2 Run `/opsx:verify` before archiving
