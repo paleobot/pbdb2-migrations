@@ -5139,7 +5139,6 @@ DECLARE
     cut_opinion_id bigint;
     iter integer := 0;
     peeled_count integer;
-    veto_iter integer;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dt_identity;
@@ -6667,7 +6666,6 @@ DECLARE
     walk_containing_permid uuid;
     walk_step integer;
     cycle_start_step integer;
-    veto_iter integer;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dtu_identity;
