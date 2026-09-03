@@ -133,6 +133,7 @@
       (not ~90s), the redundant-rebuild fix's ~29% improvement to `derive_taxa()`, and — the dominant
       finding — the 57-minute walk-from-every-node pathology in `derive_linnaean()`/`derive_taxa_clades()`
       and its ~3.3x fix.
-- [ ] 9.3 Report final numbers to the maintainer and confirm before archiving.
-- [ ] 9.4 Archive this OpenSpec change once the maintainer confirms the implementation matches these
-      artifacts.
+- [x] 9.3 Reported final numbers to the maintainer; committed as `b24105c` (derive_taxa()) and `f2c1c17`
+      (derive_linnaean()/derive_taxa_clades() + the 57-minute pathology fix) on `patch-derive-taxa`, pushed
+      to origin.
+- [x] 9.4 Archived this OpenSpec change — maintainer confirmed the implementation matches these artifacts.
