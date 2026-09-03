@@ -23,7 +23,7 @@ import { createAnomalyLog } from '../lib/anomaly-log.js';
 const INSERT_BATCH_SIZE = 1000;
 const KEYSET_CHUNK = 20000;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const MISTAGGED_CSV = join(SCRIPT_DIR, '..', '..', 'mistagged-original-spelling.csv');
+const MISTAGGED_CSV = join(SCRIPT_DIR, 'inputs', 'mistagged-original-spelling.csv');
 const RUN_SUMMARY = join(SCRIPT_DIR, 'run-summary.txt');
 
 // ---------- In-code rule tables (transcribed from opinions.md) ----------

@@ -166,7 +166,7 @@ const STEPS = [
     name: 'opinions',
     script: 'src/opinions-migration/migrate-opinions.js',
     env: ['PG', 'MARIADB'],
-    inputs: ['mistagged-original-spelling.csv'],
+    inputs: ['src/opinions-migration/inputs/mistagged-original-spelling.csv'],
     writes: ['assignment_opinions', 'name_opinions', 'validity_opinions'],
     firstWriterOf: ['assignment_opinions', 'validity_opinions'],
     // Inverted shape: this is name_opinions' second writer, so its prerequisite is

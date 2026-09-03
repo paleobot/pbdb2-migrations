@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, '..', '..', '..');
-const RESET_SQL = join(REPO_ROOT, 'reset-opinions.sql');
+const RESET_SQL = join(SCRIPT_DIR, 'reset-opinions.sql');
 const AUTHORITIES_OPINIONS = join(REPO_ROOT, 'migrate-authorities-opinions.js');
 
 // The 10 statuses × their attested spelling_reasons, mirroring the exploration

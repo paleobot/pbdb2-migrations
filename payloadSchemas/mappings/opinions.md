@@ -85,7 +85,7 @@ spelling_reason)`:
 
 | pair | rows | source of the override |
 |---|---:|---|
-| `belongs to` / `original spelling` | 50 | `mistagged-original-spelling.csv` (repo root, git-tracked) |
+| `belongs to` / `original spelling` | 50 | `src/opinions-migration/inputs/mistagged-original-spelling.csv` (git-tracked) |
 | `replaced by` / `original spelling` | 1 | hard-coded (`opinion_no` 955925 → `assignment`) |
 | `subjective synonym of` / `original spelling` | 2 | hard-coded (71324 → `reranked`, 912640 → `assignment`) |
 
