@@ -13,17 +13,28 @@ The migration's entry-point script SHALL be named `migrate-<subject>.js` and SHA
 directory. Test and cross-check harnesses for a migration SHALL live in a `tests/` subdirectory of that
 migration's directory.
 
-Directory names are literal and SHALL NOT be normalized for consistency with one another. In particular,
-`src/pbot-persons-migrations/` carries a trailing `s` on `migrations` that its sibling
-`src/persons-migration/` does not; this asymmetry is deliberate and SHALL be preserved.
+A migration directory SHALL be named `<subject>-migration` — singular `migration`, regardless of the
+migration's source system and regardless of whether a related migration writes the same target table. A
+directory name SHALL NOT be pluralised to distinguish one migration from another; where two migrations
+write the same table, the `<subject>` distinguishes them (`persons-migration` and `pbot-persons-migration`),
+not a difference in the trailing noun.
+
+A directory name is nonetheless literal: it changes only by a deliberate decision recorded in this
+specification, and SHALL NOT be changed as incidental cleanup by a reader who takes it for a mistake. This
+rule protects a name against drive-by correction; it does not freeze a name against a decision to change the
+convention, which is what this requirement's own history demonstrates.
 
 #### Scenario: Migration directory layout
 - **WHEN** the opinions migration is located
 - **THEN** its entry point is `src/opinions-migration/migrate-opinions.js` and its harnesses are under `src/opinions-migration/tests/`
 
-#### Scenario: Deliberate name asymmetry preserved
-- **WHEN** a contributor observes that `src/pbot-persons-migrations/` is pluralized differently from `src/persons-migration/`
-- **THEN** the name is left as-is, because the asymmetry is intentional rather than a typo
+#### Scenario: Singular naming regardless of source system
+- **WHEN** a PBot-sourced migration is placed under `src/` alongside a PBDB-sourced migration that writes the same target table
+- **THEN** both directories end in `-migration`, and the two are distinguished by their `<subject>` prefix rather than by pluralising one of them
+
+#### Scenario: A name is not corrected by a passing reader
+- **WHEN** a contributor believes a migration directory is misnamed
+- **THEN** the name is left as it stands until a change records the decision to alter it, because this specification's inventory — not a passing reader's judgement — is what establishes a directory's name
 
 ### Requirement: Related migrations stay in separate directories with documented run order
 Migrations that write the same target table SHALL still occupy separate directories when they draw on
@@ -34,7 +45,7 @@ dependency between such migrations SHALL be documented in this specification.
 The persons migrations SHALL be run in this order:
 
 1. `src/persons-migration/migrate-persons.js` — establishes `persons.id = person_no` from MariaDB.
-2. `src/pbot-persons-migrations/migrate-pbot-persons.js` — matches against those rows, backfills ORCID,
+2. `src/pbot-persons-migration/migrate-pbot-persons.js` — matches against those rows, backfills ORCID,
    email, and `legacyIDs.pbotID`, and inserts PBot persons that do not match.
 
 #### Scenario: Persons migrations run in order
@@ -116,9 +127,9 @@ Under `src/`:
 |---|---|
 | `src/opinions-migration/` | `migrate-opinions.js` |
 | `src/persons-migration/` | `migrate-persons.js` |
-| `src/pbot-persons-migrations/` | `migrate-pbot-persons.js` |
+| `src/pbot-persons-migration/` | `migrate-pbot-persons.js` |
 | `src/refs-migration/` | `migrate-refs.js` |
-| `src/pbot-refs-migrations/` | `migrate-pbot-refs.js` |
+| `src/pbot-refs-migration/` | `migrate-pbot-refs.js` |
 | `src/pbot-schemas-migration/` | `migrate-pbot-schemas.js` |
 
 Remaining at the repository root (three scripts):
@@ -132,7 +143,3 @@ Remaining at the repository root (three scripts):
 #### Scenario: Root scripts keep their existing conventions
 - **WHEN** a script is still listed as remaining at the repository root
 - **THEN** it continues to import root-level connection modules and is not required to follow the `src/` layout until it is relocated
-
-#### Scenario: A PBot-sourced migration without a PBDB sibling is named in the singular
-- **WHEN** `migrate-pbot-schemas.js` is relocated and the two existing PBot directories (`src/pbot-persons-migrations/`, `src/pbot-refs-migrations/`) both carry a trailing `s` on `migrations`
-- **THEN** its directory is nonetheless `src/pbot-schemas-migration/`, singular, because the trailing `s` marked a contrast with a paired PBDB-sourced sibling and the schemas migration has no such sibling — and the inventory, not the surface pattern of neighbouring names, is the authority on the literal directory name

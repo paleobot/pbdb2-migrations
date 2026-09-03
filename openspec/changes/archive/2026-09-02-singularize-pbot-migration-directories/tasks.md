@@ -34,4 +34,4 @@
 ## 6. Finish
 
 - [x] 6.1 Commit the renames and the change artifacts together on the current branch
-- [ ] 6.2 Run `/opsx:verify` before archiving
+- [x] 6.2 Run `/opsx:verify` before archiving
