@@ -1,5 +1,5 @@
-import { pg, closePg } from './pg-pool.js';
-import { uuidv7 } from './uuidv7.js';
+import { pg, closePg } from '../lib/pg-pool.js';
+import { uuidv7 } from '../lib/uuidv7.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
