@@ -44,10 +44,10 @@ async function main() {
   const nomenNudumStatusId = statusRows[0].id;
 
   const { rows: lineageReasonRows } = await pg.query(
-    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'reranked' AND edge_class = 'lineage'`,
+    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'reranked' AND edge_class = 'name'`,
   );
   if (lineageReasonRows.length !== 1) {
-    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='reranked'/edge_class='lineage', got ${lineageReasonRows.length}`);
+    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='reranked'/edge_class='name', got ${lineageReasonRows.length}`);
     process.exit(1);
   }
   const rerankedReasonId = lineageReasonRows[0].id;
@@ -191,7 +191,7 @@ async function main() {
         values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12},$${p+13},$${p+14},$${p+15},$${p+16})`);
         params.push(
           r.permid, r.authorizerPersonId, r.entererPersonId, null, r.subjectPermid,
-          r.targetPermid, rerankedReasonId, 'lineage', null, null, null, null,
+          r.targetPermid, rerankedReasonId, 'name', null, null, null, null,
           r.referenceId, r.publicationYear,
           r.attribution === null ? null : JSON.stringify(r.attribution), r.evidence, false,
         );

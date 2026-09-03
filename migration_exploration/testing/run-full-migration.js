@@ -175,7 +175,7 @@ async function main() {
     SELECT 'assignment_opinions' AS t, count(*) FROM assignment_opinions
     UNION ALL SELECT 'validity_opinions', count(*) FROM validity_opinions
     UNION ALL SELECT 'name_opinions (root)', count(*) FROM name_opinions WHERE edge_class = 'root'
-    UNION ALL SELECT 'name_opinions (lineage)', count(*) FROM name_opinions WHERE edge_class = 'lineage'
+    UNION ALL SELECT 'name_opinions (name)', count(*) FROM name_opinions WHERE edge_class = 'name'
     UNION ALL SELECT 'name_opinions (concept)', count(*) FROM name_opinions WHERE edge_class = 'concept'
   `);
   console.log('  Final pg_play counts:');
