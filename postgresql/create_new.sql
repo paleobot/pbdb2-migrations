@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS ltree;
+CREATE EXTENSION IF NOT EXISTS postgis; -- collections.location is a geography column
 
 CREATE SCHEMA dictionaries;
 CREATE SCHEMA lookup;
