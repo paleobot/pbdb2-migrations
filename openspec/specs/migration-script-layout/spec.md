@@ -119,11 +119,11 @@ Under `src/`:
 | `src/pbot-persons-migrations/` | `migrate-pbot-persons.js` |
 | `src/refs-migration/` | `migrate-refs.js` |
 | `src/pbot-refs-migrations/` | `migrate-pbot-refs.js` |
+| `src/pbot-schemas-migration/` | `migrate-pbot-schemas.js` |
 
-Remaining at the repository root (four scripts):
+Remaining at the repository root (three scripts):
 
-`migrate-authorities.js`, `migrate-authorities-opinions.js`, `migrate-collections.js`,
-`migrate-pbot-schemas.js`
+`migrate-authorities.js`, `migrate-authorities-opinions.js`, `migrate-collections.js`
 
 #### Scenario: Inventory reflects a completed relocation
 - **WHEN** a change relocates a root-level `migrate-*.js` script under `src/`
@@ -132,3 +132,7 @@ Remaining at the repository root (four scripts):
 #### Scenario: Root scripts keep their existing conventions
 - **WHEN** a script is still listed as remaining at the repository root
 - **THEN** it continues to import root-level connection modules and is not required to follow the `src/` layout until it is relocated
+
+#### Scenario: A PBot-sourced migration without a PBDB sibling is named in the singular
+- **WHEN** `migrate-pbot-schemas.js` is relocated and the two existing PBot directories (`src/pbot-persons-migrations/`, `src/pbot-refs-migrations/`) both carry a trailing `s` on `migrations`
+- **THEN** its directory is nonetheless `src/pbot-schemas-migration/`, singular, because the trailing `s` marked a contrast with a paired PBDB-sourced sibling and the schemas migration has no such sibling — and the inventory, not the surface pattern of neighbouring names, is the authority on the literal directory name
