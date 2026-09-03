@@ -5118,6 +5118,16 @@ CREATE TABLE cycle_cuts (
     created_at timestamptz DEFAULT NOW()
 );
 
+-- optimize-derive-taxa-seed: `seed IS NOT NULL` walks upward from each seed
+-- permid's own con_rep instead of running the full algorithm below and
+-- filtering at the end -- see derive_taxa()'s own header comment for the
+-- full algorithm and correctness argument (identical here, just ported to
+-- this function's own table names/rank exclusions). Live profiling found a
+-- different cost shape than derive_taxa(): this function's cycle-breaking
+-- loop is normally a cheap, mostly-idle safety net (0 cuts against the
+-- current dataset) rather than the dominant cost -- the win here instead
+-- comes from skipping the bulk _dt_assign/_dt_node build and the full-tree
+-- _dt_path build. Typical result: ~26s down to ~13s for a single-permid seed.
 CREATE OR REPLACE FUNCTION derive_linnaean(seed uuid[] DEFAULT NULL)
 RETURNS TABLE (
     permid uuid,
@@ -5148,6 +5158,28 @@ DECLARE
     new_evidence boolean;
     new_yr integer;
     new_is_senior boolean;
+    -- optimize-derive-taxa-seed: per-seed upward walk used instead of the
+    -- above for seed IS NOT NULL (see that change's design.md, Decision 1,
+    -- and Decision 2 for why this applies here too even though live-profiling
+    -- found this function's cycle loop itself is cheap already -- the win
+    -- here comes from skipping the bulk _dt_assign/_dt_node/_dt_path builds,
+    -- not from skipping cycle-loop iterations).
+    swalk_con_rep uuid;
+    swalk_seed_con_rep uuid;
+    swalk_cached boolean;
+    swalk_step integer;
+    swalk_cycle_start_step integer;
+    swalk_cut_opinion_id bigint;
+    swalk_iter integer;
+    swalk_concept_permid uuid;
+    swalk_concept_rank_id integer;
+    swalk_new_opinion_id bigint;
+    swalk_new_containing_permid uuid;
+    swalk_new_containing_con_rep uuid;
+    swalk_new_containing_concept_permid uuid;
+    swalk_new_evidence boolean;
+    swalk_new_yr integer;
+    swalk_new_is_senior boolean;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dt_identity;
@@ -5637,6 +5669,13 @@ BEGIN
         cycle_members uuid[]
     );
 
+    -- optimize-derive-taxa-seed: seed IS NULL keeps the global cycle-breaking
+    -- loop and full-tree classification_path build below exactly as before.
+    -- For seed IS NOT NULL, the ELSE branch (after this whole loop) replaces
+    -- both with an on-demand upward walk scoped to just the con_reps
+    -- reachable from the requested permids -- see this change's design.md.
+    IF seed IS NULL THEN
+
     <<cycle_break>>
     LOOP
         -- optimize-derive-taxa-cycle-loop: only the FIRST pass rebuilds
@@ -5880,6 +5919,207 @@ BEGIN
     CREATE INDEX ON _dt_path(con_rep);
     ANALYZE _dt_path;
 
+    ELSE
+        -- ---- seed-scoped: which con_reps the RETURN QUERY below will actually
+        -- need -- computed once, up front, from the (unscoped) identity/
+        -- lineage/concept union-find already built above, not re-derived per
+        -- permid inside the walk.
+        DROP TABLE IF EXISTS _dt_seed_con_reps;
+        CREATE TEMP TABLE _dt_seed_con_reps AS
+        SELECT DISTINCT c.con_rep
+        FROM _dt_identity m
+        JOIN _dt_lin l ON l.permid = m.permid
+        JOIN _dt_con c ON c.lin_rep = l.lin_rep
+        WHERE m.permid = ANY(seed);
+        CREATE INDEX ON _dt_seed_con_reps(con_rep);
+        ANALYZE _dt_seed_con_reps;
+
+        -- Sparse counterpart of the global _dt_node table above -- same
+        -- columns, but only ever gains a row for a con_rep actually visited
+        -- by a walk below, so the RETURN QUERY at the bottom of this
+        -- function needs no branching of its own between the two paths.
+        DROP TABLE IF EXISTS _dt_node;
+        CREATE TEMP TABLE _dt_node (
+            con_rep uuid PRIMARY KEY,
+            concept_permid uuid,
+            concept_rank_id integer,
+            containing_concept_permid uuid,
+            winning_assignment_opinion_id bigint,
+            evidence boolean,
+            yr integer,
+            is_senior boolean
+        );
+        CREATE INDEX ON _dt_node(concept_permid);
+        CREATE INDEX ON _dt_node(containing_concept_permid);
+
+        -- One walk per distinct con_rep the seed actually needs. A con_rep
+        -- already resolved by an earlier seed's walk in this same call is
+        -- skipped outright -- see derive_taxa()'s identical ELSE branch and
+        -- design.md's correctness argument for why a cached con_rep can
+        -- safely be trusted without re-walking.
+        <<swalk_seed_loop>>
+        FOR swalk_seed_con_rep IN SELECT con_rep FROM _dt_seed_con_reps LOOP
+            IF EXISTS (SELECT 1 FROM _dt_node WHERE con_rep = swalk_seed_con_rep) THEN
+                CONTINUE swalk_seed_loop;
+            END IF;
+
+            DROP TABLE IF EXISTS _dt_swalk_stack;
+            CREATE TEMP TABLE _dt_swalk_stack (
+                step integer PRIMARY KEY,
+                con_rep uuid,
+                concept_permid uuid,
+                concept_rank_id integer,
+                containing_concept_permid uuid,
+                winning_assignment_opinion_id bigint,
+                evidence boolean,
+                yr integer,
+                is_senior boolean
+            );
+            CREATE INDEX ON _dt_swalk_stack(con_rep);
+
+            swalk_con_rep := swalk_seed_con_rep;
+            swalk_step := 0;
+            swalk_iter := 0;
+
+            -- Climb containing_concept_permid one step at a time, resolving
+            -- each con_rep on demand via the same single-con_rep candidate
+            -- query the seed IS NULL branch's incremental ELSE above uses,
+            -- generalized to any con_rep rather than hardcoded to
+            -- affected_con_rep. A revisit of a con_rep already on THIS
+            -- walk's own stack is a genuine local cycle: cut its weakest
+            -- edge (same tiebreak order the global cycle-break loop above
+            -- uses) and restart the WHOLE walk from the seed, not from the
+            -- cut point -- see derive_taxa()'s identical logic and
+            -- design.md's Context for why a cut can expose a different,
+            -- larger cycle further up. (Live profiling found this
+            -- function's cycle loop currently cuts nothing at all against
+            -- the real dataset -- iter=0 -- so this path is structurally
+            -- identical to derive_taxa()'s proven-correct one but not
+            -- exercised by any live cycle today.)
+            <<swalk_climb>>
+            LOOP
+                SELECT EXISTS (SELECT 1 FROM _dt_node WHERE con_rep = swalk_con_rep) INTO swalk_cached;
+                IF swalk_cached THEN
+                    EXIT swalk_climb;
+                END IF;
+
+                SELECT step INTO swalk_cycle_start_step FROM _dt_swalk_stack WHERE con_rep = swalk_con_rep;
+                IF swalk_cycle_start_step IS NOT NULL THEN
+                    SELECT s.winning_assignment_opinion_id INTO swalk_cut_opinion_id
+                    FROM _dt_swalk_stack s
+                    WHERE s.step >= swalk_cycle_start_step
+                    ORDER BY s.evidence ASC, s.yr ASC NULLS FIRST, s.is_senior ASC, s.winning_assignment_opinion_id ASC
+                    LIMIT 1;
+
+                    INSERT INTO _dt_excluded_opinions (opinion_id, concept_permid, cycle_members)
+                    SELECT swalk_cut_opinion_id,
+                           (SELECT s2.concept_permid FROM _dt_swalk_stack s2
+                            WHERE s2.winning_assignment_opinion_id = swalk_cut_opinion_id LIMIT 1),
+                           (SELECT array_agg(DISTINCT s3.concept_permid)
+                            FROM _dt_swalk_stack s3 WHERE s3.step >= swalk_cycle_start_step);
+
+                    swalk_iter := swalk_iter + 1;
+                    IF swalk_iter > 1000 THEN
+                        RAISE EXCEPTION 'derive_linnaean: seed-scoped cycle resolution for con_rep % did not converge after 1000 cuts',
+                            swalk_seed_con_rep;
+                    END IF;
+
+                    DELETE FROM _dt_swalk_stack;
+                    swalk_con_rep := swalk_seed_con_rep;
+                    swalk_step := 0;
+                    CONTINUE swalk_climb;
+                END IF;
+
+                -- Same cand logic as the global build's ELSE branch above,
+                -- scoped to swalk_con_rep instead of affected_con_rep.
+                SELECT cm.concept_permid, cm.concept_rank_id INTO swalk_concept_permid, swalk_concept_rank_id
+                FROM _dt_conmeta cm WHERE cm.con_rep = swalk_con_rep;
+
+                SELECT a.id, a.containing_permid, a.evidence,
+                       COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int),
+                       (sl.lin_rep = cm.senior_lin)
+                INTO swalk_new_opinion_id, swalk_new_containing_permid, swalk_new_evidence, swalk_new_yr, swalk_new_is_senior
+                FROM assignment_opinions a
+                JOIN _dt_lin sl ON sl.permid = a.subject_permid
+                JOIN _dt_con  sc ON sc.lin_rep = sl.lin_rep
+                JOIN _dt_conmeta cm ON cm.con_rep = sc.con_rep AND cm.con_rep = swalk_con_rep
+                JOIN _dt_linmeta lm ON lm.lin_rep = sl.lin_rep
+                LEFT JOIN refs r ON r.id = a.reference_id
+                LEFT JOIN _dt_lin ccl ON ccl.permid = a.containing_permid
+                LEFT JOIN _dt_con ccc ON ccc.lin_rep = ccl.lin_rep
+                LEFT JOIN _dt_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
+                WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
+                  AND ( sl.lin_rep = cm.senior_lin
+                        OR (cm.concept_rank_name <> 'species'
+                            AND lm.accepted_rank_id = cm.concept_rank_id) )
+                  AND ccc.con_rep IS DISTINCT FROM cm.con_rep
+                  AND lm.accepted_rank_id NOT IN (24, 25)
+                  AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id NOT IN (24, 25))
+                  AND (ccm.accepted_rank_id IS NULL OR ccm.accepted_rank_id >= lm.accepted_rank_id)
+                  AND NOT EXISTS (SELECT 1 FROM _dt_excluded_opinions eo WHERE eo.opinion_id = a.id)
+                ORDER BY a.evidence DESC,
+                         COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                         a.id DESC
+                LIMIT 1;
+
+                IF swalk_new_opinion_id IS NOT NULL THEN
+                    SELECT cc.con_rep, ccm2.concept_permid
+                    INTO swalk_new_containing_con_rep, swalk_new_containing_concept_permid
+                    FROM _dt_lin cl
+                    JOIN _dt_con cc ON cc.lin_rep = cl.lin_rep
+                    JOIN _dt_conmeta ccm2 ON ccm2.con_rep = cc.con_rep
+                    WHERE cl.permid = swalk_new_containing_permid;
+                ELSE
+                    swalk_new_containing_con_rep := NULL;
+                    swalk_new_containing_concept_permid := NULL;
+                END IF;
+
+                INSERT INTO _dt_swalk_stack (step, con_rep, concept_permid, concept_rank_id,
+                    containing_concept_permid, winning_assignment_opinion_id, evidence, yr, is_senior)
+                VALUES (swalk_step, swalk_con_rep, swalk_concept_permid, swalk_concept_rank_id,
+                    swalk_new_containing_concept_permid, swalk_new_opinion_id, swalk_new_evidence, swalk_new_yr, swalk_new_is_senior);
+
+                EXIT swalk_climb WHEN swalk_new_containing_concept_permid IS NULL;
+
+                swalk_con_rep := swalk_new_containing_con_rep;
+                swalk_step := swalk_step + 1;
+            END LOOP swalk_climb;
+
+            INSERT INTO _dt_node
+            SELECT con_rep, concept_permid, concept_rank_id, containing_concept_permid,
+                   winning_assignment_opinion_id, evidence, yr, is_senior
+            FROM _dt_swalk_stack;
+        END LOOP swalk_seed_loop;
+
+        DROP TABLE IF EXISTS _dt_swalk_stack;
+
+        -- ---- classification_path, scoped to just the requested con_reps ---
+        -- Bottom-up analog of the global build above: climbs containing_
+        -- concept_permid pointers from each requested con_rep up through the
+        -- now fully-populated (but still sparse) _dt_node, prepending each
+        -- ancestor's own label as it goes -- so the final (deepest) row per
+        -- con_rep is already in root-to-node order, no separate reversal
+        -- step needed.
+        DROP TABLE IF EXISTS _dt_path;
+        CREATE TEMP TABLE _dt_path AS
+        WITH RECURSIVE p AS (
+            SELECT sc.con_rep AS seed_con_rep, n.concept_permid AS cur_concept_permid,
+                   n.containing_concept_permid AS cur_containing,
+                   text2ltree(replace(n.concept_permid::text,'-','_')) AS classification_path
+            FROM _dt_seed_con_reps sc
+            JOIN _dt_node n ON n.con_rep = sc.con_rep
+            UNION ALL
+            SELECT p.seed_con_rep, parent.concept_permid, parent.containing_concept_permid,
+                   text2ltree(replace(parent.concept_permid::text,'-','_')) || p.classification_path
+            FROM p
+            JOIN _dt_node parent ON parent.concept_permid = p.cur_containing
+        )
+        SELECT DISTINCT ON (seed_con_rep) seed_con_rep AS con_rep, classification_path
+        FROM p ORDER BY seed_con_rep, nlevel(classification_path) DESC;
+        CREATE INDEX ON _dt_path(con_rep);
+        ANALYZE _dt_path;
+    END IF;
+
     -- ---- assemble one row per minted permid -------------------------------
     RETURN QUERY
     SELECT
@@ -6086,6 +6326,15 @@ CREATE TABLE taxa_clades (
 -- ============================================================================
 -- derive_taxa_clades() — pure function computing the clade-to-clade hierarchy
 -- ============================================================================
+-- optimize-derive-taxa-seed: unlike derive_taxa()/derive_linnaean(), `permids`
+-- here still just filters the final result -- the seed-scoped upward-walk
+-- redesign applied to those two functions was deliberately NOT ported here.
+-- Live profiling (2026-09-03) found this function's full, unscoped cost is
+-- already only ~7.6s (its graph is a couple orders of magnitude smaller --
+-- ~2,525 clade-rank taxa vs ~500K concepts), comfortably inside the "low
+-- tens of seconds" bar this change targets, so a third bespoke walk
+-- implementation wasn't judged worth the added maintenance surface. See
+-- openspec/changes/optimize-derive-taxa-seed/tasks.md, 4.1.
 CREATE OR REPLACE FUNCTION derive_taxa_clades(permids uuid[] DEFAULT NULL)
 RETURNS TABLE (
     permid uuid,
@@ -7024,6 +7273,25 @@ CREATE INDEX taxa_name_idx
 -- Never raises merely because a containment cycle was found -- only if the
 -- cycle-breaking loop fails to converge after 1000 iterations, same as
 -- derive_linnaean() and derive_taxa_clades().
+--
+-- optimize-derive-taxa-seed: `seed IS NOT NULL` takes a materially different
+-- code path from `seed IS NULL` (which is the full, unscoped algorithm
+-- described above, unchanged). Live profiling found `seed`'s original
+-- implementation gave essentially no speedup (~1.12x) because it only
+-- filtered the FINAL result rows -- every intermediate table, including the
+-- classification cycle-breaking loop, was still built over the entire
+-- ~500K-concept graph regardless of `seed` size, and that loop alone
+-- accounted for ~90% of total runtime. For `seed IS NOT NULL`, this function
+-- instead walks upward from each seed permid's own con_rep via
+-- containing_concept_permid, resolving each con_rep's winning assignment on
+-- demand (never building a bulk _dtu_assign/_dtu_node table) and cutting a
+-- local cycle's weakest edge in place if the walk ever revisits an
+-- already-visited con_rep -- see this change's design.md for the full
+-- algorithm and the correctness argument (a con_rep's own winning candidate
+-- never depends on any other con_rep's resolution order, so resolving lazily
+-- along just the seed's own ancestry converges to the same answer a full
+-- derive_taxa(NULL) call would give for that con_rep). Typical result: ~318s
+-- down to ~13s for a single-permid seed.
 CREATE OR REPLACE FUNCTION derive_taxa(seed uuid[] DEFAULT NULL)
 RETURNS TABLE (
     permid uuid,
@@ -7059,6 +7327,26 @@ DECLARE
     new_evidence boolean;
     new_yr integer;
     new_is_senior boolean;
+    -- optimize-derive-taxa-seed: per-seed upward walk used instead of the
+    -- above for seed IS NOT NULL (see that change's design.md, Decision 1).
+    -- Prefixed swalk_ throughout, distinct from the walk_*/new_* variables
+    -- above, which stay reserved for the seed IS NULL path.
+    swalk_con_rep uuid;
+    swalk_seed_con_rep uuid;
+    swalk_cached boolean;
+    swalk_step integer;
+    swalk_cycle_start_step integer;
+    swalk_cut_opinion_id bigint;
+    swalk_iter integer;
+    swalk_concept_permid uuid;
+    swalk_concept_rank_id integer;
+    swalk_new_opinion_id bigint;
+    swalk_new_containing_permid uuid;
+    swalk_new_containing_con_rep uuid;
+    swalk_new_containing_concept_permid uuid;
+    swalk_new_evidence boolean;
+    swalk_new_yr integer;
+    swalk_new_is_senior boolean;
 BEGIN
     -- ---- identity: one row per minted permid, from its own root row only ---
     DROP TABLE IF EXISTS _dtu_identity;
@@ -7514,6 +7802,15 @@ BEGIN
         cycle_members uuid[]
     );
 
+    -- optimize-derive-taxa-seed: seed IS NULL keeps the global cycle-breaking
+    -- loop and full-tree classification_path build below exactly as before
+    -- (see this change's design.md, Non-Goals: that path is untouched). For
+    -- seed IS NOT NULL, the ELSE branch (after this whole loop) replaces
+    -- both with an on-demand upward walk scoped to just the con_reps
+    -- reachable from the requested permids, never building _dtu_assign or a
+    -- full _dtu_node/_dtu_path at all.
+    IF seed IS NULL THEN
+
     <<cycle_break>>
     LOOP
         -- optimize-derive-taxa-cycle-loop: only the FIRST pass rebuilds
@@ -7752,6 +8049,204 @@ BEGIN
     SELECT con_rep, classification_path FROM p;
     CREATE INDEX ON _dtu_path(con_rep);
     ANALYZE _dtu_path;
+
+    ELSE
+        -- ---- seed-scoped: which con_reps the RETURN QUERY below will actually
+        -- need -- computed once, up front, from the (unscoped) identity/
+        -- lineage/concept union-find already built above, not re-derived per
+        -- permid inside the walk.
+        DROP TABLE IF EXISTS _dtu_seed_con_reps;
+        CREATE TEMP TABLE _dtu_seed_con_reps AS
+        SELECT DISTINCT c.con_rep
+        FROM _dtu_identity m
+        JOIN _dtu_lin l ON l.permid = m.permid
+        JOIN _dtu_con c ON c.lin_rep = l.lin_rep
+        WHERE m.permid = ANY(seed);
+        CREATE INDEX ON _dtu_seed_con_reps(con_rep);
+        ANALYZE _dtu_seed_con_reps;
+
+        -- Sparse counterpart of the global _dtu_node table above -- same
+        -- columns, but only ever gains a row for a con_rep actually visited
+        -- by a walk below, so the RETURN QUERY at the bottom of this
+        -- function needs no branching of its own between the two paths.
+        DROP TABLE IF EXISTS _dtu_node;
+        CREATE TEMP TABLE _dtu_node (
+            con_rep uuid PRIMARY KEY,
+            concept_permid uuid,
+            concept_rank_id integer,
+            containing_concept_permid uuid,
+            winning_assignment_opinion_id bigint,
+            evidence boolean,
+            yr integer,
+            is_senior boolean
+        );
+        CREATE INDEX ON _dtu_node(concept_permid);
+        CREATE INDEX ON _dtu_node(containing_concept_permid);
+
+        -- One walk per distinct con_rep the seed actually needs. A con_rep
+        -- already resolved by an earlier seed's walk in this same call is
+        -- skipped outright -- see design.md's correctness argument for why a
+        -- cached con_rep can safely be trusted without re-walking: it was
+        -- only ever cached once some walk through it fully verified
+        -- everything from it to root was acyclic, and a cut can never affect
+        -- a con_rep that isn't on the active walk making that cut.
+        <<swalk_seed_loop>>
+        FOR swalk_seed_con_rep IN SELECT con_rep FROM _dtu_seed_con_reps LOOP
+            IF EXISTS (SELECT 1 FROM _dtu_node WHERE con_rep = swalk_seed_con_rep) THEN
+                CONTINUE swalk_seed_loop;
+            END IF;
+
+            DROP TABLE IF EXISTS _dtu_swalk_stack;
+            CREATE TEMP TABLE _dtu_swalk_stack (
+                step integer PRIMARY KEY,
+                con_rep uuid,
+                concept_permid uuid,
+                concept_rank_id integer,
+                containing_concept_permid uuid,
+                winning_assignment_opinion_id bigint,
+                evidence boolean,
+                yr integer,
+                is_senior boolean
+            );
+            CREATE INDEX ON _dtu_swalk_stack(con_rep);
+
+            swalk_con_rep := swalk_seed_con_rep;
+            swalk_step := 0;
+            swalk_iter := 0;
+
+            -- Climb containing_concept_permid one step at a time, resolving
+            -- each con_rep on demand via the same single-con_rep candidate
+            -- query the seed IS NULL branch's incremental ELSE above uses,
+            -- generalized to any con_rep rather than hardcoded to
+            -- affected_con_rep. A revisit of a con_rep already on THIS
+            -- walk's own stack is a genuine local cycle: cut its weakest
+            -- edge (same tiebreak order as the global walk_single above) and
+            -- restart the WHOLE walk from the seed, not from the cut point
+            -- -- a cut can expose a different, larger cycle further up
+            -- involving nodes not yet visited (confirmed live against the
+            -- current 53-cut dataset; see design.md's Context).
+            <<swalk_climb>>
+            LOOP
+                SELECT EXISTS (SELECT 1 FROM _dtu_node WHERE con_rep = swalk_con_rep) INTO swalk_cached;
+                IF swalk_cached THEN
+                    EXIT swalk_climb;
+                END IF;
+
+                SELECT step INTO swalk_cycle_start_step FROM _dtu_swalk_stack WHERE con_rep = swalk_con_rep;
+                IF swalk_cycle_start_step IS NOT NULL THEN
+                    SELECT s.winning_assignment_opinion_id INTO swalk_cut_opinion_id
+                    FROM _dtu_swalk_stack s
+                    WHERE s.step >= swalk_cycle_start_step
+                    ORDER BY s.evidence ASC, s.yr ASC NULLS FIRST, s.is_senior ASC, s.winning_assignment_opinion_id ASC
+                    LIMIT 1;
+
+                    INSERT INTO _dtu_excluded_opinions (opinion_id, concept_permid, cycle_members)
+                    SELECT swalk_cut_opinion_id,
+                           (SELECT s2.concept_permid FROM _dtu_swalk_stack s2
+                            WHERE s2.winning_assignment_opinion_id = swalk_cut_opinion_id LIMIT 1),
+                           (SELECT array_agg(DISTINCT s3.concept_permid)
+                            FROM _dtu_swalk_stack s3 WHERE s3.step >= swalk_cycle_start_step);
+
+                    swalk_iter := swalk_iter + 1;
+                    IF swalk_iter > 1000 THEN
+                        RAISE EXCEPTION 'derive_taxa: seed-scoped cycle resolution for con_rep % did not converge after 1000 cuts',
+                            swalk_seed_con_rep;
+                    END IF;
+
+                    DELETE FROM _dtu_swalk_stack;
+                    swalk_con_rep := swalk_seed_con_rep;
+                    swalk_step := 0;
+                    CONTINUE swalk_climb;
+                END IF;
+
+                -- Same cand logic as the global build's ELSE branch above,
+                -- scoped to swalk_con_rep instead of affected_con_rep.
+                SELECT cm.concept_permid, cm.concept_rank_id INTO swalk_concept_permid, swalk_concept_rank_id
+                FROM _dtu_conmeta cm WHERE cm.con_rep = swalk_con_rep;
+
+                SELECT a.id, a.containing_permid, a.evidence,
+                       COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int),
+                       (sl.lin_rep = cm.senior_lin)
+                INTO swalk_new_opinion_id, swalk_new_containing_permid, swalk_new_evidence, swalk_new_yr, swalk_new_is_senior
+                FROM assignment_opinions a
+                JOIN _dtu_lin sl ON sl.permid = a.subject_permid
+                JOIN _dtu_con  sc ON sc.lin_rep = sl.lin_rep
+                JOIN _dtu_conmeta cm ON cm.con_rep = sc.con_rep AND cm.con_rep = swalk_con_rep
+                JOIN _dtu_linmeta lm ON lm.lin_rep = sl.lin_rep
+                LEFT JOIN refs r ON r.id = a.reference_id
+                LEFT JOIN _dtu_lin ccl ON ccl.permid = a.containing_permid
+                LEFT JOIN _dtu_con ccc ON ccc.lin_rep = ccl.lin_rep
+                LEFT JOIN _dtu_linmeta ccm ON ccm.lin_rep = ccl.lin_rep
+                WHERE a.removed IS NOT TRUE AND a.succeeded_by_id IS NULL
+                  AND ( sl.lin_rep = cm.senior_lin
+                        OR (cm.concept_rank_name <> 'species'
+                            AND lm.accepted_rank_id = cm.concept_rank_id) )
+                  AND ccc.con_rep IS DISTINCT FROM cm.con_rep
+                  AND (lm.accepted_rank_height IS NULL OR ccm.accepted_rank_height IS NULL
+                       OR ccm.accepted_rank_height >= lm.accepted_rank_height)
+                  AND NOT EXISTS (SELECT 1 FROM _dtu_excluded_opinions eo WHERE eo.opinion_id = a.id)
+                ORDER BY a.evidence DESC,
+                         COALESCE(a.publication_year, NULLIF(r.reference->>'publicationYear','')::int) DESC NULLS LAST,
+                         a.id DESC
+                LIMIT 1;
+
+                IF swalk_new_opinion_id IS NOT NULL THEN
+                    SELECT cc.con_rep, ccm2.concept_permid
+                    INTO swalk_new_containing_con_rep, swalk_new_containing_concept_permid
+                    FROM _dtu_lin cl
+                    JOIN _dtu_con cc ON cc.lin_rep = cl.lin_rep
+                    JOIN _dtu_conmeta ccm2 ON ccm2.con_rep = cc.con_rep
+                    WHERE cl.permid = swalk_new_containing_permid;
+                ELSE
+                    swalk_new_containing_con_rep := NULL;
+                    swalk_new_containing_concept_permid := NULL;
+                END IF;
+
+                INSERT INTO _dtu_swalk_stack (step, con_rep, concept_permid, concept_rank_id,
+                    containing_concept_permid, winning_assignment_opinion_id, evidence, yr, is_senior)
+                VALUES (swalk_step, swalk_con_rep, swalk_concept_permid, swalk_concept_rank_id,
+                    swalk_new_containing_concept_permid, swalk_new_opinion_id, swalk_new_evidence, swalk_new_yr, swalk_new_is_senior);
+
+                EXIT swalk_climb WHEN swalk_new_containing_concept_permid IS NULL;
+
+                swalk_con_rep := swalk_new_containing_con_rep;
+                swalk_step := swalk_step + 1;
+            END LOOP swalk_climb;
+
+            INSERT INTO _dtu_node
+            SELECT con_rep, concept_permid, concept_rank_id, containing_concept_permid,
+                   winning_assignment_opinion_id, evidence, yr, is_senior
+            FROM _dtu_swalk_stack;
+        END LOOP swalk_seed_loop;
+
+        DROP TABLE IF EXISTS _dtu_swalk_stack;
+
+        -- ---- classification_path, scoped to just the requested con_reps ---
+        -- Bottom-up analog of the global build above: climbs containing_
+        -- concept_permid pointers from each requested con_rep up through the
+        -- now fully-populated (but still sparse) _dtu_node, prepending each
+        -- ancestor's own label as it goes -- so the final (deepest) row per
+        -- con_rep is already in root-to-node order, no separate reversal
+        -- step needed.
+        DROP TABLE IF EXISTS _dtu_path;
+        CREATE TEMP TABLE _dtu_path AS
+        WITH RECURSIVE p AS (
+            SELECT sc.con_rep AS seed_con_rep, n.concept_permid AS cur_concept_permid,
+                   n.containing_concept_permid AS cur_containing,
+                   text2ltree(replace(n.concept_permid::text,'-','_')) AS classification_path
+            FROM _dtu_seed_con_reps sc
+            JOIN _dtu_node n ON n.con_rep = sc.con_rep
+            UNION ALL
+            SELECT p.seed_con_rep, parent.concept_permid, parent.containing_concept_permid,
+                   text2ltree(replace(parent.concept_permid::text,'-','_')) || p.classification_path
+            FROM p
+            JOIN _dtu_node parent ON parent.concept_permid = p.cur_containing
+        )
+        SELECT DISTINCT ON (seed_con_rep) seed_con_rep AS con_rep, classification_path
+        FROM p ORDER BY seed_con_rep, nlevel(classification_path) DESC;
+        CREATE INDEX ON _dtu_path(con_rep);
+        ANALYZE _dtu_path;
+    END IF;
 
     -- ---- assemble one row per minted permid -------------------------------
     RETURN QUERY
