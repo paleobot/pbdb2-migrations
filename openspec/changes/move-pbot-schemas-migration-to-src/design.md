@@ -295,10 +295,30 @@ migrations will be encoded in an overall run script under `src/` in a later chan
 because an executable order cannot drift from prose describing it. The finding goes in the proposal so that
 change inherits it.
 
+**Observed during apply, not just reasoned about.** This change's own first clear-and-reload hit it:
+
+```
+localhost prerequisites, stale against upstream
+  pbot persons  70 / 313        pbot refs  174 / 280
+                    │                          │
+                    └────────────┬─────────────┘
+                                 ▼
+  schemas   fetched=8    inserted=5    skipped=3     ← aeef6256 (ref + enterer)
+  characters fetched=336 inserted=168  orphans=168     93e1379b (enterer Currano)
+  states    fetched=1326 inserted=797  orphans=528     1f418977 (enterer Moore)
+                                                     exit 0
+```
+
+Two thirds of the states silently missing, and the only signal anywhere was `skipped=3` in a summary block.
+Running `migrate-pbot-persons.js` and `migrate-pbot-refs.js` — the documented prerequisites — then
+reloading produced the full set.
+
 Worth flagging that the deferred change is now carrying three inherited findings: the refs ordering footgun,
 the nine divergent `setval(pg_get_serial_sequence(...))` call sites, and this chain. Two slices ago that
-deferral was cheap; it is getting less so, and the next slice should probably ask whether the runner change
-ought to come before the remaining relocations rather than after them.
+deferral was cheap; it is getting less so. Two of the three findings are now observed rather than reasoned
+about, and this one cost a full reload cycle to diagnose — which sharpens the question into a
+recommendation: the runner change should probably come **before** the three remaining relocation slices,
+since each of them is another chance to hit the same class of failure with the same absent signal.
 
 ### 6. `src/lib` extraction stays out, and this slice barely tempts it
 

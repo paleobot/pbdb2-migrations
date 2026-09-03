@@ -159,9 +159,20 @@ scratchpad copy is a convenience, not a critical artifact. The capture query is 
 directory so it can be re-run.
 
 Two caveats on the reload: it requires `PBOT_TOKEN`, and PBot is a **live** GraphQL source, so a run may
-legitimately return schemas, characters, or states added upstream since the last one. Row counts are
-therefore the fast check, not the proof; the structural diff is the proof, and any count delta must be
-individually accounted for as an upstream addition.
+legitimately return schemas, characters, or states **added or deleted** upstream since the last one. Row
+counts are therefore the fast check, not the proof; the structural diff is the proof, and any count delta
+must be individually accounted for as an upstream change.
+
+The deletion half of that is not hypothetical — it is what actually happened. Probing upstream before the
+truncate found 8 schemas / 336 characters / 1,326 states against localhost's 10 / 301 / 1,183: three
+schemas titled "To be deleted" had been removed upstream (empty stubs, zero characters and states between
+them), one real schema added, plus routine growth. Because a live source can move in both directions,
+"reload and expect the baseline back" is not achievable and was never quite the right criterion. What the
+reload proves is that **every entity present on both sides round-trips identically in pbotID space**, with
+the non-intersecting rows individually attributed. That isolates "did the move change the script's
+behavior" from "did the source change underneath us," which an exact match silently conflates. It also
+means the reload leaves localhost synced with upstream rather than restored — benign here, but a future
+slice should not assume a clear-and-reload against a live source is state-preserving.
 
 **Not in scope:**
 
@@ -175,11 +186,25 @@ individually accounted for as an upstream addition.
   reference via `lookupRefByPbotID` against `refs.reference->'legacyIDs'->>'pbotID'` (line 175). Run early,
   every schema whose enterer or primary reference is unresolved is **skipped with a `console.warn`** and the
   script exits 0 — a silent under-migration, the same severity class as the silent overwrite the refs slice
-  documented. Per that slice's precedent this is **deliberately deferred** to the overall `src/` run script
+  documented.
+
+  **This stopped being theoretical during this change's own verification.** The first clear-and-reload
+  exited 0 having inserted 5 of 8 schemas, 168 of 336 characters, and 797 of 1,326 states, because
+  localhost's PBot-sourced `persons` (70 of 313 upstream) and `refs` (174 of 280) were stale. Three schemas
+  could not resolve a prerequisite: `aeef6256…` needed both its primary reference `a093e770…` and its
+  enterer; `93e1379b…` and `1f418977…` needed enterers Ellen Currano and Julian Moore. The character and
+  state shortfalls were pure fallout from the schemas that never landed. Nothing errored, nothing warned at
+  the top level, and the exit code was 0 — the summary block's `skipped=3` was the only signal. Running the
+  documented prerequisites `migrate-pbot-persons.js` and `migrate-pbot-refs.js`, then reloading, produced
+  the full set.
+
+  Per the refs slice's precedent this is still **deliberately deferred** to the overall `src/` run script
   rather than written into a capability spec, and recorded here so that change inherits it. Note that this
   is now the **third** finding that deferred change is carrying: the refs ordering footgun, the nine
-  divergent `setval(pg_get_serial_sequence(...))` call sites, and this chain. The deferral is accumulating,
-  which is itself information for whoever picks the runner change up.
+  divergent `setval(pg_get_serial_sequence(...))` call sites, and this chain. Two of the three are now
+  observed rather than reasoned about, and the observation cost a full reload cycle to diagnose — which is
+  the argument for sequencing the runner change **before** the three remaining relocation slices rather
+  than after them, since each of those slices is a fresh opportunity to hit the same class of failure.
 - **Extracting anything into `src/lib/`.** Per the persons slice's decision 4, upheld by the refs slice.
 - Path-qualifying the `permid-uuidv7` script list, per the citation-form rule.
 - **A pre-existing spec drift found while scoping, and left alone:** `pbot-schema-migration` states that the
