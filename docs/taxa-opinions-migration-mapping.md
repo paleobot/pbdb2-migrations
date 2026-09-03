@@ -658,7 +658,7 @@ emitted separately by pass 3. This is why `spelling_reason`, not `status`, drive
 | `permid` | — | fresh **uuidv7 minted per emitted row** — the opinion's identity across future transcription corrections (§ schema L4668). One legacy version ⇒ one permid, no succession. |
 | `authorizer_person_id` | `authorizer_no` | **direct** — `persons.id == legacy person_no` by construction (`migrate-authorities.js:143`). 0-fallback → `person_no=1` when both auth/ent are 0. |
 | `enterer_person_id` | `enterer_no` | direct, same as above. |
-| `reference_id` | `reference_no` | **direct** — `refs.id == legacy reference_no` by construction (`migrate-refs.js:300`). |
+| `reference_id` | `reference_no` | **direct** — `refs.id == legacy reference_no` by construction (`src/refs-migration/migrate-refs.js:300`). |
 | `evidence` | `basis` | §6.3 crosswalk. `NULL` (298,470 opinions) resolved **at migration time** to the reference's basis, then mapped; **root** minting rows (no opinion) → `false`. |
 | `pubyr` + `attribution` | `ref_has_opinion` / author fields | **second-hand rule** (below). |
 | `created_at` | `created` | preserve the legacy authoring timestamp (do not default `NOW()`). |

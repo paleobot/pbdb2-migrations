@@ -1,5 +1,5 @@
-import { mariadb, pg, closeAll } from './db.js';
-import { uuidv7 } from './uuidv7.js';
+import { mariadb, pg, closeAll } from '../lib/db.js';
+import { uuidv7 } from '../lib/uuidv7.js';
 
 // --- Publication type mapping ---
 // Legacy value → { referenceType (target name), bookType (jsonb field or null) }
