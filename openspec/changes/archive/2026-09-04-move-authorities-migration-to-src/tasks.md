@@ -69,5 +69,5 @@
 
 ## 9. Finish
 
-- [ ] 9.1 Commit the two moves, the runner and docs updates, and the change artifacts together on the current branch
-- [ ] 9.2 Run `/opsx:verify` before archiving
+- [x] 9.1 Commit the two moves, the runner and docs updates, and the change artifacts together on the current branch
+- [x] 9.2 Run `/opsx:verify` before archiving — passed 2026-09-04: 46/47 tasks, 11/11 requirements verified against reality, 0 critical, 0 warnings, 2 recorded suggestions

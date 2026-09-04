@@ -146,10 +146,11 @@ Under `src/`:
 | `src/refs-migration/` | `migrate-refs.js` |
 | `src/pbot-refs-migration/` | `migrate-pbot-refs.js` |
 | `src/pbot-schemas-migration/` | `migrate-pbot-schemas.js` |
+| `src/authorities-migration/` | `migrate-authorities.js` |
 
-Remaining at the repository root (three scripts):
+Remaining at the repository root (two scripts):
 
-`migrate-authorities.js`, `migrate-authorities-opinions.js`, `migrate-collections.js`
+`migrate-authorities-opinions.js`, `migrate-collections.js`
 
 #### Scenario: Inventory reflects a completed relocation
 - **WHEN** a change relocates a root-level `migrate-*.js` script under `src/`
@@ -158,6 +159,10 @@ Remaining at the repository root (three scripts):
 #### Scenario: Root scripts keep their existing conventions
 - **WHEN** a script is still listed as remaining at the repository root
 - **THEN** it continues to import root-level connection modules and is not required to follow the `src/` layout until it is relocated
+
+#### Scenario: Relocation resolves a deliberate duplication
+- **WHEN** a script is relocated whose code was previously copied into `src/lib/` so that a `src/` module could avoid importing from the repository root
+- **THEN** the relocating change deletes the copy from the relocated script and imports the `src/lib/` definition, because the shared-utility requirement admits only one home for code two migrations under `src/` both use
 
 ### Requirement: A non-migration script may live directly under `src/`
 A script that orchestrates or operates on migrations rather than performing one SHALL be permitted to live

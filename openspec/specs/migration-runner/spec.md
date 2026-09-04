@@ -20,7 +20,7 @@ the authoritative statement of the sequence:
 | 3 | `refs` | `src/refs-migration/migrate-refs.js` |
 | 4 | `pbot-refs` | `src/pbot-refs-migration/migrate-pbot-refs.js` |
 | 5 | `pbot-schemas` | `src/pbot-schemas-migration/migrate-pbot-schemas.js` |
-| 6 | `authorities` | `migrate-authorities.js` |
+| 6 | `authorities` | `src/authorities-migration/migrate-authorities.js` |
 | 7 | `authorities-opinions` | `migrate-authorities-opinions.js` |
 | 8 | `opinions` | `src/opinions-migration/migrate-opinions.js` |
 | 9 | `collections` | `migrate-collections.js` |
@@ -50,6 +50,9 @@ persons ──┬─▶ pbot-persons ──┐
 
 The order SHALL NOT be changed except by a change that records the new order in this specification.
 
+Only the entry-point path in row 6 changes here, following the relocation of `migrate-authorities.js` under
+`src/`. The order itself, the step names, and every dependency edge are unchanged.
+
 #### Scenario: Full pipeline runs in the specified order
 - **WHEN** `src/run-migrations.js` is invoked with no step-selection flag
 - **THEN** it runs all nine steps in the order given in the table, and does not begin a step until the preceding step has completed successfully
@@ -71,8 +74,12 @@ migration or connecting to any database.
 - **THEN** they write `--from authorities`, and `--from 6` is rejected as an unknown step name
 
 #### Scenario: Name survives relocation
-- **WHEN** `migrate-authorities.js` is later relocated to `src/authorities-migration/migrate-authorities.js`
-- **THEN** the step name `authorities` is unchanged and only the entry-point path in the run-order table is updated
+- **WHEN** `migrate-collections.js` is later relocated to `src/collections-migration/migrate-collections.js`
+- **THEN** the step name `collections` is unchanged and only the entry-point path in the run-order table is updated
+
+#### Scenario: Relocation already exercised this guarantee
+- **WHEN** `migrate-authorities.js` was relocated to `src/authorities-migration/migrate-authorities.js`
+- **THEN** the step name `authorities` did not change, so `--from authorities` and `--only authorities` kept working across the move and only row 6's entry-point path was edited
 
 #### Scenario: Listing steps touches nothing
 - **WHEN** `--list` is passed

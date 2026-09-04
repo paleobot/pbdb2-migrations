@@ -90,9 +90,16 @@ The script SHALL set `evidence = true` when the source `basis = 'stated with evi
 
 
 ### Requirement: Set publication_year and attribution as second-hand fields gated on ref_has_opinion
-The script SHALL treat `publication_year` and `attribution` as second-hand overrides driven by the same switch. When `ref_has_opinion = 'YES'` (first-hand: the reference is the source), `publication_year` SHALL be NULL and `attribution` SHALL be omitted — `derive_taxa()` reads the year from the reference via `COALESCE(publication_year, ref.publicationYear)`. When `ref_has_opinion IS NULL` (second-hand: attributed to an earlier author), `publication_year` SHALL be `pubyr` parsed as an integer and `attribution` SHALL be a jsonb object built per `payloadSchemas/opinionAttribution.schema.js` from `author1last`/`author2last`/`otherauthors` using the `buildCitationFromFields`/`buildDescriptorsFromFields` helpers from `migrate-authorities.js` with `publishedInReference = false`.
+The script SHALL treat `publication_year` and `attribution` as second-hand overrides driven by the same switch. When `ref_has_opinion = 'YES'` (first-hand: the reference is the source), `publication_year` SHALL be NULL and `attribution` SHALL be omitted — `derive_taxa()` reads the year from the reference via `COALESCE(publication_year, ref.publicationYear)`. When `ref_has_opinion IS NULL` (second-hand: attributed to an earlier author), `publication_year` SHALL be `pubyr` parsed as an integer and `attribution` SHALL be a jsonb object built per `payloadSchemas/opinionAttribution.schema.js` from `author1last`/`author2last`/`otherauthors` using the `buildCitationFromFields`/`buildDescriptorsFromFields` helpers from `src/lib/authorities-builders.js` with `publishedInReference = false`.
 
 Second-hand rows with no discernible authorship (`author1last` blank/NULL — 215 in-scope rows, all with blank author2last/otherauthors/pubyr) SHALL use the established "authority unknown" sentinel attribution `{ citation: 'authority unknown', descriptors: [], publishedInReference: false }` (mirroring the authorities scenario ④ convention), rather than an empty-citation object. These records SHALL be exported to `unknown-authority-assignment-opinions.csv` for later domain-expert review. (Of the 215, one falls in the skip set and is not inserted, leaving 214 sentinel rows.)
+
+The helper citation above previously named `migrate-authorities.js`. It is corrected to
+`src/lib/authorities-builders.js`, which is where the implementation reads them from
+(`src/lib/attribution.js`) and where they are now solely defined — the relocated
+`src/authorities-migration/migrate-authorities.js` imports them rather than declaring them. This is a
+source-of-guarantee citation, so `migration-script-layout`'s citation-form rule requires it to be
+path-qualified to the file that actually holds the helpers.
 
 #### Scenario: First-hand opinion defers year to the reference
 - **WHEN** an in-scope row has `ref_has_opinion = 'YES'`
@@ -109,6 +116,10 @@ Second-hand rows with no discernible authorship (`author1last` blank/NULL — 21
 #### Scenario: Unknown-authorship second-hand row uses the sentinel
 - **WHEN** a second-hand in-scope row has a blank/NULL `author1last` (e.g. opinion_no 78348)
 - **THEN** `attribution = { citation: 'authority unknown', descriptors: [], publishedInReference: false }` and the row is written to `unknown-authority-assignment-opinions.csv`
+
+#### Scenario: Helpers resolve to the shared library
+- **WHEN** a reader follows this requirement to the implementation of `buildCitationFromFields` and `buildDescriptorsFromFields`
+- **THEN** they arrive at `src/lib/authorities-builders.js`, the single definition shared by the authorities and opinions migrations, rather than at a migration entry point
 
 
 ### Requirement: Resolve person FKs with zero-sentinel fallback
