@@ -58,10 +58,10 @@
 - [x] 7.4 Confirm the `migration-script-layout` delta states the rename-versus-relocation distinction and that its inventory records the deliberate `authority` / `authorities` grammatical difference between the two sibling directories
 - [x] 7.5 Confirm each MODIFIED requirement carries its complete block including every scenario, since partial MODIFIED content silently loses detail at archive time
 - [x] 7.6 Run `openspec validate move-authority-opinions-migration-to-src` and confirm it passes
-- [ ] 7.7 Apply the `name-opinions-migration` Purpose correction (line 4, "Implemented by …") as a direct non-delta edit at sync time — per design decision 6, OpenSpec has no delta mechanism for Purpose text. This is the one sanctioned direct edit under `openspec/specs/`; requirement text is still never hand-edited
+- [x] 7.7 Apply the `name-opinions-migration` Purpose correction (line 4, "Implemented by …") as a direct non-delta edit at sync time — per design decision 6, OpenSpec has no delta mechanism for Purpose text. This is the one sanctioned direct edit under `openspec/specs/`; requirement text is still never hand-edited
 - [x] 7.8 Confirm `name-opinions-migration` lines 18 and 96 are left unchanged — they name `migrate-authorities.js`, a different script, in comparative asides
 
 ## 8. Finish
 
-- [ ] 8.1 Commit the move, the renames, the path updates, and the change artifacts together on the current branch
-- [ ] 8.2 Run `/opsx:verify` before archiving
+- [x] 8.1 Commit the move, the renames, the path updates, and the change artifacts together on the current branch
+- [x] 8.2 Run `/opsx:verify` before archiving — run inline at archive time: completeness, runner behaviour (step 7 = authority-opinions, old name exits 1), harness spawn path resolves, and no stale filename outside the archive

@@ -1,7 +1,7 @@
 # name-opinions-migration Specification
 
 ## Purpose
-Migrate every legacy MariaDB `authorities` row into the new PostgreSQL `name_opinions` table as a root (minting) edge — self-anchored permid, reason `original`/edge_class `root` — resolving authority/reference/attribution/year provenance through the already-migrated `authorities` records. The 18 `informal`-rank rows migrate as ordinary root rows at rank `'unranked'` with no additional record. Implemented by `migrate-authorities-opinions.js`.
+Migrate every legacy MariaDB `authorities` row into the new PostgreSQL `name_opinions` table as a root (minting) edge — self-anchored permid, reason `original`/edge_class `root` — resolving authority/reference/attribution/year provenance through the already-migrated `authorities` records. The 18 `informal`-rank rows migrate as ordinary root rows at rank `'unranked'` with no additional record. Implemented by `src/authority-opinions-migration/migrate-authority-opinions.js`.
 ## Requirements
 ### Requirement: Read all source data from MariaDB
 The script SHALL read all rows from the MariaDB `authorities` table. Required columns: `taxon_no`, `taxon_name`, `taxon_rank`, `reference_no`, `authorizer_no`, `enterer_no`. Citation-related columns (`author1last`, `author2last`, `otherauthors`, `pubyr`, `ref_is_authority`) SHALL NOT be read — attribution and publication year are sourced from the already-migrated `authorities` record, not re-derived from legacy fields.

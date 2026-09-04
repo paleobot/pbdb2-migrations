@@ -21,7 +21,7 @@ the authoritative statement of the sequence:
 | 4 | `pbot-refs` | `src/pbot-refs-migration/migrate-pbot-refs.js` |
 | 5 | `pbot-schemas` | `src/pbot-schemas-migration/migrate-pbot-schemas.js` |
 | 6 | `authorities` | `src/authorities-migration/migrate-authorities.js` |
-| 7 | `authorities-opinions` | `migrate-authorities-opinions.js` |
+| 7 | `authority-opinions` | `src/authority-opinions-migration/migrate-authority-opinions.js` |
 | 8 | `opinions` | `src/opinions-migration/migrate-opinions.js` |
 | 9 | `collections` | `migrate-collections.js` |
 
@@ -32,7 +32,7 @@ PostgreSQL what the earlier step wrote:
 persons ──┬─▶ pbot-persons ──┐
           │                  ├─▶ pbot-refs ──▶ pbot-schemas
           └─▶ refs ──────────┤
-                             ├─▶ authorities ──▶ authorities-opinions ──▶ opinions
+                             ├─▶ authorities ──▶ authority-opinions ──▶ opinions
                              ├─────────────────────────────────────────────▶ (refs)
                              └─▶ collections
 ```
@@ -44,14 +44,15 @@ persons ──┬─▶ pbot-persons ──┐
 - `pbot-schemas` resolves its enterer through `persons.person->'legacyIDs'->>'pbotID'` and its primary
   reference through `refs.reference->'legacyIDs'->>'pbotID'`.
 - `authorities` reads `refs` filtered on `reference->'legacyIDs'->>'oldpbdbID' IS NOT NULL`.
-- `authorities-opinions` reads `authorities`.
+- `authority-opinions` reads `authorities`.
 - `opinions` builds its name permid map from `name_opinions` and its reference map from `refs`.
 - `collections` reads `refs` filtered on `reference->'legacyIDs'->>'oldpbdbID' IS NOT NULL`.
 
 The order SHALL NOT be changed except by a change that records the new order in this specification.
 
-Only the entry-point path in row 6 changes here, following the relocation of `migrate-authorities.js` under
-`src/`. The order itself, the step names, and every dependency edge are unchanged.
+Row 7 changes in both columns here: its entry point follows the script under `src/`, and its step name
+changes from `authorities-opinions` to `authority-opinions`. The two are independent — see "Steps are
+addressed by name" — and the position, the order, and every dependency edge are unchanged.
 
 #### Scenario: Full pipeline runs in the specified order
 - **WHEN** `src/run-migrations.js` is invoked with no step-selection flag
@@ -65,6 +66,15 @@ Only the entry-point path in row 6 changes here, following the relocation of `mi
 The runner SHALL identify steps by the step names in the run-order table, and SHALL NOT require or accept
 a numeric position as a step identifier. A step name SHALL remain stable when the script it names is
 relocated, and SHALL NOT change when steps are appended to the pipeline.
+
+A step name is nonetheless literal: it changes only by a deliberate decision recorded in this
+specification, and SHALL NOT be changed as incidental cleanup by a passing reader, nor as a side effect of
+relocating the script it names. This mirrors the rule `migration-script-layout` applies to migration
+directory names, and it is what distinguishes a renamed step from a step whose name drifted.
+
+Relocation-stability and deliberate renaming are therefore separate rules, not competing ones: a relocation
+SHALL NOT change a step name, and a change that does rename a step SHALL record the reason here rather than
+letting the rename ride along unexplained with a move that happens to accompany it.
 
 The runner SHALL provide `--list`, which prints the step names in run order and exits without running any
 migration or connecting to any database.
@@ -80,6 +90,14 @@ migration or connecting to any database.
 #### Scenario: Relocation already exercised this guarantee
 - **WHEN** `migrate-authorities.js` was relocated to `src/authorities-migration/migrate-authorities.js`
 - **THEN** the step name `authorities` did not change, so `--from authorities` and `--only authorities` kept working across the move and only row 6's entry-point path was edited
+
+#### Scenario: A deliberate rename is recorded, not inferred from a move
+- **WHEN** the step `authorities-opinions` is renamed to `authority-opinions` in the same change that relocates its script
+- **THEN** the rename is justified by its own recorded reason — *authority* is attributive, so the singular is correct — and not by the relocation, which on its own would have left the name untouched exactly as it did for `authorities`
+
+#### Scenario: Old step name stops resolving
+- **WHEN** `--only authorities-opinions` is passed after that step has been renamed
+- **THEN** it is rejected as an unknown step name, because step names are addresses rather than aliases and the runner keeps no historical spellings
 
 #### Scenario: Listing steps touches nothing
 - **WHEN** `--list` is passed
@@ -108,7 +126,7 @@ anything if any check fails:
 1. **Environment.** Every variable required by the selected steps is set. `PG_HOST`, `PG_USER`,
    `PG_PASSWORD`, and `PG_DATABASE` are required by every step. `MARIADB_HOST`, `MARIADB_USER`,
    `MARIADB_PASSWORD`, and `MARIADB_DATABASE` are required by `persons`, `refs`, `authorities`,
-   `authorities-opinions`, `opinions`, and `collections`. `PBOT_TOKEN` is required by `pbot-persons` and
+   `authority-opinions`, `opinions`, and `collections`. `PBOT_TOKEN` is required by `pbot-persons` and
    `pbot-schemas`. The required set SHALL be the union over the *selected* steps only.
 2. **Connectivity.** The PostgreSQL connection succeeds, and the MariaDB connection succeeds if any
    selected step requires it.
@@ -159,7 +177,7 @@ precondition SHALL be a per-step predicate rather than a uniform "target table i
 | `pbot-refs` | `refs` is non-empty; no `refs` row has `reference->'legacyIDs'->>'pbotID'`; at least one `persons` row has `person->'legacyIDs'->>'pbotID'` |
 | `pbot-schemas` | `schemas`, `characters`, and `states` are empty; at least one `persons` row has `person->'legacyIDs'->>'pbotID'`; at least one `refs` row has `reference->'legacyIDs'->>'pbotID'` |
 | `authorities` | `authorities` is empty; at least one `refs` row has `reference->'legacyIDs'->>'oldpbdbID'` |
-| `authorities-opinions` | `name_opinions` is empty; `authorities` is non-empty |
+| `authority-opinions` | `name_opinions` is empty; `authorities` is non-empty |
 | `opinions` | `assignment_opinions` and `validity_opinions` are empty; `name_opinions` is non-empty; `refs` is non-empty |
 | `collections` | `collections` and `additional_collection_refs` are empty; at least one `refs` row has `reference->'legacyIDs'->>'oldpbdbID'` |
 
@@ -183,7 +201,7 @@ count, after count, and delta.
 
 Tables written per step: `persons` → `persons`; `pbot-persons` → `persons`; `refs` → `refs`; `pbot-refs` →
 `refs`; `pbot-schemas` → `schemas`, `characters`, `states`, `additional_schema_refs`; `authorities` →
-`authorities`; `authorities-opinions` → `name_opinions`; `opinions` → `assignment_opinions`,
+`authorities`; `authority-opinions` → `name_opinions`; `opinions` → `assignment_opinions`,
 `name_opinions`, `validity_opinions`; `collections` → `collections`, `additional_collection_refs`.
 
 The runner SHALL NOT compare deltas against hard-coded expected row counts, so that the assertion does not
@@ -259,7 +277,7 @@ prerequisites are absent.
 - **THEN** preflight does not require `persons`, `refs`, or `authorities` to be empty, and does not require `PBOT_TOKEN`, and the run resumes at `opinions` and continues through `collections`
 
 #### Scenario: Selection cannot bypass the dependency graph
-- **WHEN** `--only opinions` is passed against a database where `authorities-opinions` never ran
+- **WHEN** `--only opinions` is passed against a database where `authority-opinions` never ran
 - **THEN** the `opinions` precondition that `name_opinions` is non-empty fails and the step is not spawned
 
 #### Scenario: Selection does not relax postconditions
@@ -299,7 +317,7 @@ state.
 
 #### Scenario: Failure stops the pipeline
 - **WHEN** `authorities` exits non-zero during a full run
-- **THEN** `authorities-opinions`, `opinions`, and `collections` are not spawned, and the runner exits non-zero
+- **THEN** `authority-opinions`, `opinions`, and `collections` are not spawned, and the runner exits non-zero
 
 #### Scenario: Failure is attributable
 - **WHEN** a precondition fails

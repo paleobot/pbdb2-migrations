@@ -17,7 +17,7 @@ The in-scope tables are every table whose rows carry a minted `permid`:
 | `authorities` | `migrate-authorities.js` |
 | `collections` | `migrate-collections.js` |
 | `schemas`, `characters`, `states` | `migrate-pbot-schemas.js` |
-| `name_opinions` | `migrate-authorities-opinions.js`, `migrate-opinions.js` |
+| `name_opinions` | `migrate-authority-opinions.js`, `migrate-opinions.js` |
 | `assignment_opinions`, `validity_opinions` | `migrate-opinions.js` |
 | `taxa`, `taxa_clades`, `taxa_linnaean`, `taxon_annotations` | the SQL derivation layer |
 
@@ -28,7 +28,9 @@ in `name_opinions`.
 
 Script names in this requirement remain unqualified bare filenames: they form one list of which
 `migrate-collections.js` is still at the repository root, and `migration-script-layout`'s citation-form rule
-keeps such a mixed list unqualified until the last of its members has been relocated.
+keeps such a mixed list unqualified until the last of its members has been relocated. The `name_opinions` row
+nonetheless changes here, because `migrate-authorities-opinions.js` was **renamed** to
+`migrate-authority-opinions.js` — and unlike a relocation, a rename leaves a bare filename naming nothing.
 
 #### Scenario: Authorities/collections/refs permid is v7
 - **WHEN** `migrate-authorities.js`, `migrate-collections.js`, or `migrate-refs.js` inserts a row
@@ -39,7 +41,7 @@ keeps such a mixed list unqualified until the last of its members has been reloc
 - **THEN** the `permid` is a freshly generated UUIDv7, not the source `pbotID`
 
 #### Scenario: Opinion permid is v7
-- **WHEN** `migrate-authorities-opinions.js` mints a root `name_opinions` row, or `migrate-opinions.js` mints a `name_opinions`, `assignment_opinions`, or `validity_opinions` row
+- **WHEN** `migrate-authority-opinions.js` mints a root `name_opinions` row, or `migrate-opinions.js` mints a `name_opinions`, `assignment_opinions`, or `validity_opinions` row
 - **THEN** the `permid` is a UUIDv7 drawn from the shared helper, whose version nibble equals 7
 
 #### Scenario: No UUIDv4 permids remain
