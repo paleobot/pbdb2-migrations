@@ -143,7 +143,7 @@ const STEPS = [
   },
   {
     name: 'authorities',
-    script: 'migrate-authorities.js',
+    script: 'src/authorities-migration/migrate-authorities.js',
     env: ['PG', 'MARIADB'],
     inputs: [],
     writes: ['authorities'],

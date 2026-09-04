@@ -1,7 +1,8 @@
-import { mariadb, pg, closeAll } from './db.js';
-import { uuidv7 } from './uuidv7.js';
+import { mariadb, pg, closeAll } from '../lib/db.js';
+import { uuidv7 } from '../lib/uuidv7.js';
 import Ajv from 'ajv/dist/2019.js';
-import { authoritySchema } from './payloadSchemas/authority.schema.js';
+import { authoritySchema } from '../../payloadSchemas/authority.schema.js';
+import { buildCitationFromFields, buildDescriptorsFromFields } from '../lib/authorities-builders.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -9,20 +10,10 @@ const LOG_SAMPLE_LIMIT = 20;
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validate = ajv.compile(authoritySchema);
 
-// ---------- decodeEntities ----------
-function decodeEntities(s) {
-  if (!s) return s;
-  return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
 // ---------- Pure transforms ----------
+// buildCitationFromFields / buildDescriptorsFromFields (and the decodeEntities they
+// rely on) live in ../lib/authorities-builders.js: the opinions migration needs them
+// too, via ../lib/attribution.js, and shared code belongs in src/lib/.
 export function classifyScenario({ ref_is_authority, author1last }) {
   const ria = ref_is_authority === 'YES';
   const hasAuth1 = (author1last || '').trim() !== '';
@@ -32,36 +23,11 @@ export function classifyScenario({ ref_is_authority, author1last }) {
   return '4';
 }
 
-export function buildDescriptorsFromFields({ author1last, author2last, otherauthors }) {
-  const out = [];
-  for (const raw of [author1last, author2last, otherauthors]) {
-    if (!raw) continue;
-    const decoded = decodeEntities(raw);
-    for (const tok of decoded.split(/[,;:&]/)) {
-      const t = tok.trim();
-      if (!t || t === 'et al.') continue;
-      out.push(t);
-    }
-  }
-  return out;
-}
-
 export function buildDescriptorsFromRef(refAuthors) {
   if (!Array.isArray(refAuthors)) return [];
   return refAuthors
     .map((a) => a && typeof a.familyName === 'string' ? a.familyName : null)
     .filter((n) => n !== null);
-}
-
-export function buildCitationFromFields({ author1last, author2last, otherauthors, pubyr }) {
-  const a1 = author1last || '';
-  const a2 = author2last || '';
-  const oa = otherauthors || '';
-  const yr = pubyr || '';
-  let mid = '';
-  if (oa !== '') mid = ' et al.';
-  else if (a2 !== '') mid = ' and ' + a2;
-  return (a1 + mid + ' ' + yr).trim();
 }
 
 export function buildCitationFromRef({ refAuthors, publicationYear }) {

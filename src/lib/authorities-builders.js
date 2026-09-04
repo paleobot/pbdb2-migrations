@@ -1,8 +1,10 @@
-// Citation/descriptor builders extracted verbatim from the root-level
-// migrate-authorities.js, so src/lib/attribution.js can depend on src/lib/
-// rather than reaching back into a root-level migrate-*.js. The logic is
-// identical to migrate-authorities.js's decodeEntities / buildCitationFromFields
-// / buildDescriptorsFromFields; keep the two in sync until the root scripts move.
+// Citation/descriptor builders shared by the two migrations that need them:
+// src/authorities-migration/migrate-authorities.js builds an authority's citation
+// and descriptors from the legacy author1last/author2last/otherauthors fields, and
+// src/lib/attribution.js builds an opinion's second-hand attribution from the same
+// fields. This file is their single definition — it was briefly a verbatim copy of
+// the then-root-level migrate-authorities.js, and that duplication was resolved when
+// that script moved under src/ and became an importer of this module.
 
 // ---------- decodeEntities ----------
 export function decodeEntities(s) {

@@ -1,8 +1,13 @@
+// The two field-based builders are shared with the opinions migration and live in
+// src/lib/; the rest are specific to the authorities migration. Imported from where
+// each is actually defined rather than re-exported through the migration entry point.
+import {
+  buildCitationFromFields,
+  buildDescriptorsFromFields,
+} from '../../lib/authorities-builders.js';
 import {
   classifyScenario,
-  buildDescriptorsFromFields,
   buildDescriptorsFromRef,
-  buildCitationFromFields,
   buildCitationFromRef,
   buildAuthorityPayload,
   dedupKey,
