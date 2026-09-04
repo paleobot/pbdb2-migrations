@@ -12,7 +12,7 @@
 -- Both steps, in order, with their preconditions checked:
 --
 --   psql ... -f src/opinions-migration/tests/reset-opinions.sql
---   node src/run-migrations.js --only authorities-opinions   -- re-mints the ROOT rows
+--   node src/run-migrations.js --only authority-opinions   -- re-mints the ROOT rows
 --   node src/run-migrations.js --only opinions
 --
 -- This file clears exactly the tables those two steps require to be empty, so the

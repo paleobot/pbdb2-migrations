@@ -23,7 +23,7 @@ import { dirname, join } from 'node:path';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, '..', '..', '..');
 const RESET_SQL = join(SCRIPT_DIR, 'reset-opinions.sql');
-const AUTHORITIES_OPINIONS = join(REPO_ROOT, 'migrate-authorities-opinions.js');
+const AUTHORITY_OPINIONS = join(REPO_ROOT, 'src', 'authority-opinions-migration', 'migrate-authority-opinions.js');
 
 // The 10 statuses × their attested spelling_reasons, mirroring the exploration
 // handler folders. Used to draw a stratified sample (a few opinions per pair).
@@ -63,7 +63,7 @@ function run(cmd, cmdArgs, cwd) {
 async function assertRootsPresent() {
   const { rows } = await pg.query(`SELECT COUNT(*)::int AS n FROM name_opinions WHERE edge_class = 'root'`);
   if (rows[0].n === 0) {
-    throw new Error("no root name_opinions present — run with --full first (or run migrate-authorities-opinions.js) to seed the dependency layer");
+    throw new Error("no root name_opinions present — run with --full first (or run migrate-authority-opinions.js) to seed the dependency layer");
   }
   return rows[0].n;
 }
@@ -83,8 +83,8 @@ async function clearOutputsKeepingRoots() {
 async function resetAndReseedFull() {
   console.log(`  Applying ${RESET_SQL} ...`);
   await run('psql', [dbUrl(), '-v', 'ON_ERROR_STOP=1', '-f', RESET_SQL], REPO_ROOT);
-  console.log(`  Re-minting root name_opinions from authorities (${AUTHORITIES_OPINIONS}) ...`);
-  await run(process.execPath, [AUTHORITIES_OPINIONS], REPO_ROOT);
+  console.log(`  Re-minting root name_opinions from authorities (${AUTHORITY_OPINIONS}) ...`);
+  await run(process.execPath, [AUTHORITY_OPINIONS], REPO_ROOT);
 }
 
 function dbUrl() {

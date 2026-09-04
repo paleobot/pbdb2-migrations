@@ -71,7 +71,7 @@ const someHave = (table, expr, label) => ({
 //   persons ──┬─▶ pbot-persons ──┐
 //             │                  ├─▶ pbot-refs ──▶ pbot-schemas
 //             └─▶ refs ──────────┤
-//                                ├─▶ authorities ─▶ authorities-opinions ─▶ opinions
+//                                ├─▶ authorities ─▶ authority-opinions ─▶ opinions
 //                                └─▶ collections
 //
 // `firstWriterOf` is declared rather than derived positionally: persons, refs and
@@ -154,8 +154,8 @@ const STEPS = [
     ],
   },
   {
-    name: 'authorities-opinions',
-    script: 'migrate-authorities-opinions.js',
+    name: 'authority-opinions',
+    script: 'src/authority-opinions-migration/migrate-authority-opinions.js',
     env: ['PG', 'MARIADB'],
     inputs: [],
     writes: ['name_opinions'],
