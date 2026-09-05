@@ -181,7 +181,7 @@ const STEPS = [
   },
   {
     name: 'collections',
-    script: 'migrate-collections.js',
+    script: 'src/collections-migration/migrate-collections.js',
     env: ['PG', 'MARIADB'],
     inputs: [],
     writes: ['collections', 'additional_collection_refs'],

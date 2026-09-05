@@ -23,7 +23,10 @@ the authoritative statement of the sequence:
 | 6 | `authorities` | `src/authorities-migration/migrate-authorities.js` |
 | 7 | `authority-opinions` | `src/authority-opinions-migration/migrate-authority-opinions.js` |
 | 8 | `opinions` | `src/opinions-migration/migrate-opinions.js` |
-| 9 | `collections` | `migrate-collections.js` |
+| 9 | `collections` | `src/collections-migration/migrate-collections.js` |
+
+Every entry point in this table now sits under `src/`. The table is the runner's own `STEPS` array restated,
+so it is verifiable by reading `src/run-migrations.js` rather than by trusting this specification.
 
 The order SHALL satisfy these dependency edges, each of which exists because the later step reads from
 PostgreSQL what the earlier step wrote:
@@ -50,17 +53,17 @@ persons ──┬─▶ pbot-persons ──┐
 
 The order SHALL NOT be changed except by a change that records the new order in this specification.
 
-Row 7 changes in both columns here: its entry point follows the script under `src/`, and its step name
-changes from `authorities-opinions` to `authority-opinions`. The two are independent — see "Steps are
-addressed by name" — and the position, the order, and every dependency edge are unchanged.
+Row 9's entry point changes here, and nothing else does: the step keeps its name, its position, and every
+dependency edge. This is the last of the nine relocations, so no future change to this table will be a
+relocation.
 
 #### Scenario: Full pipeline runs in the specified order
 - **WHEN** `src/run-migrations.js` is invoked with no step-selection flag
 - **THEN** it runs all nine steps in the order given in the table, and does not begin a step until the preceding step has completed successfully
 
-#### Scenario: PBot leg is interleaved rather than deferred
-- **WHEN** the run order is read
-- **THEN** `pbot-persons` follows `persons` and `pbot-refs` follows `refs`, so that each shared target table is complete from every source before any step that depends on that table runs
+#### Scenario: Every entry point resolves under src/
+- **WHEN** the runner spawns any of the nine steps
+- **THEN** the path it spawns is under `src/`, because no migration entry point remains at the repository root
 
 ### Requirement: Steps are addressed by name
 The runner SHALL identify steps by the step names in the run-order table, and SHALL NOT require or accept
@@ -84,24 +87,24 @@ migration or connecting to any database.
 - **THEN** they write `--from authorities`, and `--from 6` is rejected as an unknown step name
 
 #### Scenario: Name survives relocation
-- **WHEN** `migrate-collections.js` is later relocated to `src/collections-migration/migrate-collections.js`
-- **THEN** the step name `collections` is unchanged and only the entry-point path in the run-order table is updated
+- **WHEN** `migrate-collections.js` was relocated to `src/collections-migration/migrate-collections.js`
+- **THEN** the step name `collections` was unchanged and only the entry-point path in row 9 of the run-order table was edited, so `--only collections` kept working across the move
 
 #### Scenario: Relocation already exercised this guarantee
 - **WHEN** `migrate-authorities.js` was relocated to `src/authorities-migration/migrate-authorities.js`
 - **THEN** the step name `authorities` did not change, so `--from authorities` and `--only authorities` kept working across the move and only row 6's entry-point path was edited
 
+#### Scenario: Relocation-stability has no remaining cases
+- **WHEN** a reader asks which steps might still change their entry point through a relocation
+- **THEN** the answer is none, because all nine scripts are under `src/`, and the relocation-stability rule now governs only hypothetical future moves rather than pending ones
+
 #### Scenario: A deliberate rename is recorded, not inferred from a move
 - **WHEN** the step `authorities-opinions` is renamed to `authority-opinions` in the same change that relocates its script
-- **THEN** the rename is justified by its own recorded reason — *authority* is attributive, so the singular is correct — and not by the relocation, which on its own would have left the name untouched exactly as it did for `authorities`
+- **THEN** the rename is justified by its own recorded reason — *authority* is attributive, so the singular is correct — and not by the relocation, which on its own would have left the name untouched exactly as it did for `authorities` and `collections`
 
 #### Scenario: Old step name stops resolving
 - **WHEN** `--only authorities-opinions` is passed after that step has been renamed
 - **THEN** it is rejected as an unknown step name, because step names are addresses rather than aliases and the runner keeps no historical spellings
-
-#### Scenario: Listing steps touches nothing
-- **WHEN** `--list` is passed
-- **THEN** the nine step names are printed in run order and the process exits 0 without opening a database connection
 
 ### Requirement: Steps run as isolated child processes
 The runner SHALL execute each step as a child process invoking the step's entry point with `node`, and

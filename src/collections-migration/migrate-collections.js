@@ -1,7 +1,7 @@
-import { mariadb, pg, closeAll } from './db.js';
-import { uuidv7 } from './uuidv7.js';
+import { mariadb, pg, closeAll } from '../lib/db.js';
+import { uuidv7 } from '../lib/uuidv7.js';
 import Ajv from 'ajv/dist/2019.js';
-import { collectionMigrationSchema } from './payloadSchemas/collection.schema.js';
+import { collectionMigrationSchema } from '../../payloadSchemas/collection.schema.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;

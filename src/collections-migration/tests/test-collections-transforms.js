@@ -1,5 +1,5 @@
 import Ajv from 'ajv/dist/2019.js';
-import { collectionMigrationSchema } from '../payloadSchemas/collection.schema.js';
+import { collectionMigrationSchema } from '../../../payloadSchemas/collection.schema.js';
 import {
   normalizeName,
   buildContext,

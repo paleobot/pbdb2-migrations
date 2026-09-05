@@ -19,29 +19,41 @@ The system SHALL read database connection parameters from a `.env` file using th
 
 ### Requirement: Shared connection module
 The system SHALL provide database connection pools as separate modules that can be imported
-independently. Two parallel sets of these modules exist while the relocation of migration scripts under
-`src/` is in progress.
+independently.
 
-**Root-level set** — serves the migration scripts that still live at the repository root:
-- `pg-pool.js` — exports a `pg.Pool` instance for the target PostgreSQL database and a `closePg()` function
-- `mariadb-pool.js` — exports a `mysql2/promise` connection pool for the source MariaDB database and a `closeMariadb()` function
-- `db.js` — re-exports `mariadb` from `mariadb-pool.js`, `pg` from `pg-pool.js`, and a `closeAll()` function that closes both pools
+**`src/lib/` is the connection-module set.** Every migration script lives under `src/` and SHALL import its
+pools from `src/lib/`:
+- `src/lib/pg-pool.js` — exports a `pg.Pool` instance for the target PostgreSQL database and a `closePg()` function
+- `src/lib/mariadb-pool.js` — exports a `mysql2/promise` connection pool for the source MariaDB database and a `closeMariadb()` function
+- `src/lib/db.js` — re-exports `mariadb` from `src/lib/mariadb-pool.js`, `pg` from `src/lib/pg-pool.js`, and a `closeAll()` function that closes both pools
 
-**`src/lib/` set** — the forward set, serving scripts under `src/`:
-- `src/lib/pg-pool.js`, `src/lib/mariadb-pool.js`, `src/lib/db.js` — the same three modules, with the same
-  exports and the same required-variable checks
+The parallel root-level set that existed while migration scripts were being relocated under `src/` has been
+retired. Root `db.js`, `uuidv7.js`, and `mariadb-pool.js` were deleted once the last migration script moved;
+`uuidv7.js`, `pg-pool.js`, and `mariadb-pool.js` were byte-identical to their `src/lib/` counterparts, and
+root `db.js` differed only by a `MIGRATION_TEST_MODE` branch belonging to the superseded
+`migration_exploration/` harness.
 
-Scripts under `src/` SHALL import connection modules from `src/lib/` where a counterpart exists there.
-`src/lib/` currently provides counterparts for the target-PostgreSQL and source-MariaDB pools only; the
-specialty pools (`pg-classic-pool.js`, `pg-migrated-pool.js`, `pg-play-pool.js`) exist at the repository
-root only, and a script under `src/` that needs one SHALL import it from the root until a counterpart is
-added. This is a scoped rule, not a prohibition on referencing anything above `src/`: `src/lib/` also
-imports payload schemas from `payloadSchemas/`, which are contracts rather than utilities and are
-deliberately not copied.
+**What remains at the repository root is pools, and only pools:**
 
-Scripts at the repository root SHALL continue to import the root-level modules.
+| Module | Why it remains |
+|---|---|
+| `pg-pool.js` | `play/server.js`, a demo API outside `src/`, imports it. It is PostgreSQL-only and must keep working. |
+| `pg-classic-pool.js`, `pg-migrated-pool.js`, `pg-play-pool.js` | Specialty pools with no `src/lib/` counterpart. |
 
-Regardless of which set is used, a script that only needs PostgreSQL SHALL import from the `pg-pool.js`
+A root module with a named live consumer is a retained module, not a leftover. Root `pg-pool.js` SHALL NOT be
+deleted as cleanup while `play/server.js` imports it, and this requirement names that consumer so the reason
+survives the reader who finds the module and takes it for drift.
+
+**The repository root has no dual-database entry point,** because no script outside `src/` needs both pools.
+A future script that needs `mariadb` and `pg` together SHALL be placed under `src/` and import
+`src/lib/db.js`; root `db.js` SHALL NOT be restored. This is a decision, not an omission.
+
+The specialty pools exist at the repository root only, and a script under `src/` that needs one SHALL import
+it from the root until a counterpart is added. This is a scoped rule, not a prohibition on referencing
+anything above `src/`: `src/lib/` also imports payload schemas from `payloadSchemas/`, which are contracts
+rather than utilities and are deliberately not copied.
+
+Regardless of which module is used, a script that only needs PostgreSQL SHALL import from the `pg-pool.js`
 module directly rather than from `db.js`, avoiding any dependency on MariaDB configuration.
 
 #### Scenario: PG-only script imports pg-pool.js
@@ -49,7 +61,7 @@ module directly rather than from `db.js`, avoiding any dependency on MariaDB con
 - **THEN** the PostgreSQL pool is available for queries without requiring MariaDB env vars
 
 #### Scenario: Dual-database script imports db.js
-- **WHEN** a script imports `{ mariadb, pg, closeAll }` from `db.js`
+- **WHEN** a script imports `{ mariadb, pg, closeAll }` from `src/lib/db.js`
 - **THEN** both pools are available for queries and `closeAll()` cleanly shuts down both connections
 
 #### Scenario: Missing PG env vars
@@ -60,17 +72,21 @@ module directly rather than from `db.js`, avoiding any dependency on MariaDB con
 - **WHEN** a script imports from `mariadb-pool.js` and required `MARIADB_*` variables are missing
 - **THEN** the module exits with an error listing the missing variables
 
-#### Scenario: Script under src/ imports the src/lib/ counterpart
-- **WHEN** a PostgreSQL-only migration script located under `src/` needs a connection pool
-- **THEN** it imports `{ pg, closePg }` from `../lib/pg-pool.js` rather than from the root-level `pg-pool.js`
+#### Scenario: Migration script imports the src/lib/ module
+- **WHEN** a migration script under `src/` needs a connection pool
+- **THEN** it imports from `../lib/pg-pool.js`, `../lib/mariadb-pool.js`, or `../lib/db.js`, because no root-level counterpart to those three exists any more
 
 #### Scenario: Script under src/ needs a specialty pool with no src/lib/ counterpart
 - **WHEN** a script under `src/` needs `pg-classic-pool.js`, `pg-migrated-pool.js`, or `pg-play-pool.js`
 - **THEN** it imports that module from the repository root, because `src/lib/` provides no counterpart for it
 
-#### Scenario: Root-level script keeps its root-level imports
-- **WHEN** a migration script that has not yet been relocated under `src/` needs a connection pool
-- **THEN** it imports the root-level module, and is not required to change until it is relocated
+#### Scenario: Retained root pool is not cleaned up
+- **WHEN** a contributor finds `pg-pool.js` at the repository root and takes it for a leftover of the relocation
+- **THEN** it is left in place, because `play/server.js` imports it and this requirement records that consumer by name
+
+#### Scenario: A future dual-database script is placed under src/
+- **WHEN** a new script needs both the MariaDB and PostgreSQL pools
+- **THEN** it is written under `src/` and imports `src/lib/db.js`, rather than a root-level `db.js` being reintroduced
 
 ### Requirement: Postgres-ported Classic connection module
 The system SHALL provide an optional `pg-classic-pool.js` module, independent of `mariadb-pool.js`
