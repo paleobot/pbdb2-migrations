@@ -10,7 +10,7 @@
 
 - [x] 2.1 Rename the `clade_attachments` table to `taxa_attachments` in `create_new.sql` (table name, PK, constraints, indexes)
 - [x] 2.2 Update internal comments in `derive_clade_attachments()`/`rebuild_clade_attachments()` that name `clade_attachments`; leave both function names unchanged (also left `assert_clade_attachments_invariant()` unchanged, same reasoning)
-- [ ] 2.3 Reconcile with the pending `derive-clade-attachments` change: its `clade-attachments` spec still names `clade_attachments` — update that change's spec to `taxa_attachments`, or sequence so this change's rename lands after that one archives, whichever the maintainer prefers
+- [x] 2.3 Reconcile with the pending `derive-clade-attachments` change: resolved by sequencing — `derive-clade-attachments` archived into `main` on 2026-08-24, before this change's rename landed, so its archived `clade-attachments` spec correctly records `clade_attachments` as it existed at that time; no edit to the frozen archive was needed or made
 
 ## 3. Build the new combined taxa table and derive_taxa()
 
