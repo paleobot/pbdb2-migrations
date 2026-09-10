@@ -9,3 +9,4 @@ src/run-migrations.log
 src/opinions-migration/tests/cross-check-report.txt
 src/opinions-migration/tests/cross-check-reference-report.txt
 .DS_Store
+*-relationship-graph.html

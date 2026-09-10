@@ -15,6 +15,11 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// With a CA cert configured, verify the server against it as normal. Without
+// one, no ssl option at all -- pg's `ssl` option means "require encryption,"
+// not "use it if offered," so setting it on a server with no SSL support
+// (confirmed against pg-play's identically-configured server) throws "The
+// server does not support SSL connections" rather than falling back.
 const pgClassicSsl = process.env.PG_CLASSIC_CA_CERT
   ? { ca: readFileSync(process.env.PG_CLASSIC_CA_CERT) }
   : undefined;

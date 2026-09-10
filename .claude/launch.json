@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "taxon-relationship-graph",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["migration_exploration/testing/taxon-relationship-graph.js", "4500"],
+      "port": 4500
+    }
+  ]
+}

@@ -16,6 +16,10 @@ const pgPlay = new Pool({
   password: process.env.PG_PLAY_PASSWORD,
   database: process.env.PG_PLAY_DATABASE,
   max: 5,
+  // This server doesn't support SSL at all (confirmed: pg throws "The server
+  // does not support SSL connections" if `ssl` is set to anything truthy --
+  // pg's `ssl` option means "require encryption," not "use it if offered,"
+  // so there's no graceful fallback to reach for here). Plain connection.
 });
 
 async function closePgPlay() {
