@@ -1,106 +1,15 @@
 /*
 Validation schemas in JSON Schema format. Note that fastify uses ajv (https://ajv.js.org/) for validation, which expects the schemas to be javascript objects rather than raw JSON. Consequently, property names (keys) do not require double quotes.
 */
-//TODO: Right now, publication type differentiation and required fields are split off into createSchema. This create/editSchema dichotomy is an artifact of our use of JSON Merge Patch in the upload API.
-
-const full = 	{
-	if: {
-		properties: {
-			provenance: {
-				const: "full"
-			},
-		},
-	},
-	then: {
-		properties: {
-			specimenNumber: {
-				type: "object",
-				properties: {
-					institutionCode: {type: "string"},
-					catalogNumber: {type: "string"},
-					GBIF: {type: "string"}
-				}
-           },
-		},
-		required: [
-			"specimenNumber"
-		]	
-	},
-}
-
-const museumOnly = {
-	if: {
-		properties: {
-			provenance: {
-				const: "museum only"
-			},
-		},
-	},
-	then: {
-		properties: {
-			specimenNumber: {
-				type: "object",
-				properties: {
-					institutionCode: {type: "string"},
-					catalogNumber: {type: "string"},
-					GBIF: {type: "string"}
-				}
-           },
-		},
-		required: [
-			"specimenNumber"
-		]
-	}
-}
-
-const collectionOnly = {
-	if: {
-		properties: {
-			provenance: {
-				const: "collection onlhy"
-			},
-		},
-	},
-	then: {
-		properties: {
-		},
-		required: [
-		]
-	}
-}
-
-
-const referenceOnly = {
-	if: {
-		properties: {
-			provenance: {
-				const: "reference only"
-			},
-		},
-	},
-	then: {
-		properties: {
-			reference: {
-				type: "object",
-				properties: {
-					originalName : {type: "string"},
-					"figure" : {type: "string"},
-					"pages" : {type: "string"}
-				}
-			}
-		},
-		required: [
-			"reference"
-		]
-	},
-}
+//TODO: This schema will eventually be used in api validation. For this, we may need a create/editSchema dichotomy for JSON Merge Patch in the upload API. 
+//TODO: Similary, in an api application, the hardcoded enums below should probably be built from dictionaries tables in a pre-use step.
 
 const specimenProperties = {
-	provenance: {
+	name: {type: "string"},
+	type: {
 		type: "string",
-		enum: ["full", "museum only","collection only", "reference only" ]
+		enum: ['holotype','paratype','some paratypes']
 	},
-	name: {type: "string"}
 	legacyIDs: {
 		type: "object",
 		properties: {
@@ -114,18 +23,49 @@ const specimenProperties = {
 			},
 		}
 	},
+	identifiers: {
+		type: "object",
+		properties: {
+			institutionCode: {
+				type: "string",
+				enum: ['AMNH','AMPG','ANSP','BAS','BGS','BMNH','BPI','BSP','CAS','CIT','CM','DMNH','FLMNH','FMNH','GSC','GSI','IGNS','IVAU','IVPP','LACM','MACN','MCZ','MEF','MfN','MLP','MNHN','MNHN (La Paz)','NHMW','NIGPAS','NMB','NMC','NMMNH','NYSM','OSU','OU','OUM','PIN','PRI','ROM','SDSM','SGOPV','SM','SMF','SMNS','SUI','TMM','TMP','UCM','UCMP','UMMP','UNM','UNSM','UQ','USGS','USNM','UW','UWBM','WAM','YPM']
+			},
+			catalogNumber: {type: "string"},
+			GBIF: {type: "string"}
+		}
+	},
 	paleontology : {
 		type: "object",
 		properties: {
 			preservationModes: {
 				type: "string",
-				enum: [/*TBD???*/],
-			}
+				enum: ['body','cast','mold/impression','adpression','trace','concretion','soft parts','recrystallized','permineralized','dissolution traces','charcoalification','coalified','original aragonite','original calcite','original phosphate','original silica','original chitin','original carbon','original sporopollenin','original cellulose','replaced with calcite','replaced with dolomite','replaced with silica','replaced with pyrite','replaced with siderite','replaced with hematite','replaced with limonite','replaced with phosphate','replaced with carbon','replaced with other','amber','anthropogenic','bone collector','coquina','coprolite','midden','shellbed'],
+			},
+			numberMeasured:	{type: "number"},
+			coverage: {
+				type: "string",
+				enum: ["all", "some"]
+			},
+			side: {
+				type: "string",
+				enum: ['left','right','left?','right?','upper','lower','upper left','upper right','lower left','lower right','dorsal','ventral','both']
+			},
+			sex: {
+				type: "string",
+				enum: ["female", "male", "both"]
+			},
+			part: {type: "string"},
+			measurementSource: {
+				type: "string",
+				enum: ['text','table','picture','graph','direct']
+			},
+			magnification: {type: "string"}
 		}
 	},
 	notes: {type: "string"},
 }
 
+/*
 export const getSchema = {
 	tags:["Specimen"],
 	hide: true,
@@ -141,6 +81,7 @@ export const getSchema = {
 	}
 
 }
+*/
 
 /*
  * I don't think we're going to need these, but I'm ghosting them here as examples,
@@ -211,7 +152,7 @@ export const editSchema = {
 //export const createSchema = {
 export const specimenSchema = {
     $schema: "https://json-schema.org/draft/2019-09/schema",
-    $id: "https://pbdb2.example.com/schemas/reference.json",
+    $id: "https://pbdb2.example.com/schemas/specimen.json",
     title: "Specimen",
     description: "A specimen payload in the PBDB database",
     type: "object",
@@ -224,15 +165,7 @@ export const specimenSchema = {
 			//additionalProperties: false,
 			unevaluatedProperties: false, //new with Draft 2019-09
 			required: [
-				"provenance",
 				"name",
-				"paleontology",
-			],
-			allOf: [
-				full,
-				museumOnly,
-				collectionOnly,
-				referenceOnly,
 			],
 		},
 		allowDuplicate: {
