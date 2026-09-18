@@ -1,4 +1,9 @@
-## ADDED Requirements
+# payload-schema-variants Specification
+
+## Purpose
+Derive every payload schema in use (`db`, `in-create`, `patch-guard`, `out`) from one annotated source per entity (`payloadSchemas/*.schema.js`), and split and merge payloads between the API shape and their storage (jsonb, columns, child rows) using the same annotations (`x-storage`, `readOnly`, `x-create`) and named codecs. PATCH follows merge-then-validate (`payloadSchemas/DESIGN_NOTES.md`).
+
+## Requirements
 
 ### Requirement: One annotated source per converted entity
 `payloadSchemas/collection.schema.js` and `payloadSchemas/specimen.schema.js` SHALL each export a single annotated source schema describing the entity object as the API sees it. The object SHALL NOT be wrapped in a `{ collection }` or `{ specimen }` envelope. Neither file SHALL export a hand-maintained variant (`collectionMigrationSchema`, `completeCollectionProperties`, `createSchema`, `editSchema`, `patchSchema`, `getSchema`), fastify `response` blocks, or `getPropertiesForPubType`. Every variant SHALL be obtained through `deriveVariant`.
@@ -182,11 +187,12 @@ On merge it SHALL emit the primary reference with `order: "1"`, followed by chil
 
 #### Scenario: Primary goes to the column
 - **WHEN** a payload's references are `[{ referenceID: "12", order: "2" }, { referenceID: "7", order: "1" }]`
-- **THEN** `columns.reference_id` is `7` and one child row carries `reference_id` `12`
+- **THEN** `columns.reference_id` is `'7'` and one child row carries `reference_id` `'12'` (ids travel as strings, as node-postgres returns bigint)
 
 ### Requirement: A shared ajv factory registers the annotations
-`createAjv()` SHALL return an ajv instance for draft 2019-09 with `allErrors: true`, with `x-enumFrom`, `x-storage`, and `x-create` registered as annotation keywords, so that every variant compiles with `strict: true`. The converted migrations and the audit SHALL obtain their validators from `createAjv()`.
+`createAjv()` SHALL return an ajv instance for draft 2019-09 with `allErrors: true` and `strict: true`, except `strictRequired: false`. `x-create` merges as an `allOf` entry whose `required` names properties defined on the parent node, which that check rejects. `x-enumFrom`, `x-storage`, `x-create`, and `x-variant` (the root marker `deriveVariant` sets) SHALL be registered as annotation keywords, so that every variant compiles in strict mode. The converted migrations and the audit SHALL obtain their validators from `createAjv()`.
 
 #### Scenario: Strict compile succeeds
 - **WHEN** each variant of each converted entity is resolved and compiled with `createAjv()`
 - **THEN** compilation succeeds without unknown-keyword errors
+

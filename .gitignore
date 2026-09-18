@@ -7,6 +7,7 @@ src/opinions-migration/anomalies.csv
 src/opinions-migration/run-summary.txt
 src/specimens-migration/anomalies.csv
 src/run-migrations.log
+src/audit-payloads.log
 src/opinions-migration/tests/cross-check-report.txt
 src/opinions-migration/tests/cross-check-reference-report.txt
 .DS_Store

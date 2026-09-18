@@ -23,8 +23,10 @@ import { mariadb, pg, closeAll } from '../lib/db.js';
 import { uuidv7 } from '../lib/uuidv7.js';
 import { resolvePersons, loadReferenceIdMap, loadNamePermidMap } from '../lib/identity.js';
 import { createAnomalyLog } from '../lib/anomaly-log.js';
-import Ajv from 'ajv/dist/2019.js';
-import { specimenSchema } from '../../payloadSchemas/specimen.schema.js';
+import { specimenSource } from '../../payloadSchemas/specimen.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -114,9 +116,9 @@ async function main() {
 
   const anomalyLog = createAnomalyLog(import.meta.url, 'specimen_no');
 
-  const ajv = new Ajv({ strict: false, allErrors: true });
-  const { $schema, $id, examples, response, ...core } = specimenSchema;
-  const validate = ajv.compile(core);
+  // The db variant: the jsonb at rest, enums resolved from dictionaries (throws,
+  // aborting before any source row is read, on an empty or missing dictionary).
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, specimenSource), 'db'));
 
   // ---- PostgreSQL lookup maps ----
   const refMap = await loadReferenceIdMap(pg);
@@ -239,11 +241,11 @@ async function main() {
       const specimen = buildSpecimenPayload(src);
       if (specimen.identifiers.institutionCode === NO_INSTITUTION) noInstitution++;
 
-      if (!validate({ specimen })) {
+      if (!validate(specimen)) {
         console.error(`  Validation failed for specimen_no=${src.specimen_no}`);
         console.error(JSON.stringify(validate.errors, null, 2));
         console.error(JSON.stringify(specimen, null, 2));
-        throw new Error('payload failed specimenSchema validation');
+        throw new Error('payload failed specimen db-schema validation');
       }
 
       staged.push({

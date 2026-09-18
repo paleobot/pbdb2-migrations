@@ -1,15 +1,27 @@
 /*
-Validation schemas in JSON Schema format. Note that fastify uses ajv (https://ajv.js.org/) for validation, which expects the schemas to be javascript objects rather than raw JSON. Consequently, property names (keys) do not require double quotes.
-*/
-//TODO: Right now, publication type differentiation and required fields are split off into createSchema. This create/editSchema dichotomy is an artifact of our use of JSON Merge Patch in the upload API.
-/*
- * Note: Some enum values (timescale, lithology, environment, intervals, preservationMode)
- * are dynamically loaded from external APIs or the database and are represented as strings.
- * These will require pre-processing of the schema before it can be used for validation.
- * Ultimately, all enums will load from the dictionaries schema in the postgresql db.
+ * Annotated source for the collection payload. Every schema used anywhere
+ * (jsonb at rest, create body, PATCH guard, response) is derived from this one
+ * object; see payloadSchemas/lib/variants.js and payloadSchemas/DESIGN_NOTES.md.
+ *
+ *   x-enumFrom  enum values come from a dictionaries table (resolved by
+ *               payloadSchemas/lib/enums.js). Open vocabularies only; closed
+ *               sets that code depends on stay inline.
+ *   x-storage   not stored in the collection jsonb (a column or child table).
+ *   readOnly    server-assigned; root properties only.
+ *   x-create    extra rules applied only to a create body.
+ *
+ * Objects marked "placeholder" (ages.intervals, environment, paleontology) await
+ * redesign in the combined intervals/environment pass; their enums stay inline
+ * except preservation modes, shared with specimens.
  */
 
 const collectionProperties = {
+    permid: {
+        type: "string",
+        readOnly: true,
+        "x-storage": { column: "permid" },
+        description: "Permanent identifier, constant across versions"
+    },
     name: {
         type: "string",
         description: "Name of the collection"
@@ -20,6 +32,7 @@ const collectionProperties = {
     },
     legacyIDs: {
         type: "object",
+        readOnly: true,
         properties: {
             oldpbdbID: {
                 type: "string",
@@ -42,9 +55,7 @@ const collectionProperties = {
                 type: "array",
                 items: {
                     type: "string",
-                    enum: [
-                        "bulk","core","salvage","selective quarrying","surface (float)","surface (in situ)","anthill","chemical","mechanical","peel or thin section","smear slide","acetic","hydrochloric","hydroflouric","peroxide","sieve","field collection","survey of museum collection","private collection","observed (not collected)","repository not specified"
-                    ]
+                    "x-enumFrom": { table: "collection_methods", column: "name" }
                 },
                 description: "Methods used for collection"
             },
@@ -68,13 +79,13 @@ const collectionProperties = {
                         properties: {
                             admin0: {
                                 type: "string",
-                                description: "country"
-                                //Country code (ISO 3166-1). From dictionaries.admin0.iso. This requires pre-processing of schema to build enum before it can be used
+                                "x-enumFrom": { table: "admin0", column: "iso" },
+                                description: "country (ISO 3166-1 alpha-2)"
                             },
                             admin1: {
                                 type: "string",
-                                description: "state/province"
-                                //State/province code. From dictionaries.admin1.iso. This requires pre-processing of schema to build enum before it can be used
+                                "x-enumFrom": { table: "admin1", column: "iso" },
+                                description: "state/province (ISO 3166-2)"
                             },
                             admin2: {
                                 type: "string",
@@ -82,24 +93,18 @@ const collectionProperties = {
                             }
                         },
                         required: ["admin0"],
-                        /*if: {
-                            properties: {
-                                admin0: {
-                                    enum: [
-                                        //ISO 3166-1 alpha-2 codes for USA, China, Russia, Australia, or Canada. Requires pre-processing of schema.
-                                    ]
-                                }
-                            }
-                        },
-                        then: {
-                            required: ["admin1"]
-                        }*/
+                        // Create-time policy, not a vocabulary: these countries require a state/province.
+                        "x-create": {
+                            if: {
+                                required: ["admin0"],
+                                properties: { admin0: { enum: ["US", "CN", "RU", "AU", "CA"] } }
+                            },
+                            then: { required: ["admin1"] }
+                        }
                     },
                     maritimeArea: {
                         type: "string",
-                        enum: [
-                            /*iho_name from table dictionaries.maritime. Requires preprocessing of schema.*/
-                        ]
+                        "x-enumFrom": { table: "maritime", column: "iho_name" }
                     }
                 },
                 anyOf: [
@@ -110,10 +115,25 @@ const collectionProperties = {
             coordinates: {
                 type: "object",
                 properties: {
-                    //latitude and longitude will not be stored in the jsonb. For incoming data, they will be used to populate the containing record's location column (of type geography). For outgoing data, they will be built on-the-fly from that column. All will be in WGS84 DD. These are defined elsewhere in this schema
+                    // latitude/longitude live in the collections.location geography column
+                    // (WGS84 decimal degrees), not in the jsonb.
+                    latitude: {
+                        type: "number",
+                        minimum: -90,
+                        maximum: 90,
+                        "x-storage": { column: "location", codec: "wgs84Point" },
+                        description: "Latitude coordinate"
+                    },
+                    longitude: {
+                        type: "number",
+                        minimum: -180,
+                        maximum: 180,
+                        "x-storage": { column: "location", codec: "wgs84Point" },
+                        description: "Longitude coordinate"
+                    },
                     basis: {
                         type: "string",
-                        enum: ["stated in text","based on nearby landmark","based on political unit","estimated from map","unpublished field data"]
+                        "x-enumFrom": { table: "coordinate_bases", column: "name" }
                     },
                     altitude: { //This may move out of jsonb and into geography column
                         type: "object",
@@ -127,18 +147,12 @@ const collectionProperties = {
                             }
                         }
                     }
-                }
+                },
+                "x-create": { required: ["latitude", "longitude"] }
             },
             scale: {
                 type: "string",
-                enum: [
-                    "hand sample",
-                    "small collection",
-                    "outcrop",
-                    "local area",
-                    "basin",
-                    "unspecified"
-                ],
+                "x-enumFrom": { table: "geographic_scales", column: "name" },
                 description: "Scale of geographic resolution"
             },
             comments: {
@@ -166,13 +180,13 @@ const collectionProperties = {
             properties: {
                 lithology: {
                     type: "string",
-                    enum: ["not reported","\"siliciclastic\"","claystone","mudstone","\"shale\"","siltstone","sandstone","gravel","conglomerate","breccia","\"mixed carbonate-siliciclastic\"","marl","lime mudstone","chalk","travertine","wackestone","packstone","grainstone","\"reef rocks\"","floatstone","rudstone","bafflestone","bindstone","framestone","\"limestone\"","dolomite","\"carbonate\"","calcareous ooze","chert","diatomite","silicious ooze","radiolarite","amber","coal","peat","lignite","subbituminous coal","bituminous coal","anthracite","coal ball","tar","evaporite","gypsum","phosphorite","pyrite","ironstone","siderite","phyllite","slate","schist","quartzite","\"volcaniclastic\"","ash","tuff"]
+                    "x-enumFrom": { table: "lithologies", column: "name" }
                 },
                 adjectives: {
                     type: "array",
                     items: {
                         type: "string",
-                        enum: ["argillaceous","muddy","silty","sandy","conglomeratic","calcareous","cherty/siliceous","carbonaceous","massive","lenticular","tabular","desiccation cracks","current ripples","dunes","hummocky CS","wave ripples","\"cross stratification\"","wavy/flaser/lenticular bedding","planar lamination","tool marks","flute casts","deformed bedding","grading","burrows","bioturbation","paleosol/pedogenic","condensed","firmground","hardground","lag","very fine","fine","medium","coarse","very coarse","bentonitic","concretionary","diatomaceous","dolomitic","ferruginous","glauconitic","gypsiferous","hematitic","micaceous","nodular","pebbly","phosphatic","pyritic","quartzose","rubbly","sideritic","tuffaceous","stromatolitic","volcaniclastic","flat-pebble","intraclastic","oncoidal","ooidal","peloidal","shelly/skeletal","black","brown","gray","green","red","red or brown","white","yellow","blue","thrombolitic"]
+                        "x-enumFrom": { table: "lithology_adjectives", column: "name" }
                     }
                 },
                 fossils: {
@@ -267,15 +281,15 @@ const collectionProperties = {
                         },
                         method: {
                             type: "string",
-                            enum: ["Ar/Ar","astronomical","14C","14C (calibrated)","dendrochronology","ESR","fission track","K-Ar","Lu-Hf","paleomagnetic","Rb-Sr","Sr isotope","U/Pb","U/Th","age-depth","AEO","CONOP","graphic correlation","RASC","seriation","UA","other","unknown"]
+                            "x-enumFrom": { table: "dating_methods", column: "name" }
                         },
                         measurementType: {
                             type: "string",
                             enum: ["direct", "max", "min"]
                         }
                     },
-                    //required: ["age", "unit", "error", "method", "measurementType"]
-                    required: ["age", "unit", "measurementType"]
+                    required: ["age", "unit", "measurementType"],
+                    "x-create": { required: ["error", "method"] }
                 }
             },
             intervals: {
@@ -394,9 +408,7 @@ const collectionProperties = {
                         type: "array",
                         items: {
                             type: "string",
-                            enum: [
-                                "body","cast","mold/impression","adpression","trace","concretion","soft parts","recrystallized","permineralized","dissolution traces","charcoalification","coalified","original aragonite","original calcite","original phosphate","original silica","original chitin","original carbon","original sporopollenin","original cellulose","replaced with calcite","replaced with dolomite","replaced with silica","replaced with pyrite","replaced with siderite","replaced with hematite","replaced with limonite","replaced with phosphate","replaced with carbon","replaced with other","amber","anthropogenic","bone collector","coquina","coprolite","midden","shellbed"
-                            ]
+                            "x-enumFrom": { table: "preservation_modes", column: "name" }
                         },
                     },
                     comments: {
@@ -420,11 +432,9 @@ const collectionProperties = {
     }
 };
 
-//completeCollectionProperties contains fields that are built from relationships in the containing db record. (Note: location.adminx values may fit better here.)
-const completeCollectionProperties = structuredClone(collectionProperties)
-
-//Reference links reside in the containing db record and a cross-ref table. The references property must be populated on create and will be generated on the fly for get.
-completeCollectionProperties.references = {
+// references: the primary reference is collections.reference_id; the rest are
+// additional_collection_refs rows (order normalized; see payloadSchemas/lib/codecs.js).
+collectionProperties.references = {
     type: "array",
     items: {
         type: "object",
@@ -441,129 +451,20 @@ completeCollectionProperties.references = {
         }
     },
     minItems: 1,
+    "x-storage": { table: "additional_collection_refs", codec: "collectionReferences" },
     description: "List of references for this collection"
-}
+};
 
-//latitude and longitude will not be stored in the jsonb. For incoming data, they will be used to populate the containing record's location column (of type geography). For outgoing data, they will be built on-the-fly from that column. All will be in WGS84 DD.
-completeCollectionProperties.location.properties.coordinates.properties = {
-    ...completeCollectionProperties.location.properties.coordinates.properties,
-    latitude: {
-        type: "number",
-        minimum: -90,
-        maximum: 90,
-        description: "Latitude coordinate"
-    },
-    longitude: {
-        type: "number",
-        minimum: -180,
-        maximum: 180,
-        description: "Longitude coordinate"
-    }
-}
-completeCollectionProperties.location.properties.coordinates.required = [
-    //...completeCollectionProperties.location.properties.coordinates.required,
-    "latitude", "longitude"
-]
-
-completeCollectionProperties.location.required = [
-    "scale"
-]
-
-completeCollectionProperties.ages.properties.measurements.items.required = [
-    ...completeCollectionProperties.ages.properties.measurements.items.required,
-    "error",
-    "method"
-]
-
-completeCollectionProperties.location.properties.administrativeArea = {
-    ...completeCollectionProperties.location.properties.administrativeArea,
-    if: {
-        properties: {
-            admin0: {
-                enum: [
-                    /*ISO 3166-1 alpha-2 codes for USA, China, Russia, Australia, or Canada. Requires pre-processing of schema.*/
-                ]
-            }
-        }
-    },
-    then: {
-        required: ["admin1"]
-    }
-}
-
-completeCollectionProperties.location.properties.toponym.properties.administrativeArea.properties.admin0.enum = (() => {
-    //stub. Will query dictionaries.admin0.iso
-    return []
-})();
-
-completeCollectionProperties.location.properties.toponym.properties.administrativeArea.properties.admin1.enum = (() => {
-    //stub. Will query dictionaries.admin1.iso
-    return []
-})();
-
-
-export const collectionSchema = {
+export const collectionSource = {
     $schema: "https://json-schema.org/draft/2019-09/schema",
     $id: "https://pbdb2.example.com/schemas/collection.json",
     title: "Collection",
     description: "A collection payload in the PBDB database",
     type: "object",
-    properties: {
-        collection: {
-            type: "object",
-            properties: completeCollectionProperties,
-            unevaluatedProperties: false, //new with Draft 2019-09
-            required: [
-                "name",
-                "context",
-                //"timescale",
-                //"maxinterval",
-                //"gpsCoordinateUncertainty",
-                //"country",
-                //"preservationModes",
-                "references"
-            ],
-        },
-	},
-    examples: [{
-        collection: {
-        }
-    }],
-	response: {
-		201: {
-			description: "Collection created",
-			type: "object",
-			properties: {
-				statusCode: {type: "integer"},
-				msg: {type: "string"},
-			  	permid: {type: "integer"}
-			}
-		},
-		400: {
-			description: "Bad request",
-			type: "object",
-			properties: {
-				statusCode: {type: "integer"},
-				msg: {type: "string"},
-				links: {type: "array"}
-			}
-		}
-	}
-}
+    properties: collectionProperties,
+    required: ["name"],
+    "x-create": { required: ["context", "references"] },
+    unevaluatedProperties: false,
+};
 
-export const collectionMigrationSchema = {
-    $schema: "https://json-schema.org/draft/2019-09/schema",
-    $id: "https://pbdb2.example.com/schemas/collection.migration.json",
-    title: "Collection (migration)",
-    type: "object",
-    properties: {
-        collection: {
-            type: "object",
-            properties: collectionProperties,   // ← base, not complete
-            unevaluatedProperties: false,
-            required: ["name"],
-        }
-    }
-}
-
-export default collectionSchema;
+export default collectionSource;

@@ -1,7 +1,9 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
 import { uuidv7 } from '../lib/uuidv7.js';
-import Ajv from 'ajv/dist/2019.js';
-import { collectionMigrationSchema } from '../../payloadSchemas/collection.schema.js';
+import { collectionSource } from '../../payloadSchemas/collection.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
@@ -309,7 +311,7 @@ function makeSampleLogger(label) {
   };
 }
 
-// ---------- Dictionary pre-load + schema hydration ----------
+// ---------- Dictionary pre-load (name → ISO lookup maps) ----------
 export async function loadDicts() {
   const admin0ByNorm = new Map();
   const admin0ByIso = new Map();
@@ -348,24 +350,6 @@ export async function loadDicts() {
   };
 }
 
-export function hydrateSchema(dicts) {
-  const props = collectionMigrationSchema.properties.collection.properties;
-  const aa = props.location.properties.toponym.properties.administrativeArea;
-  aa.properties.admin0.enum = dicts.admin0Isos;
-  aa.properties.admin1.enum = dicts.admin1Isos;
-  // Note: the admin1-required if/then was removed from the schema (migration
-  // relaxation), so there is no if-condition enum to hydrate.
-  props.location.properties.toponym.properties.maritimeArea.enum = dicts.maritimeNames;
-
-  for (const [name, arr] of [
-    ['admin0', dicts.admin0Isos],
-    ['admin1', dicts.admin1Isos],
-    ['maritime', dicts.maritimeNames],
-  ]) {
-    if (!arr.length) throw new Error(`Enum hydration failed: ${name} is empty (aborting before reading source rows)`);
-  }
-}
-
 // ---------- Main ----------
 async function main() {
   const startTime = new Date();
@@ -383,13 +367,14 @@ async function main() {
   for (const r of refRows) refMap.set(r.legacy, r.id);
   console.log(`  Loaded ${refMap.size} refs (current head versions)`);
 
-  // Pre-load: dictionaries + hydrate/compile schema
+  // Pre-load: dictionaries (lookup maps) + resolve/compile the db schema
   const dicts = await loadDicts();
   console.log(`  Loaded dictionaries: admin0=${dicts.admin0Isos.length} admin1=${dicts.admin1Isos.length} maritime=${dicts.maritimeNames.length}`);
-  hydrateSchema(dicts);
-  const ajv = new Ajv({ allErrors: true, strict: false });
-  const validate = ajv.compile(collectionMigrationSchema);
-  console.log('  Migration schema hydrated and compiled');
+  // Validate against the db variant: the jsonb at rest, with enums resolved from
+  // dictionaries (throws, aborting before any source row is read, on an empty
+  // or missing dictionary). See openspec/specs/collection-migration/spec.md.
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, collectionSource), 'db'));
+  console.log('  Collection db schema resolved and compiled');
 
   // Pre-load: secondary_refs grouped by collection_no
   const secondaryRefs = new Map();
@@ -493,7 +478,7 @@ async function main() {
 
       const payload = buildCollectionPayload(src, toponym);
 
-      if (!validate({ collection: payload })) {
+      if (!validate(payload)) {
         console.error(`\n  VALIDATION FAILED for collection_no=${src.collection_no}`);
         console.error('  errors:', JSON.stringify(validate.errors, null, 2));
         console.error('  payload:', JSON.stringify(payload, null, 2));

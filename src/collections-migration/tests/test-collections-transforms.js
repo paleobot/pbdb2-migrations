@@ -1,5 +1,8 @@
-import Ajv from 'ajv/dist/2019.js';
-import { collectionMigrationSchema } from '../../../payloadSchemas/collection.schema.js';
+import { readFileSync } from 'node:fs';
+import { collectionSource } from '../../../payloadSchemas/collection.schema.js';
+import { applyEnums } from '../../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../../payloadSchemas/lib/ajv.js';
 import {
   normalizeName,
   buildContext,
@@ -157,15 +160,15 @@ check('group without unit omitted',
 
 // ---------- Validation smoke test (10.2) ----------
 console.log('\nvalidation smoke test');
-// Fill the empty-enum stubs the migration hydrates from the DB at runtime, so ajv
-// can compile (ajv rejects `enum: []`). DB-free minimal fixtures here.
-{
-  const toponym = collectionMigrationSchema.properties.collection.properties
-    .location.properties.toponym.properties;
-  toponym.maritimeArea.enum = ['Indian Ocean', 'Southern Ocean', 'North Pacific Ocean'];
-}
-const ajv = new Ajv({ allErrors: true, strict: false });
-const validate = ajv.compile(collectionMigrationSchema);
+// The migration resolves x-enumFrom from the DB; here the enums come from DB-free
+// fixtures: the legacy-enum snapshot for the payload vocabularies, plus minimal
+// geography values.
+const enums = new Map(Object.entries(JSON.parse(readFileSync(
+  new URL('../../../payloadSchemas/tests/fixtures/legacy-enums.json', import.meta.url), 'utf8'))));
+enums.set('admin0.iso', ['US', 'CA']);
+enums.set('admin1.iso', ['US-CA', 'CA-AB']);
+enums.set('maritime.iho_name', ['Indian Ocean', 'Southern Ocean', 'North Pacific Ocean']);
+const validate = createAjv().compile(deriveVariant(applyEnums(collectionSource, enums), 'db'));
 
 const representative = buildCollectionPayload(
   {
@@ -184,8 +187,8 @@ const representative = buildCollectionPayload(
   },
   { administrativeArea: { admin0: 'US', admin1: 'US-CA', admin2: 'Somewhere' } },
 );
-checkTrue('representative built payload passes migration schema',
-  validate({ collection: representative }) === true || (console.log('    ', JSON.stringify(validate.errors)), false));
+checkTrue('representative built payload passes the db schema',
+  validate(representative) === true || (console.log('    ', JSON.stringify(validate.errors)), false));
 
 const minimal = {
   name: 'Bare Collection',
@@ -193,7 +196,7 @@ const minimal = {
   location: { toponym: { maritimeArea: 'Indian Ocean' }, scale: 'unspecified' },
 };
 checkTrue('coordinate-less / reference-less payload passes',
-  validate({ collection: minimal }) === true || (console.log('    ', JSON.stringify(validate.errors)), false));
+  validate(minimal) === true || (console.log('    ', JSON.stringify(validate.errors)), false));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { REGISTRY as AUDIT_REGISTRY } from './audit-payloads.js';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, '..');
@@ -216,10 +217,14 @@ const STEP_NAMES = STEPS.map((s) => s.name);
 
 // Seeded by postgresql/create_new.sql. Every migration reads at least one of these,
 // so an unseeded target fails partway through the pipeline rather than at the start.
+// The last eight are payload vocabularies (x-enumFrom sources) that the
+// collections and specimens steps resolve into their validation schemas.
 const DICTIONARY_TABLES = [
   'genders', 'roles', 'interval_types', 'zone_types', 'taxonomy_ranks',
   'reference_types', 'book_types', 'parts_preserved', 'notable_features',
   'namechange_reasons', 'nomenclatural_statuses', 'admin0', 'admin1', 'maritime',
+  'collection_methods', 'coordinate_bases', 'geographic_scales', 'lithologies',
+  'lithology_adjectives', 'dating_methods', 'preservation_modes', 'institution_codes',
 ];
 
 // --- Argument parsing -------------------------------------------------------
@@ -468,9 +473,9 @@ async function countTables(pg, tables) {
 
 // Spawned, never imported: five of the nine entry points call main() at module load,
 // so importing one would run the migration as a side effect of the import.
-function spawnStep(step) {
+function spawnStep(step, args = []) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [join(REPO_ROOT, step.script)], {
+    const child = spawn(process.execPath, [join(REPO_ROOT, step.script), ...args], {
       cwd: REPO_ROOT,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -541,6 +546,49 @@ async function runStep(pg, step, records) {
   console.log(`  ${step.writes.map((t) => `${t} +${record.counts[t].delta}`).join(', ')}`);
 }
 
+// --- Payload audit ----------------------------------------------------------
+// Scoped like postconditions: the audit covers the audited entities whose tables
+// the selected steps wrote, and is not spawned when they wrote none. There is no
+// flag to skip or widen it. See openspec/specs/migration-runner/spec.md.
+
+const AUDIT_SCRIPT = 'src/audit-payloads.js';
+
+export function auditEntitiesFor(selected) {
+  const written = new Set(selected.flatMap((s) => s.writes));
+  return AUDIT_REGISTRY.filter((r) => written.has(r.table)).map((r) => r.entity);
+}
+
+export function stepsByName(names) {
+  return names.map((n) => STEPS.find((s) => s.name === n));
+}
+
+export function parseAuditSummary(stdout) {
+  const entities = {};
+  for (const m of stdout.matchAll(/^audit (\S+): checked=(\d+) violations=(\d+)$/gm)) {
+    entities[m[1]] = { checked: Number(m[2]), violations: Number(m[3]) };
+  }
+  return entities;
+}
+
+async function runAudit(selected) {
+  const entities = auditEntitiesFor(selected);
+  if (entities.length === 0) {
+    console.log('\n=== audit ===\n  skipped: no selected step wrote an audited table');
+    return { skipped: true };
+  }
+  console.log(`\n=== audit (${entities.join(', ')}) ===`);
+  const audit = { entities, startedAt: new Date().toISOString() };
+  const { code, stdout } = await spawnStep({ script: AUDIT_SCRIPT }, entities.flatMap((e) => ['--entity', e]));
+  audit.endedAt = new Date().toISOString();
+  audit.exitCode = code;
+  audit.results = parseAuditSummary(stdout);
+  if (code !== 0) {
+    const violations = Object.entries(audit.results).map(([e, r]) => `${e} ${r.violations}`).join(', ');
+    audit.failure = `Audit exited ${code}${violations ? ` (violations: ${violations})` : ''}; see src/audit-payloads.log.`;
+  }
+  return audit;
+}
+
 // --- --createdb -------------------------------------------------------------
 // postgresql/create_new.sql has no psql meta-commands, no COPY, and no explicit
 // BEGIN/COMMIT, so PostgreSQL runs the whole file as one implicit transaction: it
@@ -582,7 +630,7 @@ async function applyCreateDb(pg) {
 // Appended, never overwritten: the log's value is diffing a failed run against the
 // last good one. Summary values plus WARNING lines rather than full stdout, which on
 // a 517K-row step would bury the numbers.
-async function writeRunLog(header, records, outcome) {
+async function writeRunLog(header, records, audit, outcome) {
   const { appendFileSync } = await import('node:fs');
   const lines = [];
   lines.push('='.repeat(78));
@@ -598,6 +646,15 @@ async function writeRunLog(header, records, outcome) {
       lines.push(`    ${kind.padEnd(28)} ${Object.entries(v).map(([k, n]) => `${k}=${n}`).join(', ')}`);
     }
     for (const w of r.warnings || []) lines.push(`    ${w}`);
+  }
+  if (audit?.skipped) {
+    lines.push('--- audit   skipped: no selected step wrote an audited table');
+  } else if (audit) {
+    lines.push(`--- audit  (${AUDIT_SCRIPT})  entities=${audit.entities.join(',')}`);
+    lines.push(`    ${audit.startedAt} → ${audit.endedAt}   exit=${audit.exitCode}`);
+    for (const [entity, r] of Object.entries(audit.results || {})) {
+      lines.push(`    ${entity.padEnd(28)} checked ${r.checked}   violations ${r.violations}`);
+    }
   }
   lines.push(`outcome     ${outcome}`);
   lines.push(`run ended   ${new Date().toISOString()}`);
@@ -636,6 +693,7 @@ async function main() {
   const { pg, closePg } = await import('./lib/pg-pool.js');
   let closeMariadb = null;
   const records = [];
+  let audit = null;
 
   const header = { startedAt: new Date().toISOString(), argv: process.argv.slice(2) };
   let outcome = 'incomplete';
@@ -656,14 +714,20 @@ async function main() {
       console.log(`\n=== ${step.name} ===`);
       await runStep(pg, step, records);
     }
-    outcome = `success — ${records.length} step(s) completed`;
-    console.log(`\nAll ${records.length} step(s) completed.`);
+
+    // The audit runs only after every selected step has passed its postconditions.
+    audit = await runAudit(selected);
+    if (audit.failure) throw new CheckFailure(audit.failure);
+
+    const audited = audit.skipped ? 'no audit (no audited tables written)' : 'audit clean';
+    outcome = `success — ${records.length} step(s) completed, ${audited}`;
+    console.log(`\nAll ${records.length} step(s) completed; ${audited}.`);
     return 0;
   } catch (err) {
     outcome = `FAILED — ${err instanceof CheckFailure ? err.message.split('\n')[0] : err.message}`;
     throw err;
   } finally {
-    await writeRunLog(header, records, outcome);
+    await writeRunLog(header, records, audit, outcome);
     await closePg();
     if (closeMariadb) await closeMariadb();
   }

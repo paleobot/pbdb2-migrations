@@ -1,0 +1,15 @@
+{
+  "name": "The specimen name",
+  "identifiers": {
+    "institutionCode": "DMNH",
+    "catalogNumber": "EPI.77201",
+    "GBIF": "6493039454"
+  },
+  "legacyIDs": {
+    "oldpbdbID": "142207"
+  },
+  "paleontology": {
+    "preservationModes": ["adpression"]
+  },
+  "notes": "Acquired via private donation in 1994; no field collecting data available. Locality below entered manually from donor correspondence, not linked to a formal collections record."
+}
