@@ -43,7 +43,7 @@ requirements remain visible. Because separate directories do not imply an orderi
 dependency between such migrations SHALL be documented.
 
 The authoritative statement of the full run order is the run-order table in the `migration-runner`
-specification, implemented by `src/run-migrations.js`. That table covers all nine migrations, not only
+specification, implemented by `src/run-migrations.js`. That table covers all ten migrations, not only
 those that share a target table, and it is enforced at execution time rather than only documented. This
 specification SHALL NOT restate the full order, so that the two cannot drift apart.
 
@@ -56,8 +56,8 @@ sequencing one — the identity relationship it establishes is cited by other sp
    sequence.
 
 Running these two in the opposite order does not merely reorder work: it destroys the
-`persons.id = person_no` guarantee that `refs`, `authorities`, `opinions`, and `collections` all rely on
-for their `authorizer_person_id` and `enterer_person_id` values.
+`persons.id = person_no` guarantee that `refs`, `authorities`, `opinions`, `collections`, and `specimens`
+all rely on for their `authorizer_person_id` and `enterer_person_id` values.
 
 #### Scenario: Persons migrations run in order
 - **WHEN** the persons data is migrated from scratch
@@ -68,7 +68,7 @@ for their `authorizer_person_id` and `enterer_person_id` values.
 - **THEN** they occupy separate directories under `src/`, and their run order is documented rather than implied by co-location
 
 #### Scenario: Full order is held in one place
-- **WHEN** a reader needs the run order of all nine migrations
+- **WHEN** a reader needs the run order of all ten migrations
 - **THEN** they consult the run-order table in the `migration-runner` specification, and this specification is not a second, potentially divergent copy of it
 
 ### Requirement: Shared utilities live in `src/lib/`
@@ -151,7 +151,8 @@ citation embedded in prose elsewhere.
 ### Requirement: Inventory of migrated and not-yet-migrated scripts
 This specification SHALL record which migration scripts have been relocated under `src/` and which remain
 at the repository root, so that each successive relocation slice has an accurate starting point. Each
-change that relocates a script SHALL update this inventory.
+change that relocates a script SHALL update this inventory, and each change that adds a migration SHALL add
+it to the `src/` table.
 
 Under `src/`:
 
@@ -166,16 +167,24 @@ Under `src/`:
 | `src/authorities-migration/` | `migrate-authorities.js` |
 | `src/authority-opinions-migration/` | `migrate-authority-opinions.js` |
 | `src/collections-migration/` | `migrate-collections.js` |
+| `src/specimens-migration/` | `migrate-specimens.js` |
 
 Remaining at the repository root:
 
 **(none)**
 
-**The relocation is complete.** All nine migrations live under `src/`, and the root list is stated as an
+**The relocation is complete.** All ten migrations live under `src/`, and the root list is stated as an
 explicit *(none)* rather than removed, so that its emptiness reads as an assertion this specification makes
 and not as a section someone forgot to fill in. A migration script SHALL NOT be added at the repository root:
 a new migration begins in its own directory under `src/`, and the transitional allowance that let a
 root-level script keep root-level conventions is spent.
+
+`specimens-migration` is the first entry to reach this table without being relocated into it. It was created
+at `src/specimens-migration/` directly, which is what the preceding paragraph requires of a new migration,
+and its presence is what demonstrates that rule has teeth rather than merely describing a completed past.
+The inventory therefore now records two kinds of entry — nine relocated and one native — and the distinction
+matters only to this paragraph: for every other purpose an entry is an entry, and a reader asking where a
+migration lives gets the same answer from either.
 
 Completion is checkable at the root itself. Once the last script moved, the duplicated root helper modules
 were deleted, and the repository root now holds connection-pool modules and nothing else — no migration entry
@@ -184,7 +193,8 @@ point, no shared helper, no dual-database composite. Which pools remain there, a
 
 `collections-migration` is plural because *collections* is the head noun naming the table it migrates, the
 same grammar as `authorities-migration`. It is not the attributive-noun case that requires the singular in
-`authority-opinions-migration`.
+`authority-opinions-migration`. `specimens-migration` is plural for the same reason: *specimens* is the head
+noun naming the `specimens` table.
 
 The two authorities-related directories differ in the number of the word *authority*, and the difference is
 deliberate rather than an inconsistency. `authorities-migration` migrates the `authorities` **table**, where
@@ -196,6 +206,10 @@ singular, as in *car park* or *user account*. Each directory's grammar follows f
 - **WHEN** a change relocates a root-level `migrate-*.js` script under `src/`
 - **THEN** that change moves the script's entry from the root list to the `src/` table in this specification
 
+#### Scenario: Inventory records a newly written migration
+- **WHEN** a change adds a migration that never existed at the repository root
+- **THEN** that change adds its directory and entry point to the `src/` table, because the inventory records where every migration lives and not only which ones were moved
+
 #### Scenario: The root list is empty by assertion
 - **WHEN** a reader consults the inventory to find which migration scripts are still at the repository root
 - **THEN** they find an explicit *(none)*, which states that the relocation finished rather than leaving them to infer it from a missing section
@@ -203,6 +217,10 @@ singular, as in *car park* or *user account*. Each directory's grammar follows f
 #### Scenario: A new migration does not start at the root
 - **WHEN** a migration is added to the repository after the relocation completed
 - **THEN** it is created directly at `src/<subject>-migration/migrate-<subject>.js`, because the root-level convention was transitional and no longer applies to anything
+
+#### Scenario: The specimens migration exercises that rule
+- **WHEN** the specimens migration is written
+- **THEN** it is created at `src/specimens-migration/migrate-specimens.js` from the outset, never appearing at the repository root even transiently
 
 #### Scenario: Relocation resolves a deliberate duplication
 - **WHEN** a script is relocated whose code was previously copied into `src/lib/` so that a `src/` module could avoid importing from the repository root

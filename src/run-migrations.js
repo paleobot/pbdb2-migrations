@@ -1,6 +1,6 @@
-// Runs the nine migrations in a frozen order and asserts the database state that
+// Runs the ten migrations in a frozen order and asserts the database state that
 // order exists to produce. The order is not a convenience: every step below reads
-// from PostgreSQL what an earlier step wrote, and five of the nine duplicate their
+// from PostgreSQL what an earlier step wrote, and five of the ten duplicate their
 // rows outright on a second run. See openspec/specs/migration-runner/spec.md.
 //
 //   node src/run-migrations.js [--createdb] [--from <step>] [--only <step>] [--list]
@@ -72,7 +72,8 @@ const someHave = (table, expr, label) => ({
 //             │                  ├─▶ pbot-refs ──▶ pbot-schemas
 //             └─▶ refs ──────────┤
 //                                ├─▶ authorities ─▶ authority-opinions ─▶ opinions
-//                                └─▶ collections
+//                                ├─▶ collections ──────────────┐
+//                                └─▶ (name_opinions) ──────────┴─▶ specimens
 //
 // `firstWriterOf` is declared rather than derived positionally: persons, refs and
 // name_opinions each have two writers, and deriving "first" from position would
@@ -189,6 +190,23 @@ const STEPS = [
     preconditions: () => [
       empty('collections'),
       empty('additional_collection_refs'),
+      someHave('refs', OLDPBDB_ID.refs, 'legacyIDs.oldpbdbID'),
+    ],
+  },
+  {
+    name: 'specimens',
+    script: 'src/specimens-migration/migrate-specimens.js',
+    env: ['PG', 'MARIADB'],
+    inputs: [],
+    writes: ['specimens'],
+    firstWriterOf: ['specimens'],
+    // The name_opinions precondition is the one that earns its place: without it this
+    // step runs happily against an empty opinions table and leaves name_opinions_permid
+    // NULL on every row it could have resolved — a silent under-migration.
+    preconditions: () => [
+      empty('specimens'),
+      nonEmpty('collections'),
+      nonEmpty('name_opinions'),
       someHave('refs', OLDPBDB_ID.refs, 'legacyIDs.oldpbdbID'),
     ],
   },

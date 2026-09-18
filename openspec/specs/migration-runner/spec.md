@@ -1,10 +1,10 @@
 # migration-runner Specification
 
 ## Purpose
-Define `src/run-migrations.js`: the frozen order in which the nine migrations run, the dependency edges
+Define `src/run-migrations.js`: the frozen order in which the ten migrations run, the dependency edges
 that justify that order, and the database-state assertions that enforce it. The runner exists because the
 order is otherwise reconstructible only by reading each script's PostgreSQL pre-loads, because five of the
-nine scripts duplicate their rows on a second run, and because one of them under-migrates while still
+ten scripts duplicate their rows on a second run, and because one of them under-migrates while still
 exiting 0. It spawns migrations; it never performs one.
 
 ## Requirements
@@ -24,8 +24,9 @@ the authoritative statement of the sequence:
 | 7 | `authority-opinions` | `src/authority-opinions-migration/migrate-authority-opinions.js` |
 | 8 | `opinions` | `src/opinions-migration/migrate-opinions.js` |
 | 9 | `collections` | `src/collections-migration/migrate-collections.js` |
+| 10 | `specimens` | `src/specimens-migration/migrate-specimens.js` |
 
-Every entry point in this table now sits under `src/`. The table is the runner's own `STEPS` array restated,
+Every entry point in this table sits under `src/`. The table is the runner's own `STEPS` array restated,
 so it is verifiable by reading `src/run-migrations.js` rather than by trusting this specification.
 
 The order SHALL satisfy these dependency edges, each of which exists because the later step reads from
@@ -37,7 +38,9 @@ persons ──┬─▶ pbot-persons ──┐
           └─▶ refs ──────────┤
                              ├─▶ authorities ──▶ authority-opinions ──▶ opinions
                              ├─────────────────────────────────────────────▶ (refs)
-                             └─▶ collections
+                             ├─▶ collections ───────────────┐
+                             ├──────────────────────────────┼─▶ specimens
+                             └─▶ (name_opinions) ───────────┘
 ```
 
 - `pbot-persons` matches and updates the rows `persons` created.
@@ -50,20 +53,27 @@ persons ──┬─▶ pbot-persons ──┐
 - `authority-opinions` reads `authorities`.
 - `opinions` builds its name permid map from `name_opinions` and its reference map from `refs`.
 - `collections` reads `refs` filtered on `reference->'legacyIDs'->>'oldpbdbID' IS NOT NULL`.
+- `specimens` reads `refs` and `collections` through `legacyIDs.oldpbdbID`, and `name_opinions` through
+  `oldpbdb_taxon_no`. It is last because it is the only step that reads from three other steps' output at
+  once, and nothing reads from it.
 
 The order SHALL NOT be changed except by a change that records the new order in this specification.
 
-Row 9's entry point changes here, and nothing else does: the step keeps its name, its position, and every
-dependency edge. This is the last of the nine relocations, so no future change to this table will be a
-relocation.
+Row 10 is an addition rather than a relocation: it introduces a migration that did not previously exist,
+where the nine preceding rows reached their current form by moving scripts already in the repository. No row
+1–9 changes here — not its name, its position, its entry point, or its dependency edges.
 
 #### Scenario: Full pipeline runs in the specified order
 - **WHEN** `src/run-migrations.js` is invoked with no step-selection flag
-- **THEN** it runs all nine steps in the order given in the table, and does not begin a step until the preceding step has completed successfully
+- **THEN** it runs all ten steps in the order given in the table, and does not begin a step until the preceding step has completed successfully
 
 #### Scenario: Every entry point resolves under src/
-- **WHEN** the runner spawns any of the nine steps
+- **WHEN** the runner spawns any of the ten steps
 - **THEN** the path it spawns is under `src/`, because no migration entry point remains at the repository root
+
+#### Scenario: A new migration is appended, not inserted
+- **WHEN** `specimens` is added to the run order
+- **THEN** it takes position 10 after `collections`, and the preceding nine rows are left byte-for-byte unchanged, because its dependency edges are all satisfied by steps that already run before it
 
 ### Requirement: Steps are addressed by name
 The runner SHALL identify steps by the step names in the run-order table, and SHALL NOT require or accept
@@ -96,7 +106,7 @@ migration or connecting to any database.
 
 #### Scenario: Relocation-stability has no remaining cases
 - **WHEN** a reader asks which steps might still change their entry point through a relocation
-- **THEN** the answer is none, because all nine scripts are under `src/`, and the relocation-stability rule now governs only hypothetical future moves rather than pending ones
+- **THEN** the answer is none, because all ten scripts are under `src/`, and the relocation-stability rule now governs only hypothetical future moves rather than pending ones
 
 #### Scenario: A deliberate rename is recorded, not inferred from a move
 - **WHEN** the step `authorities-opinions` is renamed to `authority-opinions` in the same change that relocates its script
@@ -111,8 +121,8 @@ The runner SHALL execute each step as a child process invoking the step's entry 
 SHALL NOT import a step's module into the runner process. Each step SHALL therefore manage its own
 connection pools and produce its own exit code.
 
-This is required because the entry points are not uniform: five of the nine call `main()` unconditionally
-at module load, and four guard it behind an `import.meta.url === file://${process.argv[1]}` check.
+This is required because the entry points are not uniform: five of the ten call `main()` unconditionally
+at module load, and five guard it behind an `import.meta.url === file://${process.argv[1]}` check.
 
 #### Scenario: Unconditional-main script is spawned safely
 - **WHEN** the runner reaches `refs`, whose module calls `main()` at load time with no `invokedDirectly` guard
@@ -183,6 +193,7 @@ precondition SHALL be a per-step predicate rather than a uniform "target table i
 | `authority-opinions` | `name_opinions` is empty; `authorities` is non-empty |
 | `opinions` | `assignment_opinions` and `validity_opinions` are empty; `name_opinions` is non-empty; `refs` is non-empty |
 | `collections` | `collections` and `additional_collection_refs` are empty; at least one `refs` row has `reference->'legacyIDs'->>'oldpbdbID'` |
+| `specimens` | `specimens` is empty; `collections` is non-empty; `name_opinions` is non-empty; at least one `refs` row has `reference->'legacyIDs'->>'oldpbdbID'` |
 
 #### Scenario: Reversed persons order is refused
 - **WHEN** `pbot-persons` is selected against an empty `persons` table
@@ -196,6 +207,10 @@ precondition SHALL be a per-step predicate rather than a uniform "target table i
 - **WHEN** `pbot-schemas` is about to run and no `refs` row carries `reference->'legacyIDs'->>'pbotID'`
 - **THEN** its precondition fails and the step is not spawned, rather than the step exiting 0 having silently skipped every schema whose primary reference could not be resolved
 
+#### Scenario: Specimens requires all three of its input tables
+- **WHEN** `specimens` is about to run against a database where `collections` is populated but `name_opinions` is empty
+- **THEN** its precondition fails and the step is not spawned, rather than the step running and leaving `name_opinions_permid` null on every row it could otherwise have resolved
+
 ### Requirement: Per-step postconditions verify the step produced rows
 Exit code 0 SHALL NOT by itself be treated as step success. After each step exits, the runner SHALL verify
 that the exit code is 0 **and** that the row count of every table that step writes increased relative to
@@ -205,7 +220,8 @@ count, after count, and delta.
 Tables written per step: `persons` → `persons`; `pbot-persons` → `persons`; `refs` → `refs`; `pbot-refs` →
 `refs`; `pbot-schemas` → `schemas`, `characters`, `states`, `additional_schema_refs`; `authorities` →
 `authorities`; `authority-opinions` → `name_opinions`; `opinions` → `assignment_opinions`,
-`name_opinions`, `validity_opinions`; `collections` → `collections`, `additional_collection_refs`.
+`name_opinions`, `validity_opinions`; `collections` → `collections`, `additional_collection_refs`;
+`specimens` → `specimens`.
 
 The runner SHALL NOT compare deltas against hard-coded expected row counts, so that the assertion does not
 drift as the source data changes.
@@ -217,6 +233,10 @@ drift as the source data changes.
 #### Scenario: Counts are recorded, not asserted against constants
 - **WHEN** `authorities` completes
 - **THEN** the runner records the observed delta in the run log and asserts only that it is positive, rather than comparing it to a fixed expected total
+
+#### Scenario: Specimens writes exactly one table
+- **WHEN** `specimens` completes
+- **THEN** the runner verifies that `specimens` gained rows, and asserts nothing about `collections`, `occurrences`, or any measurement table, because the step writes none of them
 
 ### Requirement: The pbot-schemas step is verified beyond its exit code
 The runner SHALL capture the `pbot-schemas` step's standard output, parse its final summary lines, and

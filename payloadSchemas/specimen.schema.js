@@ -28,7 +28,7 @@ const specimenProperties = {
 		properties: {
 			institutionCode: {
 				type: "string",
-				enum: ['AMNH','AMPG','ANSP','BAS','BGS','BMNH','BPI','BSP','CAS','CIT','CM','DMNH','FLMNH','FMNH','GSC','GSI','IGNS','IVAU','IVPP','LACM','MACN','MCZ','MEF','MfN','MLP','MNHN','MNHN (La Paz)','NHMW','NIGPAS','NMB','NMC','NMMNH','NYSM','OSU','OU','OUM','PIN','PRI','ROM','SDSM','SGOPV','SM','SMF','SMNS','SUI','TMM','TMP','UCM','UCMP','UMMP','UNM','UNSM','UQ','USGS','USNM','UW','UWBM','WAM','YPM']
+				enum: ['none specified', 'AMNH','AMPG','ANSP','BAS','BGS','BMNH','BPI','BSP','CAS','CIT','CM','DMNH','FLMNH','FMNH','GSC','GSI','IGNS','IVAU','IVPP','LACM','MACN','MCZ','MEF','MfN','MLP','MNHN','MNHN (La Paz)','NHMW','NIGPAS','NMB','NMC','NMMNH','NYSM','OSU','OU','OUM','PIN','PRI','ROM','SDSM','SGOPV','SM','SMF','SMNS','SUI','TMM','TMP','UCM','UCMP','UMMP','UNM','UNSM','UQ','USGS','USNM','UW','UWBM','WAM','YPM']
 			},
 			catalogNumber: {type: "string"},
 			GBIF: {type: "string"}
@@ -38,9 +38,14 @@ const specimenProperties = {
 		type: "object",
 		properties: {
 			preservationModes: {
-				type: "string",
-				enum: ['body','cast','mold/impression','adpression','trace','concretion','soft parts','recrystallized','permineralized','dissolution traces','charcoalification','coalified','original aragonite','original calcite','original phosphate','original silica','original chitin','original carbon','original sporopollenin','original cellulose','replaced with calcite','replaced with dolomite','replaced with silica','replaced with pyrite','replaced with siderite','replaced with hematite','replaced with limonite','replaced with phosphate','replaced with carbon','replaced with other','amber','anthropogenic','bone collector','coquina','coprolite','midden','shellbed'],
-			},
+				type: "array",
+				items: {
+					type: "string",
+					enum: [
+						"body","cast","mold/impression","adpression","trace","concretion","soft parts","recrystallized","permineralized","dissolution traces","charcoalification","coalified","original aragonite","original calcite","original phosphate","original silica","original chitin","original carbon","original sporopollenin","original cellulose","replaced with calcite","replaced with dolomite","replaced with silica","replaced with pyrite","replaced with siderite","replaced with hematite","replaced with limonite","replaced with phosphate","replaced with carbon","replaced with other","amber","anthropogenic","bone collector","coquina","coprolite","midden","shellbed"
+					]
+				},
+ 			},
 			numberMeasured:	{type: "number"},
 			coverage: {
 				type: "string",
@@ -175,9 +180,8 @@ export const specimenSchema = {
 	},
 	examples: [{
 		specimen: {
-			provenance: "full",
 			name: "The specimen name",
-			specimenNumber: {
+			identifiers: {
 				institutionCode : "DMNH",
 				catalogNumber : "EPI.77201",
 				GBIF : "6493039454"
@@ -186,7 +190,7 @@ export const specimenSchema = {
 				"oldpbdbID": "142207"
 			},
 			paleontology : {
-					preservationModes: ["Adpression/compression"],
+					preservationModes: ["adpression"],
 			},
 			notes: "Acquired via private donation in 1994; no field collecting data available. Locality below entered manually from donor correspondence, not linked to a formal collections record."
 		}
