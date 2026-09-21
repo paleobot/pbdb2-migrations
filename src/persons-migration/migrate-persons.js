@@ -1,5 +1,6 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
 import { getCountries } from '@countrystatecity/countries';
+import { uuidv7 } from '../lib/uuidv7.js';
 
 /**
  * Derive middle name by comparing the display name against first/last.
@@ -172,20 +173,33 @@ async function main() {
       `  person_no=${id}: role SET='${row.role}' is_authorizer=${row.is_authorizer} superuser=${row.superuser} → role_id=${roleId} (${roleMap[roleId]})`
     );
 
+    // permid is minted on every pass, including passes that resolve to an
+    // update. On the update branch this value is simply discarded -- see the
+    // DO UPDATE SET list below, which deliberately omits permid.
     await pg.query(
-      `INSERT INTO persons (id, password, role_id, person, authorizer_person_id, active, total_hours)
-       VALUES ($1, NULL, $2, $3, $4, $5, NULL)
+      `INSERT INTO persons (id, permid, password, role_id, person, authorizer_person_id, active, total_hours)
+       VALUES ($1, $2, NULL, $3, $4, $5, $6, NULL)
        ON CONFLICT (id) DO UPDATE SET
          role_id = EXCLUDED.role_id,
          authorizer_person_id = EXCLUDED.authorizer_person_id,
          person = EXCLUDED.person,
          active = EXCLUDED.active`,
+      //   ^ permid is deliberately NOT in this list, and must never be added.
+      //     It is written once, when the row is created, and never again.
+      //     This script mints a fresh permid on every run; were permid updated
+      //     here, each re-run would issue every person a brand-new permanent
+      //     identifier, silently invalidating every external reference to them.
+      //     The failure would be invisible -- a re-minted permid satisfies
+      //     NOT NULL, UNIQUE and the UUIDv7 CHECK just as well as the original.
+      //     No other minted-permid table in this project has this hazard,
+      //     because no other one upserts on a surrogate id.
       [
         id,                  // $1  id
-        roleId,              // $2  role_id
-        personJsonb,         // $3  person (JSONB)
-        id,                  // $4  authorizer_person_id (self-reference)
-        isActive,            // $5  active
+        uuidv7(),            // $2  permid (insert-only; see above)
+        roleId,              // $3  role_id
+        personJsonb,         // $4  person (JSONB)
+        id,                  // $5  authorizer_person_id (self-reference)
+        isActive,            // $6  active
       ]
     );
     upsertCount++;

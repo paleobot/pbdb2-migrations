@@ -1,9 +1,4 @@
-# permid-uuidv7 Specification
-
-## Purpose
-Require every minted `permid` across the migration scripts to be a UUIDv7 value.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Permids are generated as UUIDv7
 Every migration script that mints a `permid` SHALL generate it as a UUIDv7 value. Scripts SHALL NOT use
@@ -58,37 +53,6 @@ each permid is a v7 value, so qualification is required rather than merely permi
 - **WHEN** the in-scope migrations have completed
 - **THEN** no row in any table listed above has a permid whose version nibble is 4
 
-### Requirement: Shared UUIDv7 generation helper
-The project SHALL provide a single ESM helper module that exports a UUIDv7 generator backed by the `uuid` npm
-package's `v7` function. All migration scripts that mint permids SHALL import this helper rather than
-generating UUIDs inline, so the generation strategy can be changed in one place.
-
-That module is `src/lib/uuidv7.js`, and it is now the only one. A byte-identical copy stood at the repository
-root throughout the relocation of migration scripts under `src/`, so that a root-level script could import a
-helper without reaching into `src/`. Two identical modules satisfied the letter of "a single ESM helper
-module" only by accident of their being identical: a change to one would have left the other generating
-permids by the old strategy, which is precisely what this requirement exists to prevent. The root copy was
-deleted with the last root-level migration script, and this requirement's "single" is now literal.
-
-#### Scenario: Scripts import the shared helper
-- **WHEN** a migration script needs a new permid
-- **THEN** it calls the shared helper's exported generator, and no script imports `randomUUID` from `crypto` for permid generation
-
-#### Scenario: One module, not two identical ones
-- **WHEN** the UUIDv7 generation strategy is changed
-- **THEN** editing `src/lib/uuidv7.js` changes it for every script that mints a permid, because no second copy of the helper exists to be missed
-
-#### Scenario: Backed by the uuid package
-- **WHEN** the helper generates a value
-- **THEN** the value is produced by the `uuid` package's `v7` function and is a valid UUIDv7
-
-### Requirement: External legacy identifiers preserved in legacyIDs
-When a migration stops using an externally-sourced identifier (e.g. PBot `pbotID`) as the permid, that identifier SHALL remain captured in the entity's JSONB `legacyIDs` object so that no source identifier is lost and cross-entity lookups keyed on `legacyIDs->>'pbotID'` continue to resolve.
-
-#### Scenario: pbotID retained after permid change
-- **WHEN** a pbot-sourced row is migrated with a generated UUIDv7 permid
-- **THEN** the row's JSONB contains `legacyIDs.pbotID` equal to the original PBot `pbotID`
-
 ### Requirement: Database enforces UUIDv7 version on in-scope permid columns
 The target schema in `postgresql/create_new.sql` SHALL apply a CHECK constraint on each minted permid column
 asserting the UUID version nibble is 7, using `CHECK ((get_byte(uuid_send(permid), 6) >> 4) = 7)`. This form
@@ -126,17 +90,8 @@ reference `persons.id`, and they remain `integer` under `entity-versioning-trigg
 - **WHEN** a reader finds `name_opinions.subject_permid` or `homonyms.permid` carrying no version CHECK
 - **THEN** that is the specified behaviour rather than a gap, because the value is another row's minted permid and was constrained at its own minting site
 
-### Requirement: Timescales and intervals excluded from scope
-The `timescales` and `intervals` permid columns SHALL NOT receive the UUIDv7 generation change nor the CHECK
-constraint in this change, because their migration design is not yet finalized.
+## ADDED Requirements
 
-These two remain the only minted permid columns without the CHECK. The expanded inventory above is what makes
-that statement checkable: every other minted column is enumerated as requiring the constraint, so these two
-are excluded by name rather than by absence from a short list.
-
-#### Scenario: No CHECK on deferred tables
-- **WHEN** `create_new.sql` is applied
-- **THEN** neither `timescales.permid` nor `intervals.permid` has a UUIDv7 CHECK constraint
 ### Requirement: Minted permid on an unversioned table is UNIQUE
 A table that mints a `permid` and is **not** versioned SHALL declare `permid uuid NOT NULL UNIQUE`, and SHALL
 NOT call `install_version_triggers`.

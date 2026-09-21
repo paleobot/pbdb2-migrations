@@ -1,4 +1,5 @@
 import { pg, closePg } from '../lib/pg-pool.js';
+import { uuidv7 } from '../lib/uuidv7.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
@@ -187,14 +188,23 @@ async function main() {
       if (email) personJsonb.email = email;
       if (normalizedOrcid) personJsonb.orcid = normalizedOrcid;
 
+      // A minted permid, NOT the pbotID. pbotID is itself a UUID and is
+      // therefore tempting to reuse here, but permid-uuidv7 forbids adopting an
+      // externally-sourced identifier as a permid; pbotID stays in legacyIDs,
+      // where the cross-entity lookups expect to find it.
+      //
+      // This is the only place this script mints a permid. Persons matched by
+      // the ORCID/email/name cascade keep the permid migrate-persons.js gave
+      // them -- minting a second one would contradict the match just made.
       const { rows: inserted } = await pg.query(
-        `INSERT INTO persons (password, role_id, person, authorizer_person_id, active, total_hours)
-         VALUES (NULL, $1, $2, $3, true, NULL)
+        `INSERT INTO persons (permid, password, role_id, person, authorizer_person_id, active, total_hours)
+         VALUES ($1, NULL, $2, $3, $4, true, NULL)
          RETURNING id`,
         [
-          PERSON_ROLE_ID,          // $1 role_id
-          personJsonb,             // $2 person (JSONB)
-          AUTHORIZER_PERSON_ID,    // $3 authorizer_person_id
+          uuidv7(),                // $1 permid (minted; never the pbotID)
+          PERSON_ROLE_ID,          // $2 role_id
+          personJsonb,             // $3 person (JSONB)
+          AUTHORIZER_PERSON_ID,    // $4 authorizer_person_id
         ]
       );
 
