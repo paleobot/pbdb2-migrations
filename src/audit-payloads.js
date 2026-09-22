@@ -15,23 +15,30 @@ import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { collectionSource } from '../payloadSchemas/collection.schema.js';
 import { specimenSource } from '../payloadSchemas/specimen.schema.js';
+import { personSource } from '../payloadSchemas/person.schema.js';
 import { resolveEnums } from '../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../payloadSchemas/lib/variants.js';
 import { createAjv } from '../payloadSchemas/lib/ajv.js';
-import { split, merge } from '../payloadSchemas/lib/storage.js';
+import {
+  split, merge, collectCodecSources, loadCodecContext, codecKeyColumns, isDictionarySource,
+} from '../payloadSchemas/lib/storage.js';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPORT_PATH = join(SCRIPT_DIR, 'audit-payloads.log');
 const BATCH_SIZE = 5000;
 
 // `columns` are the extra selections the round trip needs to rebuild the API
-// shape; `children` are child tables keyed back to the row by `fk`.
+// shape; `children` are child tables keyed back to the row by `fk`. `versioned`
+// says whether the table carries preceded_by_id/succeeded_by_id: persons does
+// not, so selecting the head expression for it would raise *column does not
+// exist* rather than audit anything.
 export const REGISTRY = [
   {
     entity: 'collection',
     table: 'collections',
     column: 'collection',
     source: collectionSource,
+    versioned: true,
     columns: ['permid', 'reference_id', 'ST_AsGeoJSON(location)::json AS location'],
     children: [{ table: 'additional_collection_refs', fk: 'collection_id', columns: ['id', 'reference_id'] }],
   },
@@ -40,7 +47,20 @@ export const REGISTRY = [
     table: 'specimens',
     column: 'specimen',
     source: specimenSource,
+    versioned: true,
     columns: ['permid'],
+    children: [],
+  },
+  {
+    entity: 'person',
+    table: 'persons',
+    column: 'person',
+    source: personSource,
+    versioned: false,
+    // total_hours is numeric, which node-postgres returns as a string; the
+    // payload declares totalHours a number, so it is cast here rather than
+    // failing the out variant on the first person who has one.
+    columns: ['permid', 'role_id', 'authorizer_person_id', 'active', 'total_hours::float8 AS total_hours'],
     children: [],
   },
 ];
@@ -102,25 +122,50 @@ async function auditEntity(pg, entry, opts) {
   const validateOut = opts.roundTrip ? ajv.compile(deriveVariant(resolved, 'out')) : null;
   const readOnly = rootReadOnly(entry.source);
 
+  // Codec lookups, where this entity has any: the dictionary sources once for the
+  // run, the entity sources per batch from the keys that batch holds.
+  const codecSources = opts.roundTrip ? collectCodecSources(entry.source) : [];
+  const entitySources = codecSources.filter((s) => !isDictionarySource(s));
+  const keyColumns = codecKeyColumns(entry.source);
+  const runCtx = codecSources.length
+    ? await loadCodecContext(pg, codecSources.filter(isDictionarySource))
+    : undefined;
+
   const result = {
-    entity: entry.entity, table: entry.table,
+    entity: entry.entity, table: entry.table, versioned: entry.versioned,
     heads: 0, superseded: 0, violations: 0, violationsHeads: 0, violationsSuperseded: 0, sample: [],
     roundTrip: opts.roundTrip ? { checked: 0, differences: 0, sample: [] } : null,
   };
   const extra = opts.roundTrip ? entry.columns.map((c) => `, ${c}`).join('') : '';
+  // An unversioned table has no succeeded_by_id to select; every row it holds is
+  // a head, which is stated here rather than asked of the database.
+  const head = entry.versioned ? ', succeeded_by_id IS NULL AS head' : '';
   let lastId = 0;
   for (;;) {
     const { rows } = await pg.query(
-      `SELECT id, permid AS row_permid, succeeded_by_id IS NULL AS head, ${entry.column} AS payload${extra}
+      `SELECT id, permid AS row_permid${head}, ${entry.column} AS payload${extra}
          FROM ${entry.table} WHERE id > $1 ORDER BY id LIMIT $2`,
       [lastId, BATCH_SIZE],
     );
     if (rows.length === 0) break;
     lastId = rows[rows.length - 1].id;
+    if (!entry.versioned) for (const row of rows) row.head = true;
 
+    let ctx = runCtx;
     const children = {};
     if (opts.roundTrip) {
       const ids = rows.filter((r) => r.head).map((r) => r.id);
+      if (entitySources.length) {
+        const selection = {};
+        for (const source of entitySources) {
+          const values = new Set();
+          for (const col of keyColumns.get(source.table) ?? []) {
+            for (const row of rows) if (row.head && row[col] !== null && row[col] !== undefined) values.add(row[col]);
+          }
+          selection[source.table] = { column: source.key, values: [...values] };
+        }
+        ctx = await loadCodecContext(pg, entitySources, selection, runCtx);
+      }
       for (const child of entry.children) {
         const { rows: childRows } = await pg.query(
           `SELECT ${child.fk} AS parent, ${child.columns.join(', ')} FROM ${child.table}
@@ -153,10 +198,10 @@ async function auditEntity(pg, entry, opts) {
       const childRows = Object.fromEntries(entry.children.map((c) => [c.table, children[c.table].get(row.id) ?? []]));
       const stored = { jsonb: row.payload, columns: row, children: childRows };
       const diffs = [];
-      const merged = merge(entry.source, stored);
+      const merged = merge(entry.source, stored, ctx);
       if (!validateOut(merged)) diffs.push(`out: ${ajv.errorsText(validateOut.errors)}`);
       try {
-        diffs.push(...roundTripDifferences(entry, row, split(entry.source, withoutKeys(merged, readOnly)), childRows));
+        diffs.push(...roundTripDifferences(entry, row, split(entry.source, withoutKeys(merged, readOnly), ctx), childRows));
       } catch (err) {
         diffs.push(`split: ${err.message}`);
       }
@@ -175,14 +220,22 @@ function formatReport(startedAt, opts, results) {
   const lines = [`payload audit ${startedAt.toISOString()}  entities=${opts.entities.join(',')}${opts.roundTrip ? '  --round-trip' : ''}`];
   for (const r of results) {
     lines.push('', `== ${r.entity} (${r.table})`);
-    lines.push(`   rows checked ${r.heads + r.superseded} (heads ${r.heads}, superseded ${r.superseded})`);
-    lines.push(`   violations   ${r.violations} (heads ${r.violationsHeads}, superseded ${r.violationsSuperseded})`);
+    if (r.versioned) {
+      lines.push(`   rows checked ${r.heads + r.superseded} (heads ${r.heads}, superseded ${r.superseded})`);
+      lines.push(`   violations   ${r.violations} (heads ${r.violationsHeads}, superseded ${r.violationsSuperseded})`);
+    } else {
+      // An unversioned table has no head/superseded split to report; an offending
+      // row is still identified by id and permid, more precisely than on a
+      // versioned one, because persons.permid is NOT NULL UNIQUE.
+      lines.push(`   rows checked ${r.heads}`);
+      lines.push(`   violations   ${r.violations}`);
+    }
     for (const s of r.sample) {
       lines.push(`   - id=${s.id} permid=${s.permid}${s.head ? '' : ' (superseded)'}`);
       for (const e of s.errors) lines.push(`       ${e.instancePath || '/'} ${e.message}${e.params?.allowedValues ? '' : ` ${JSON.stringify(e.params)}`}`);
     }
     if (r.roundTrip) {
-      lines.push(`   round trip   ${r.roundTrip.checked} head rows, ${r.roundTrip.differences} with differences`);
+      lines.push(`   round trip   ${r.roundTrip.checked} ${r.versioned ? 'head rows' : 'rows'}, ${r.roundTrip.differences} with differences`);
       for (const s of r.roundTrip.sample) lines.push(`   - id=${s.id} permid=${s.permid}: ${s.differences.join('; ')}`);
     }
   }

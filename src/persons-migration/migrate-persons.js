@@ -1,6 +1,10 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
-import { getCountries } from '@countrystatecity/countries';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { normalizeName, loadAdmin0, resolveCountry } from '../lib/country.js';
+import { personSource } from '../../payloadSchemas/person.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 /**
  * Derive middle name by comparing the display name against first/last.
@@ -90,30 +94,32 @@ async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting person migration...`);
 
+  // --- Schema resolution (before the first source row is read) ---
+
+  // Validate against the db variant: the jsonb at rest, with gender, role and
+  // countryCode resolved from dictionaries. Resolving up front is what makes an
+  // empty or missing dictionary abort the run rather than fail row by row, as
+  // migrate-collections.js and migrate-specimens.js do.
+  // See openspec/specs/person-migration/spec.md.
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, personSource), 'db'));
+  console.log('  Person db schema resolved and compiled');
+
   // --- Dictionary lookups ---
 
-  // Build case-insensitive country name → ISO alpha-2 code map
-  const countries = await getCountries();
-  const countryCodeMap = new Map(countries.map((c) => [c.name.toLowerCase(), c.iso2]));
-  console.log(`  Loaded ${countries.length} countries from @countrystatecity/countries`);
+  // Country resolution shares migrate-collections.js's normalize-then-alias
+  // pipeline against dictionaries.admin0, so one list of countries backs both
+  // entities and the countryCode written here is one x-enumFrom accepts.
+  const admin0 = await loadAdmin0(pg);
+  console.log(`  Loaded ${admin0.admin0Isos.length} countries from dictionaries.admin0`);
 
   // Gender mapping: source enum → JSONB string value
   const GENDER_SOURCE_MAP = { 'F': 'Female', 'M': 'Male' };
 
-  // Country normalization map for known variants
-  const COUNTRY_NORMALIZE = {
-    'us': 'United States',
-    'usa': 'United States',
-    'untied states': 'United States',
-    'england': 'United Kingdom',
-    'the netherlands': 'Netherlands',
-  };
-
   // Load roles for verification logging
   const { rows: roleRows } = await pg.query(
-    `SELECT id, role FROM dictionaries.roles ORDER BY id`
+    `SELECT id, name FROM dictionaries.roles ORDER BY id`
   );
-  const roleMap = Object.fromEntries(roleRows.map((r) => [r.id, r.role]));
+  const roleMap = Object.fromEntries(roleRows.map((r) => [r.id, r.name]));
   console.log(`  Loaded ${roleRows.length} roles: ${JSON.stringify(roleMap)}`);
 
   // --- Read source data ---
@@ -121,7 +127,7 @@ async function main() {
   const [sourceRows] = await mariadb.query(
     `SELECT person_no, name, reversed_name, first_name, last_name,
             middle, email, institution, country, gender,
-            role, is_authorizer, active, heir_no, superuser
+            role, is_authorizer, active, superuser
      FROM person`
   );
   console.log(`  Read ${sourceRows.length} rows from MariaDB person table`);
@@ -150,8 +156,7 @@ async function main() {
     let countryCode = null;
     if (row.country && row.country.trim()) {
       const rawCountry = row.country.trim();
-      const normalized = COUNTRY_NORMALIZE[rawCountry.toLowerCase()] || rawCountry;
-      countryCode = countryCodeMap.get(normalized.toLowerCase()) || null;
+      countryCode = resolveCountry(normalizeName(rawCountry), admin0)?.iso ?? null;
       if (!countryCode) {
         console.warn(`  WARNING: person_no=${id} unmapped country '${rawCountry}'`);
       }
@@ -168,6 +173,16 @@ async function main() {
     if (email) personJsonb.email = email;
     if (countryCode) personJsonb.countryCode = countryCode;
     if (institution) personJsonb.institution = institution;
+
+    // The jsonb and the flat columns are built separately, as
+    // migrate-collections.js and migrate-specimens.js do; this script does not
+    // route its writes through split().
+    if (!validate(personJsonb)) {
+      console.error(`  VALIDATION FAILED for person_no=${id}`);
+      console.error('  errors:', JSON.stringify(validate.errors, null, 2));
+      console.error('  person:', JSON.stringify(personJsonb, null, 2));
+      throw new Error('payload failed person db-schema validation');
+    }
 
     console.log(
       `  person_no=${id}: role SET='${row.role}' is_authorizer=${row.is_authorizer} superuser=${row.superuser} → role_id=${roleId} (${roleMap[roleId]})`

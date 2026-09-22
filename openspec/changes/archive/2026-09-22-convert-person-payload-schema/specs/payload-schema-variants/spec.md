@@ -104,6 +104,10 @@ three forms the annotation vocabulary defines, and the codec is what knows its o
 `collectCodecSources(source)` SHALL walk the source's `x-storage` codecs and return the union of their
 declared sources, with duplicates removed.
 
+`codecKeyColumns(source)` SHALL return, per looked-up table, the `x-storage` columns whose values are that
+source's keys, so that a caller reading rows in batches can build its selection by following the annotations
+rather than by naming the columns itself.
+
 When a property carries both `x-enumFrom` and a codec declaring a source in the `dictionaries` schema, the
 two SHALL name the same table. Source validation SHALL throw naming the property when they do not, because
 the accepted values and the stored key would otherwise be free to drift apart.
@@ -121,8 +125,13 @@ the accepted values and the stored key would otherwise be free to drift apart.
 - **THEN** source validation throws naming that property
 
 ### Requirement: The codec context is loaded per selection and applied purely
-`loadCodecContext(pg, sources, selection)` SHALL return a `Map` from each source's table name to
+`loadCodecContext(pg, sources, selection, reuse)` SHALL return a `Map` from each source's table name to
 `{ byKey, byValue }` lookup maps, both populated from one read per source.
+
+`reuse` SHALL be an already-loaded context that seeds the result, and a source whose table it already holds
+SHALL NOT be read again. Each call SHALL return a new `Map`, so that one batch's selection never accumulates
+into the next one's. This is how a caller iterating in batches obeys the dictionary rule below: it loads its
+dictionary sources once, then passes that context as `reuse` on every batch.
 
 `selection` SHALL name, per source, the column being restricted on and the values to restrict to, so that the
 table is read by `WHERE <column> = ANY($1)` rather than in full. The restriction SHALL be expressible in
@@ -155,7 +164,11 @@ A codec SHALL throw, naming the codec and the unresolved value, when the context
 
 #### Scenario: Dictionary source is not batched
 - **WHEN** an audit of 275,554 collections runs in 5,000-row batches against a source in `dictionaries`
-- **THEN** that source is read once for the run, not once per batch
+- **THEN** that source is read once for the run and passed to each batch as `reuse`, not read once per batch
+
+#### Scenario: Selection columns follow the annotations
+- **WHEN** `codecKeyColumns(personSource)` is called
+- **THEN** it maps `dictionaries.roles` to `role_id` and `persons` to `authorizer_person_id`, the columns `x-storage` names for the two codecs
 
 #### Scenario: Tests resolve from fixtures
 - **WHEN** a test calls `split(personSource, payload, fixtureContext)` with no database connection

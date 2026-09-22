@@ -1,9 +1,32 @@
 // Named codecs for x-storage fields that do not map one-to-one to a column.
 // A codec receives every sibling property that names it:
-//   split(values, storage) -> { columns?, children? }
-//   merge({ columns, children }, storage) -> values   (only the keys it can rebuild)
+//   split(values, storage, ctx) -> { columns?, children? }
+//   merge({ columns, children }, storage, ctx) -> values   (only the keys it can rebuild)
 // Row ids are carried as strings (bigint-safe, as node-postgres returns them).
+//
+// A codec that cannot be computed from the payload alone declares the tables it
+// reads in `sources`: { table, key, value }. The caller collects those with
+// collectCodecSources, loads them with loadCodecContext (both in ./storage.js),
+// and passes the resulting Map as `ctx`. split and merge stay pure and
+// synchronous: a hand-built Map substitutes for a loaded one in tests, exactly
+// as applyEnums takes one in place of loadEnums.
 // See openspec/specs/payload-schema-variants/spec.md.
+
+// Look up one side of a codec's source, throwing rather than dropping the value.
+function lookup(codecName, source, ctx, direction, value) {
+  const entry = ctx?.get(source.table);
+  if (!entry) {
+    throw new Error(`${codecName}: no codec context loaded for ${source.table}`);
+  }
+  const map = direction === 'byKey' ? entry.byKey : entry.byValue;
+  const got = map?.get(value);
+  if (got === undefined) {
+    throw new Error(
+      `${codecName}: ${source.table}.${direction === 'byKey' ? source.key : source.value} has no entry for ${JSON.stringify(value)}`,
+    );
+  }
+  return got;
+}
 
 // { latitude, longitude } <-> a geography column. split emits EWKT text, which a
 // geography column accepts on insert; merge expects the column selected as
@@ -49,7 +72,41 @@ const collectionReferences = {
   },
 };
 
-export const codecs = { wgs84Point, collectionReferences };
+// role name <-> persons.role_id. The payload carries the role's name and never
+// its id: this project exposes permids rather than internal ids, dictionaries.roles
+// has no permid, and a bare id means nothing to a client without a roles route.
+const ROLES_SOURCE = { table: 'dictionaries.roles', key: 'id', value: 'name' };
+const roleName = {
+  sources: [ROLES_SOURCE],
+  split({ role }, storage, ctx) {
+    if (role === undefined || role === null) return {};
+    return { columns: { [storage.column]: lookup('roleName', ROLES_SOURCE, ctx, 'byValue', role) } };
+  },
+  merge({ columns }, storage, ctx) {
+    const id = columns?.[storage.column];
+    if (id === undefined || id === null) return {};
+    return { role: lookup('roleName', ROLES_SOURCE, ctx, 'byKey', Number(id)) };
+  },
+};
+
+// authorizer permid <-> persons.authorizer_person_id. Exact in both directions:
+// persons.permid is NOT NULL UNIQUE, and on versioned tables
+// swing_fks_to_new_version() keeps every foreign key pointing at the lineage head.
+const PERSONS_SOURCE = { table: 'persons', key: 'id', value: 'permid' };
+const personPermid = {
+  sources: [PERSONS_SOURCE],
+  split({ authorizer }, storage, ctx) {
+    if (authorizer === undefined || authorizer === null) return {};
+    return { columns: { [storage.column]: lookup('personPermid', PERSONS_SOURCE, ctx, 'byValue', authorizer) } };
+  },
+  merge({ columns }, storage, ctx) {
+    const id = columns?.[storage.column];
+    if (id === undefined || id === null) return {};
+    return { authorizer: lookup('personPermid', PERSONS_SOURCE, ctx, 'byKey', Number(id)) };
+  },
+};
+
+export const codecs = { wgs84Point, collectionReferences, roleName, personPermid };
 
 export function getCodec(name) {
   const codec = codecs[name];

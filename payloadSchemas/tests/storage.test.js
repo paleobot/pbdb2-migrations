@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { split, merge } from '../lib/storage.js';
+import { split, merge, collectCodecSources, loadCodecContext, isDictionarySource } from '../lib/storage.js';
 import { deriveVariant } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
 
@@ -103,4 +103,145 @@ test('split of an in-create-valid payload yields db-valid jsonb', () => {
     assert.equal(inCreate(p), true, JSON.stringify(inCreate.errors));
     assert.equal(db(split(source, p).jsonb), true, JSON.stringify(db.errors));
   }
+});
+
+// ---------- Codec context ----------
+// A source shaped like person's column-backed half. The codecs resolve against a
+// hand-built Map: split and merge do no I/O, so no database is involved.
+
+const personish = {
+  $id: 'https://pbdb2.example.com/schemas/personish.json',
+  type: 'object',
+  properties: {
+    permid: { type: 'string', readOnly: true, 'x-storage': { column: 'permid' } },
+    familyName: { type: 'string' },
+    role: {
+      type: 'string',
+      'x-enumFrom': { table: 'roles', column: 'name' },
+      'x-storage': { column: 'role_id', codec: 'roleName' },
+    },
+    authorizer: { type: 'string', 'x-storage': { column: 'authorizer_person_id', codec: 'personPermid' } },
+  },
+  unevaluatedProperties: false,
+};
+
+const fixtureContext = new Map([
+  ['dictionaries.roles', {
+    byKey: new Map([[3, 'Authorizer'], [6, 'Person']]),
+    byValue: new Map([['Authorizer', 3], ['Person', 6]]),
+  }],
+  ['persons', {
+    byKey: new Map([[1106, 'p-1106']]),
+    byValue: new Map([['p-1106', 1106]]),
+  }],
+]);
+
+test('collectCodecSources unions what the codecs declare, once each', () => {
+  assert.deepEqual(collectCodecSources(personish), [
+    { table: 'dictionaries.roles', key: 'id', value: 'name' },
+    { table: 'persons', key: 'id', value: 'permid' },
+  ]);
+  assert.deepEqual(collectCodecSources(source), []); // wgs84Point/collectionReferences declare none
+});
+
+test('collectCodecSources rejects an x-enumFrom that disagrees with the codec', () => {
+  const bad = structuredClone(personish);
+  bad.properties.role['x-enumFrom'] = { table: 'genders', column: 'name' };
+  assert.throws(() => collectCodecSources(bad), /role: x-enumFrom names dictionaries.genders but codec 'roleName' reads dictionaries.roles/);
+});
+
+test('roleName and personPermid resolve both directions from a fixture map', () => {
+  const { jsonb, columns } = split(
+    personish,
+    { familyName: 'f', role: 'Authorizer', authorizer: 'p-1106' },
+    fixtureContext,
+  );
+  assert.deepEqual(jsonb, { familyName: 'f' });
+  assert.equal(columns.role_id, 3);
+  assert.equal(columns.authorizer_person_id, 1106);
+
+  const merged = merge(
+    personish,
+    { jsonb: { familyName: 'f' }, columns: { role_id: 6, authorizer_person_id: 1106, permid: 'x' } },
+    fixtureContext,
+  );
+  assert.deepEqual(merged, { familyName: 'f', permid: 'x', role: 'Person', authorizer: 'p-1106' });
+});
+
+test('an absent role or authorizer emits no column', () => {
+  const { columns } = split(personish, { familyName: 'f' }, fixtureContext);
+  assert.deepEqual(columns, {});
+});
+
+test('an unresolved value throws naming the codec and the value', () => {
+  assert.throws(
+    () => split(personish, { role: 'Curator' }, fixtureContext),
+    /roleName: dictionaries.roles.name has no entry for "Curator"/,
+  );
+  assert.throws(
+    () => split(personish, { authorizer: 'p-nobody' }, fixtureContext),
+    /personPermid: persons.permid has no entry for "p-nobody"/,
+  );
+  assert.throws(
+    () => merge(personish, { jsonb: {}, columns: { role_id: 99 } }, fixtureContext),
+    /roleName: dictionaries.roles.id has no entry for 99/,
+  );
+});
+
+test('no context at all throws rather than dropping the property', () => {
+  assert.throws(() => split(personish, { role: 'Person' }), /roleName: no codec context loaded for dictionaries.roles/);
+  assert.throws(
+    () => merge(personish, { jsonb: {}, columns: { authorizer_person_id: 1106 } }),
+    /personPermid: no codec context loaded for persons/,
+  );
+});
+
+test('loadCodecContext reads dictionaries in full and restricts entity sources', async () => {
+  const issued = [];
+  const fakePg = {
+    async query(sql, params) {
+      issued.push({ sql, params });
+      if (sql.includes('roles')) return { rows: [{ k: 3, v: 'Authorizer' }, { k: 6, v: 'Person' }] };
+      return { rows: [{ k: 1106, v: 'p-1106' }] };
+    },
+  };
+  const sources = collectCodecSources(personish);
+  const ctx = await loadCodecContext(fakePg, sources, {
+    'dictionaries.roles': { column: 'id', values: [3] },  // ignored: dictionaries are never batched
+    persons: { column: 'id', values: [1106] },
+  });
+  assert.equal(issued[0].sql.includes('WHERE'), false, 'dictionary source read in full');
+  assert.match(issued[1].sql, /FROM "persons" WHERE "id" = ANY\(\$1\)/);
+  assert.deepEqual(issued[1].params, [[1106]]);
+  // One read fills both directions.
+  assert.equal(ctx.get('persons').byKey.get(1106), 'p-1106');
+  assert.equal(ctx.get('persons').byValue.get('p-1106'), 1106);
+  assert.equal(ctx.get('dictionaries.roles').byValue.get('Person'), 6);
+
+  // The restriction may run in the value direction, which is what split needs.
+  issued.length = 0;
+  await loadCodecContext(fakePg, sources, { persons: { column: 'permid', values: ['p-1106'] } });
+  assert.match(issued[1].sql, /WHERE "permid" = ANY\(\$1\)/);
+
+  await assert.rejects(
+    () => loadCodecContext(fakePg, sources, { persons: { column: 'person', values: [] } }),
+    /can be restricted on id or permid, not person/,
+  );
+});
+
+test('a reused context is not re-read, and each call returns a fresh Map', async () => {
+  let reads = 0;
+  const fakePg = { async query() { reads++; return { rows: [{ k: 6, v: 'Person' }] }; } };
+  const sources = collectCodecSources(personish);
+  const dicts = sources.filter(isDictionarySource);
+  const entities = sources.filter((s) => !isDictionarySource(s));
+
+  const runCtx = await loadCodecContext(fakePg, dicts);           // once for the run
+  assert.equal(reads, 1);
+  const batch1 = await loadCodecContext(fakePg, entities, { persons: { column: 'id', values: [6] } }, runCtx);
+  const batch2 = await loadCodecContext(fakePg, entities, { persons: { column: 'id', values: [6] } }, runCtx);
+  assert.equal(reads, 3, 'the dictionary was not re-read per batch');
+  assert.ok(batch1.has('dictionaries.roles') && batch2.has('dictionaries.roles'));
+  assert.notEqual(batch1, batch2);
+  assert.equal(runCtx.has('persons'), false, 'a batch does not accumulate into the run context');
 });

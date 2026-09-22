@@ -7,8 +7,8 @@ import { auditEntitiesFor, stepsByName, parseAuditSummary } from '../run-migrati
 const ALL = ['persons', 'pbot-persons', 'refs', 'pbot-refs', 'pbot-schemas', 'authorities',
   'authority-opinions', 'opinions', 'collections', 'specimens'];
 
-test('full run audits both entities', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen']);
+test('full run audits every entity', () => {
+  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen', 'person']);
 });
 
 test('--from collections audits both', () => {
@@ -19,8 +19,15 @@ test('--only specimens audits specimen only', () => {
   assert.deepEqual(auditEntitiesFor(stepsByName(['specimens'])), ['specimen']);
 });
 
-test('--only persons audits nothing', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(['persons'])), []);
+test('the person steps audit person', () => {
+  // persons became an audited table when person.schema.js was converted; both
+  // steps that write it now pull the person entity into the audit's scope.
+  assert.deepEqual(auditEntitiesFor(stepsByName(['persons'])), ['person']);
+  assert.deepEqual(auditEntitiesFor(stepsByName(['pbot-persons'])), ['person']);
+});
+
+test('a step writing no audited table audits nothing', () => {
+  assert.deepEqual(auditEntitiesFor(stepsByName(['refs'])), []);
 });
 
 test('summary lines are parsed per entity', () => {

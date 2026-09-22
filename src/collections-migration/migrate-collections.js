@@ -1,5 +1,6 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { normalizeName, loadAdmin0, resolveCountry } from '../lib/country.js';
 import { collectionSource } from '../../payloadSchemas/collection.schema.js';
 import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
@@ -20,44 +21,11 @@ function splitCsv(s) {
   return trimStr(s).split(',').map((x) => x.trim()).filter(Boolean);
 }
 
-// Casefold, strip diacritics (NFD + combining-mark removal), collapse
-// punctuation/whitespace to single spaces. Applied to both legacy values and
-// dictionary names so accented/punctuated variants match.
-export function normalizeName(s) {
-  if (s == null) return '';
-  return String(s)
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
+// normalizeName, COUNTRY_ALIASES and the admin0 loader moved to
+// src/lib/country.js when migrate-persons.js took up the same pipeline;
+// migration-script-layout requires that of a helper two migrations share.
 
 // ---------- Alias maps (normalized legacy value → code / name) ----------
-// Country name variants that don't normalize to a dictionary entry (D5).
-export const COUNTRY_ALIASES = new Map([
-  ['russian federation', 'RU'],
-  ['turkiye', 'TR'],
-  ['netherlands', 'NL'],
-  ['cape verde', 'CV'],
-  ['timor leste', 'TL'],
-  ['congo kinshasa', 'CD'],
-  ['congo brazzaville', 'CG'],
-  ['brunei darussalam', 'BN'],
-  ['micronesia federated states of', 'FM'],
-  ['falkland islands malvinas', 'FK'],
-  ['holy see vatican city state', 'VA'],
-  ['palestine', 'PS'],
-  ['bonaire sint eustatius and saba', 'BQ'],
-  ['virgin islands us', 'VI'],
-  ['virgin islands british', 'VG'],
-  ['cocos keeling islands', 'CC'],
-  ['aland islands', 'AX'],
-  ['saint barthelemy', 'BL'],
-  ['curacao', 'CW'],
-  ['virgin islands u s', 'VI'],
-  ['cote d ivoire', 'CI'],
-]);
 
 // State/province variants (extension point; seeded empty). Key: `${admin0iso}|${norm}`.
 export const STATE_ALIASES = new Map();
@@ -94,10 +62,8 @@ export function resolveToponym(src, dicts) {
 
   const cnorm = normalizeName(country);
 
-  // Land: normalized dictionary match, then COUNTRY_ALIASES.
-  let a0 = dicts.admin0ByNorm.get(cnorm);
-  const aliasIso = COUNTRY_ALIASES.get(cnorm);
-  if (!a0 && aliasIso) a0 = dicts.admin0ByIso.get(aliasIso);
+  // Land: normalized dictionary match, then the shared COUNTRY_ALIASES map.
+  const a0 = resolveCountry(cnorm, dicts);
 
   if (a0) {
     const administrativeArea = { admin0: a0.iso };
@@ -313,18 +279,7 @@ function makeSampleLogger(label) {
 
 // ---------- Dictionary pre-load (name → ISO lookup maps) ----------
 export async function loadDicts() {
-  const admin0ByNorm = new Map();
-  const admin0ByIso = new Map();
-  const admin0Isos = [];
-  const { rows: a0 } = await pg.query('SELECT id, iso, iso3, name FROM dictionaries.admin0');
-  for (const r of a0) {
-    const entry = { iso: r.iso, id: r.id };
-    admin0ByIso.set(r.iso, entry);
-    admin0Isos.push(r.iso);
-    if (r.name) admin0ByNorm.set(normalizeName(r.name), entry);
-    if (r.iso) admin0ByNorm.set(normalizeName(r.iso), entry);
-    if (r.iso3) admin0ByNorm.set(normalizeName(r.iso3), entry);
-  }
+  const { admin0ByNorm, admin0ByIso, admin0Isos } = await loadAdmin0(pg);
 
   const admin1ByKey = new Map();
   const admin1Isos = [];

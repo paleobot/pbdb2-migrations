@@ -3,8 +3,8 @@ import { collectionSource } from '../../../payloadSchemas/collection.schema.js';
 import { applyEnums } from '../../../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../../../payloadSchemas/lib/variants.js';
 import { createAjv } from '../../../payloadSchemas/lib/ajv.js';
+import { normalizeName } from '../../lib/country.js';
 import {
-  normalizeName,
   buildContext,
   resolveToponym,
   datumToSrid,

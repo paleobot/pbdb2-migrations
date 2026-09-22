@@ -1,5 +1,9 @@
 import { pg, closePg } from '../lib/pg-pool.js';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { personSource } from '../../payloadSchemas/person.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
@@ -56,11 +60,18 @@ function normalizeOrcid(orcid) {
 
 // --- Match cascade ---
 
+// The whole `person` object is selected, not just the two properties the
+// cascade compares: the backfills are applied to it in memory and it is written
+// back entire, so that one validated UPDATE replaces the three jsonb_set
+// statements this script used to issue. See
+// openspec/specs/pbot-person-migration/spec.md.
+const MATCH_COLUMNS = `id, person`;
+
 async function matchPerson(person, normalizedOrcid) {
   // 1. ORCID match
   if (normalizedOrcid) {
     const { rows } = await pg.query(
-      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE person->>'orcid' = $1`,
+      `SELECT ${MATCH_COLUMNS} FROM persons WHERE person->>'orcid' = $1`,
       [normalizedOrcid]
     );
     if (rows.length > 0) {
@@ -71,7 +82,7 @@ async function matchPerson(person, normalizedOrcid) {
   // 2. Email match (case-insensitive)
   if (person.email && person.email.trim()) {
     const { rows } = await pg.query(
-      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE lower(person->>'email') = lower($1)`,
+      `SELECT ${MATCH_COLUMNS} FROM persons WHERE lower(person->>'email') = lower($1)`,
       [person.email.trim()]
     );
     if (rows.length > 0) {
@@ -84,7 +95,7 @@ async function matchPerson(person, normalizedOrcid) {
   const surname = (person.surname || '').trim();
   if (given && surname) {
     const { rows } = await pg.query(
-      `SELECT id, person->>'email' AS email, person->>'orcid' AS orcid FROM persons WHERE lower(person->>'givenName') = lower($1) AND lower(person->>'familyName') = lower($2)`,
+      `SELECT ${MATCH_COLUMNS} FROM persons WHERE lower(person->>'givenName') = lower($1) AND lower(person->>'familyName') = lower($2)`,
       [given, surname]
     );
     if (rows.length === 1) {
@@ -103,6 +114,23 @@ async function matchPerson(person, normalizedOrcid) {
 async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting PBot persons migration...`);
+
+  // --- Resolve the schema (before any PBot data is fetched) ---
+
+  // Every `person` object this script writes -- inserted or backfilled -- is
+  // validated against the db variant first. Resolving up front means an empty or
+  // missing dictionary aborts before the GraphQL request rather than part way
+  // through the cascade. See openspec/specs/pbot-person-migration/spec.md.
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, personSource), 'db'));
+  console.log('  Person db schema resolved and compiled');
+
+  const validated = (person, label) => {
+    if (validate(person)) return person;
+    console.error(`  VALIDATION FAILED for ${label}`);
+    console.error('  errors:', JSON.stringify(validate.errors, null, 2));
+    console.error('  person:', JSON.stringify(person, null, 2));
+    throw new Error('payload failed person db-schema validation');
+  };
 
   // --- Fetch PBot persons ---
 
@@ -127,6 +155,8 @@ async function main() {
     inserted: 0,
     orcidBackfill: 0,
     emailBackfill: 0,
+    pbotIdBackfill: 0,
+    unchanged: 0,
   };
 
   for (const person of personsWithEmail) {
@@ -144,39 +174,49 @@ async function main() {
     }
 
     if (result.match) {
-      // Matched — backfill ORCID and email if needed
+      // Matched — apply the ORCID, email and pbotID backfills to the stored
+      // object in memory, then validate and write it once. Three jsonb_set
+      // statements wrote a shape no validator ever saw, and a validator at the
+      // insert site alone would never have covered them.
       const pgPerson = result.match;
       counts[`${result.method}Match`]++;
       console.log(`  Matched ${given} ${surname} → PG id=${pgPerson.id} (via ${result.method})`);
 
+      const updated = structuredClone(pgPerson.person);
+      let changed = false;
+
       // Backfill ORCID
-      if (normalizedOrcid && (!pgPerson.orcid || !pgPerson.orcid.trim())) {
-        await pg.query(
-          `UPDATE persons SET person = jsonb_set(person, '{orcid}', to_jsonb($1::text)) WHERE id = $2`,
-          [normalizedOrcid, pgPerson.id]
-        );
+      if (normalizedOrcid && !updated.orcid?.trim()) {
+        updated.orcid = normalizedOrcid;
+        changed = true;
         console.log(`    Backfilled ORCID → ${normalizedOrcid}`);
         counts.orcidBackfill++;
       }
 
       // Backfill email (only for ORCID or name matches — email matches already have it)
-      if (result.method !== 'email' && (!pgPerson.email || !pgPerson.email.trim())) {
-        await pg.query(
-          `UPDATE persons SET person = jsonb_set(person, '{email}', to_jsonb($1::text)) WHERE id = $2`,
-          [email, pgPerson.id]
-        );
+      if (result.method !== 'email' && !updated.email?.trim()) {
+        updated.email = email;
+        changed = true;
         console.log(`    Backfilled email → ${email}`);
         counts.emailBackfill++;
       }
 
-      // Backfill legacyIDs.pbotID
-      await pg.query(
-        `UPDATE persons SET person = person || jsonb_build_object('legacyIDs',
-          COALESCE(person->'legacyIDs', '{}'::jsonb) || jsonb_build_object('pbotID', $1::text)
-        ) WHERE id = $2`,
-        [person.pbotID, pgPerson.id]
-      );
-      console.log(`    Backfilled legacyIDs.pbotID → ${person.pbotID}`);
+      // Backfill legacyIDs.pbotID, preserving any existing legacyIDs (oldpbdbID)
+      if (updated.legacyIDs?.pbotID !== person.pbotID) {
+        updated.legacyIDs = { ...updated.legacyIDs, pbotID: person.pbotID };
+        changed = true;
+        console.log(`    Backfilled legacyIDs.pbotID → ${person.pbotID}`);
+        counts.pbotIdBackfill++;
+      }
+
+      if (changed) {
+        await pg.query(
+          `UPDATE persons SET person = $1 WHERE id = $2`,
+          [validated(updated, `PG id=${pgPerson.id}`), pgPerson.id]
+        );
+      } else {
+        counts.unchanged++;
+      }
     } else {
       // No match — insert new person with JSONB
       const personJsonb = {
@@ -203,7 +243,7 @@ async function main() {
         [
           uuidv7(),                // $1 permid (minted; never the pbotID)
           PERSON_ROLE_ID,          // $2 role_id
-          personJsonb,             // $3 person (JSONB)
+          validated(personJsonb, `PBot ${person.pbotID} (${given} ${surname})`), // $3 person (JSONB)
           AUTHORIZER_PERSON_ID,    // $4 authorizer_person_id
         ]
       );
@@ -229,7 +269,8 @@ async function main() {
   console.log(`  Match summary: ${counts.orcidMatch} by ORCID, ${counts.emailMatch} by email, ${counts.nameMatch} by name`);
   console.log(`  Ambiguous name matches skipped: ${counts.ambiguousSkip}`);
   console.log(`  New persons inserted: ${counts.inserted}`);
-  console.log(`  Backfills: ${counts.orcidBackfill} ORCIDs, ${counts.emailBackfill} emails`);
+  console.log(`  Backfills: ${counts.orcidBackfill} ORCIDs, ${counts.emailBackfill} emails, ${counts.pbotIdBackfill} pbotIDs`);
+  console.log(`  Matched persons needing no write: ${counts.unchanged}`);
   console.log(`[${endTime.toISOString()}] PBot persons migration complete in ${elapsed}s`);
 }
 

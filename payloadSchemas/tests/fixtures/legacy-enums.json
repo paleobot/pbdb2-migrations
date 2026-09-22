@@ -290,5 +290,11 @@
     "UWBM",
     "WAM",
     "YPM"
+  ],
+  "genders.name": [
+    "Male",
+    "Female",
+    "Other",
+    "Anonymous"
   ]
 }

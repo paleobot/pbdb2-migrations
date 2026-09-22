@@ -1,13 +1,16 @@
-// The real collection and specimen sources: every variant resolves and compiles
-// in strict mode, and the variant rules hold on them. DB-free (fixture enums).
+// The real collection, specimen and person sources: every variant resolves and
+// compiles in strict mode, and the variant rules hold on them. DB-free (fixture
+// enums).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as collectionModule from '../collection.schema.js';
 import * as specimenModule from '../specimen.schema.js';
+import * as personModule from '../person.schema.js';
 import { applyEnums } from '../lib/enums.js';
 import { deriveVariant, VARIANTS } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
+import { collectCodecSources } from '../lib/storage.js';
 
 const legacy = JSON.parse(readFileSync(new URL('./fixtures/legacy-enums.json', import.meta.url), 'utf8'));
 const specimenExample = JSON.parse(readFileSync(new URL('./fixtures/specimen-example.json', import.meta.url), 'utf8'));
@@ -15,16 +18,22 @@ const enums = new Map(Object.entries(legacy));
 enums.set('admin0.iso', ['US', 'CN', 'RU', 'AU', 'CA', 'FR']);
 enums.set('admin1.iso', ['US-MT', 'CA-AB']);
 enums.set('maritime.iho_name', ['Arctic Ocean']);
+enums.set('roles.name', ['Superadmin', 'Admin', 'Authorizer', 'Enterer', 'Student', 'Person']);
 
-const sources = { collection: collectionModule.collectionSource, specimen: specimenModule.specimenSource };
+const sources = {
+  collection: collectionModule.collectionSource,
+  specimen: specimenModule.specimenSource,
+  person: personModule.personSource,
+};
 const compile = (entity, variant) => createAjv().compile(deriveVariant(applyEnums(sources[entity], enums), variant));
 
 test('modules export only the annotated source', () => {
   assert.deepEqual(Object.keys(collectionModule).sort(), ['collectionSource', 'default']);
   assert.deepEqual(Object.keys(specimenModule).sort(), ['default', 'specimenSource']);
+  assert.deepEqual(Object.keys(personModule).sort(), ['default', 'personSource']);
 });
 
-test('every variant of both entities compiles in strict mode', () => {
+test('every variant of every entity compiles in strict mode', () => {
   for (const entity of Object.keys(sources)) for (const v of VARIANTS) assert.ok(compile(entity, v), `${entity}.${v}`);
 });
 
@@ -92,4 +101,69 @@ test('patch-guard on the real sources', () => {
 test('specimen example is a valid stored payload', () => {
   const validate = compile('specimen', 'db');
   assert.equal(validate(specimenExample), true, JSON.stringify(validate.errors));
+});
+
+// ---------- person ----------
+
+const PERSON_STORED_ELSEWHERE = ['permid', 'role', 'authorizer', 'active', 'totalHours'];
+const PERSON_READ_ONLY = ['permid', 'legacyIDs', 'totalHours'];
+
+const createPerson = () => ({ givenName: 'g', familyName: 'f', gender: 'Other', email: 'g@example.com' });
+
+test('person db drops every stored-elsewhere property and keeps the rest', () => {
+  const db = deriveVariant(applyEnums(sources.person, enums), 'db');
+  for (const name of PERSON_STORED_ELSEWHERE) assert.equal(name in db.properties, false, name);
+  assert.deepEqual(Object.keys(db.properties), [
+    'legacyIDs', 'givenName', 'familyName', 'middle', 'email', 'orcid', 'countryCode', 'institution', 'gender',
+  ]);
+  assert.deepEqual(db.required, ['familyName', 'givenName', 'gender']);
+  assert.equal('allOf' in db, false, 'x-create not merged into db');
+});
+
+test('person in-create requires email and rejects the server-assigned fields', () => {
+  const validate = compile('person', 'in-create');
+  assert.equal(validate(createPerson()), true, JSON.stringify(validate.errors));
+  const { email, ...noEmail } = createPerson();
+  assert.equal(validate(noEmail), false);
+  for (const name of PERSON_READ_ONLY) {
+    const value = name === 'legacyIDs' ? { oldpbdbID: '1' } : name === 'totalHours' ? 3 : 'x';
+    assert.equal(validate({ ...createPerson(), [name]: value }), false, name);
+  }
+  // Privileged but writable: settable on create, unlike the read-only three.
+  assert.equal(validate({ ...createPerson(), role: 'Authorizer', authorizer: 'p', active: true }), true, JSON.stringify(validate.errors));
+});
+
+test('person patch-guard blocks exactly the read-only three', () => {
+  const guard = deriveVariant(applyEnums(sources.person, enums), 'patch-guard');
+  assert.deepEqual(guard.propertyNames.not.enum, PERSON_READ_ONLY);
+  const validate = compile('person', 'patch-guard');
+  assert.equal(validate({ role: 'Student', authorizer: 'p', active: false }), true);
+  for (const name of PERSON_READ_ONLY) assert.equal(validate({ [name]: null }), false, name);
+});
+
+test('person carries no inline enum and no credentials field', () => {
+  const { properties } = sources.person;
+  for (const [name, prop] of Object.entries(properties)) assert.equal('enum' in prop, false, name);
+  assert.equal(properties.gender['x-enumFrom'].table, 'genders');
+  assert.equal(properties.role['x-enumFrom'].table, 'roles');
+  assert.equal(properties.countryCode['x-enumFrom'].table, 'admin0');
+  assert.equal('password' in properties, false);
+  assert.equal('createdAt' in properties, false);
+});
+
+test('person annotations carry no lookup detail; the codecs declare it', () => {
+  assert.deepEqual(sources.person.properties.role['x-storage'], { column: 'role_id', codec: 'roleName' });
+  assert.deepEqual(collectCodecSources(sources.person), [
+    { table: 'dictionaries.roles', key: 'id', value: 'name' },
+    { table: 'persons', key: 'id', value: 'permid' },
+  ]);
+});
+
+test('person and collection share one country vocabulary', () => {
+  const resolved = applyEnums(sources.person, enums);
+  const collection = applyEnums(sources.collection, enums);
+  assert.deepEqual(
+    resolved.properties.countryCode.enum,
+    collection.properties.location.properties.toponym.properties.administrativeArea.properties.admin0.enum,
+  );
 });
