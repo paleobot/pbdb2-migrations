@@ -84,9 +84,15 @@ With `--round-trip`, for every head row of an entity — every row, for an unver
 It SHALL count a violation when the split jsonb or any column or child value differs from the stored value after codec normalization.
 
 Where an entity's codecs declare lookup sources, the script SHALL pass a codec context to `merge` and `split`.
-Sources outside the `dictionaries` schema SHALL be selected per batch, from the key values that batch holds,
-so that no entity table is read more broadly than the batch references. Sources in the `dictionaries` schema
-SHALL be read once for the run and reused across batches.
+Sources in the `dictionaries` schema SHALL be read once for the run and reused across batches. For every other
+source the script SHALL select per batch, from the key values that batch holds, when `codecKeyColumns` names
+the columns those keys come from, so that no entity table is read more broadly than the batch references; and
+SHALL pre-load the source once for the run when it does not.
+
+`refs` is pre-loaded. `collectionReferences` is annotated `{ table, codec }`, so it contributes no key columns,
+and the refs a batch cites are split between `collections.reference_id` and the pre-loaded child rows. Reading
+it whole is also the cheaper choice: the lookup is 93,944 rows of `(bigint, uuid)`, while selecting it per
+batch would issue 56 queries across a collections audit.
 
 #### Scenario: Stable round trip
 - **WHEN** `--round-trip` runs on a freshly migrated database
@@ -100,6 +106,10 @@ SHALL be read once for the run and reused across batches.
 - **WHEN** `--round-trip` runs on person
 - **THEN** each row's `role`, `authorizer`, `active`, `totalHours` and `permid` are rebuilt from the columns, validated against `out`, and split back to the values stored
 
+#### Scenario: Collection round trip rebuilds its citations as permids
+- **WHEN** `--round-trip` runs on collection
+- **THEN** each row's `references[]` is rebuilt as reference permids, validated against `out`, and split back to the same `collections.reference_id` and the same `additional_collection_refs` rows that are stored
+
 #### Scenario: Entity source is selected per batch
 - **WHEN** a person batch of 5,000 rows is round-tripped
 - **THEN** the `persons` lookup reads only the ids that batch references
@@ -107,3 +117,7 @@ SHALL be read once for the run and reused across batches.
 #### Scenario: Dictionary source is read once for the run
 - **WHEN** an entity is round-tripped across several batches
 - **THEN** `dictionaries.roles` is read once and reused, not re-read per batch
+
+#### Scenario: Unaddressable source is read once for the run
+- **WHEN** 275,554 collections are round-tripped in 5,000-row batches
+- **THEN** `refs` is read once for the run and reused, not once per batch, because `collectionReferences` offers no key columns to select on

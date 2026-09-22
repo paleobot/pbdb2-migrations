@@ -442,7 +442,7 @@ collectionProperties.references = {
         properties: {
             referenceID: {
                 type: "string",
-                description: "Reference unique identifier"
+                description: "permid of the cited reference"
             },
             order: {
                 type: "string",

@@ -38,9 +38,12 @@ const sourceKey = ({ table, key, value }) => `${table}.${key}->${value}`;
 function checkSource(codecName, source) {
   const shown = JSON.stringify(source);
   if (!isObject(source)) throw new Error(`${codecName}: a declared source must be { table, key, value }: ${shown}`);
-  const keys = Object.keys(source).sort().join(',');
+  const keys = Object.keys(source).filter((k) => k !== 'versioned').sort().join(',');
   if (keys !== 'key,table,value') {
-    throw new Error(`${codecName}: a declared source must have exactly the keys table, key and value: ${shown}`);
+    throw new Error(`${codecName}: a declared source must have exactly the keys table, key and value (and optionally versioned): ${shown}`);
+  }
+  if ('versioned' in source && source.versioned !== true) {
+    throw new Error(`${codecName}: a source's versioned flag, when given, must be true: ${shown}`);
   }
   for (const part of [...String(source.table).split('.'), source.key, source.value]) {
     if (!IDENT.test(part)) throw new Error(`${codecName}: unsafe identifier in source ${shown}`);
@@ -64,7 +67,7 @@ function checkEnumAgreement(name, prop, sources) {
   }
 }
 
-// Every distinct { table, key, value } the source's codecs declare.
+// Every distinct { table, key, value[, versioned] } the source's codecs declare.
 export function collectCodecSources(schema) {
   const seen = new Map();
   const visit = (node) => {
@@ -111,6 +114,11 @@ export const isDictionarySource = (source) => source.table.startsWith('dictionar
 
 // Map each source's table to { byKey, byValue }, both filled by one read.
 //
+// A source declaring `versioned: true` is read from lineage heads only. Every
+// version of a row shares its permid, so value -> key is a function only over
+// the heads; byKey is built from them too, so a stored id naming a superseded
+// row throws in the codec rather than resolving quietly.
+//
 // `selection` is { <table>: { column, values } }: the column being restricted on
 // — the source's `key` when the caller starts from a stored id, its `value` when
 // it starts from a payload value such as a permid — and the values to restrict
@@ -127,18 +135,20 @@ export const isDictionarySource = (source) => source.table.startsWith('dictionar
 export async function loadCodecContext(pg, sources, selection = {}, reuse) {
   const ctx = new Map(reuse);
   for (const source of sources) {
-    const { table, key, value } = checkSource('loadCodecContext', source);
+    const { table, key, value, versioned } = checkSource('loadCodecContext', source);
     if (ctx.has(table)) continue;
     const restrict = isDictionarySource(source) ? undefined : selection[table];
-    let sql = `SELECT "${key}" AS k, "${value}" AS v FROM ${quoted(table)}`;
+    const where = versioned ? ['succeeded_by_id IS NULL'] : [];
     const params = [];
     if (restrict) {
       if (restrict.column !== key && restrict.column !== value) {
         throw new Error(`loadCodecContext: ${table} can be restricted on ${key} or ${value}, not ${restrict.column}`);
       }
-      sql += ` WHERE "${restrict.column}" = ANY($1)`;
+      where.push(`"${restrict.column}" = ANY($1)`);
       params.push([...restrict.values]);
     }
+    let sql = `SELECT "${key}" AS k, "${value}" AS v FROM ${quoted(table)}`;
+    if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
     let rows;
     try {
       ({ rows } = await pg.query(sql, params));

@@ -52,22 +52,31 @@ const wgs84Point = {
 // table has no order column, so order is normalized: split sorts by numeric
 // `order`, the first goes to the column, the rest become child rows in sequence;
 // merge emits the primary as order "1" and child rows by ascending id as "2"...
+//
+// referenceID is the reference's permid; the columns hold refs.id. refs is
+// versioned and every version shares one permid, so the source is read from
+// lineage heads only, which is what makes permid -> id a function. refs.id is a
+// bigint, which node-postgres returns as a string, so ids are keyed as strings.
+const REFS_SOURCE = { table: 'refs', key: 'id', value: 'permid', versioned: true };
 const collectionReferences = {
-  split({ references }, storage) {
+  sources: [REFS_SOURCE],
+  split({ references }, storage, ctx) {
     if (references === undefined || references === null) return {};
     const sorted = [...references].sort((a, b) => Number(a.order) - Number(b.order));
+    const toId = (r) => String(lookup('collectionReferences', REFS_SOURCE, ctx, 'byValue', r.referenceID));
     const [primary, ...rest] = sorted;
     return {
-      columns: { reference_id: primary ? String(primary.referenceID) : null },
-      children: { [storage.table]: rest.map((r) => ({ reference_id: String(r.referenceID) })) },
+      columns: { reference_id: primary ? toId(primary) : null },
+      children: { [storage.table]: rest.map((r) => ({ reference_id: toId(r) })) },
     };
   },
-  merge({ columns, children }, storage) {
+  merge({ columns, children }, storage, ctx) {
     const primary = columns?.reference_id;
     if (primary === null || primary === undefined) return {};
+    const toPermid = (id) => lookup('collectionReferences', REFS_SOURCE, ctx, 'byKey', String(id));
     const rows = [...(children?.[storage.table] ?? [])].sort((a, b) => Number(a.id) - Number(b.id));
-    const references = [{ referenceID: String(primary), order: '1' }];
-    rows.forEach((r, i) => references.push({ referenceID: String(r.reference_id), order: String(i + 2) }));
+    const references = [{ referenceID: toPermid(primary), order: '1' }];
+    rows.forEach((r, i) => references.push({ referenceID: toPermid(r.reference_id), order: String(i + 2) }));
     return { references };
   },
 };
@@ -90,8 +99,9 @@ const roleName = {
 };
 
 // authorizer permid <-> persons.authorizer_person_id. Exact in both directions:
-// persons.permid is NOT NULL UNIQUE, and on versioned tables
-// swing_fks_to_new_version() keeps every foreign key pointing at the lineage head.
+// persons is unversioned and its permid is NOT NULL UNIQUE, so permid -> id is a
+// function. That does not carry over to a versioned table, where every version
+// shares one permid; see REFS_SOURCE for how that case is made exact.
 const PERSONS_SOURCE = { table: 'persons', key: 'id', value: 'permid' };
 const personPermid = {
   sources: [PERSONS_SOURCE],

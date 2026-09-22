@@ -122,13 +122,16 @@ async function auditEntity(pg, entry, opts) {
   const validateOut = opts.roundTrip ? ajv.compile(deriveVariant(resolved, 'out')) : null;
   const readOnly = rootReadOnly(entry.source);
 
-  // Codec lookups, where this entity has any: the dictionary sources once for the
-  // run, the entity sources per batch from the keys that batch holds.
+  // Codec lookups, where this entity has any. A source is selected per batch from
+  // the keys that batch holds when the annotations name the columns those keys
+  // sit in. Dictionaries, and any source with no such columns (refs, whose keys
+  // sit in both a column and child rows), are read once for the run instead.
   const codecSources = opts.roundTrip ? collectCodecSources(entry.source) : [];
-  const entitySources = codecSources.filter((s) => !isDictionarySource(s));
   const keyColumns = codecKeyColumns(entry.source);
+  const preloaded = (s) => isDictionarySource(s) || !keyColumns.has(s.table);
+  const entitySources = codecSources.filter((s) => !preloaded(s));
   const runCtx = codecSources.length
-    ? await loadCodecContext(pg, codecSources.filter(isDictionarySource))
+    ? await loadCodecContext(pg, codecSources.filter(preloaded))
     : undefined;
 
   const result = {
@@ -159,7 +162,7 @@ async function auditEntity(pg, entry, opts) {
         const selection = {};
         for (const source of entitySources) {
           const values = new Set();
-          for (const col of keyColumns.get(source.table) ?? []) {
+          for (const col of keyColumns.get(source.table)) {
             for (const row of rows) if (row.head && row[col] !== null && row[col] !== undefined) values.add(row[col]);
           }
           selection[source.table] = { column: source.key, values: [...values] };

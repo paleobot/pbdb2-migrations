@@ -203,15 +203,17 @@ normalization.
 ### Requirement: A codec declares the lookup sources it needs
 A codec that cannot be computed from the payload alone SHALL declare a `sources` array. Each entry SHALL be
 `{ table: <qualified name>, key: <column>, value: <column> }`, naming a table to read and the two columns
-that form the mapping. `x-storage` SHALL NOT carry the lookup's table or columns: the annotation keeps the
-three forms the annotation vocabulary defines, and the codec is what knows its own source.
+that form the mapping, and MAY carry `versioned: true` to declare that the table holds a succession lineage.
+`x-storage` SHALL NOT carry the lookup's table or columns: the annotation keeps the three forms the annotation
+vocabulary defines, and the codec is what knows its own source.
 
 `collectCodecSources(source)` SHALL walk the source's `x-storage` codecs and return the union of their
 declared sources, with duplicates removed.
 
 `codecKeyColumns(source)` SHALL return, per looked-up table, the `x-storage` columns whose values are that
 source's keys, so that a caller reading rows in batches can build its selection by following the annotations
-rather than by naming the columns itself.
+rather than by naming the columns itself. A codec whose `x-storage` names a child table rather than a column
+contributes nothing, and a caller SHALL read such a source in full rather than per batch.
 
 When a property carries both `x-enumFrom` and a codec declaring a source in the `dictionaries` schema, the
 two SHALL name the same table. Source validation SHALL throw naming the property when they do not, because
@@ -229,26 +231,37 @@ the accepted values and the stored key would otherwise be free to drift apart.
 - **WHEN** a property carries `x-enumFrom: { table: "genders", column: "name" }` and a codec declaring `dictionaries.roles`
 - **THEN** source validation throws naming that property
 
+#### Scenario: A child-table codec offers no key columns
+- **WHEN** `codecKeyColumns(collectionSource)` is called
+- **THEN** it returns no entry for `refs`, because `collectionReferences` is annotated `{ table, codec }` and the refs a batch cites live both in `collections.reference_id` and in the child rows
+
 ### Requirement: The codec context is loaded per selection and applied purely
 `loadCodecContext(pg, sources, selection, reuse)` SHALL return a `Map` from each source's table name to
 `{ byKey, byValue }` lookup maps, both populated from one read per source.
 
+A source declaring `versioned: true` SHALL be read with its superseded rows excluded, so that both `byKey` and
+`byValue` are built from lineage heads only. On such a table many rows share one permid and `value → key` is
+not a function; only the head restriction makes it one. Excluding superseded rows from `byKey` as well is
+deliberate: foreign keys into a versioned table always denote the head, so nothing is lost, and a stored id
+that does not resolve is a violated invariant that SHALL surface as a throw rather than resolve quietly.
+
 `reuse` SHALL be an already-loaded context that seeds the result, and a source whose table it already holds
 SHALL NOT be read again. Each call SHALL return a new `Map`, so that one batch's selection never accumulates
-into the next one's. This is how a caller iterating in batches obeys the dictionary rule below: it loads its
-dictionary sources once, then passes that context as `reuse` on every batch.
+into the next one's.
 
 `selection` SHALL name, per source, the column being restricted on and the values to restrict to, so that the
 table is read by `WHERE <column> = ANY($1)` rather than in full. The restriction SHALL be expressible in
 either direction: on the source's `key` column, which is what `merge` needs when it starts from a stored
 column, and on its `value` column, which is what `split` needs when it starts from a payload — resolving a
-permid to a `persons.id`, for instance, restricts on `permid`. A source omitted from `selection` SHALL be read
+permid to a `refs.id`, for instance, restricts on `permid`. A source omitted from `selection` SHALL be read
 in full.
 
 A source whose table is in the `dictionaries` schema SHALL be read once per run, in full, and SHALL NOT be
-restricted per batch: these are curated vocabularies, and `dictionaries.roles` holds six rows. Every other
-source SHALL be read per selection, so that a caller iterating a large table in batches never loads more of a
-looked-up table than the batch references.
+restricted per batch: these are curated vocabularies, and `dictionaries.roles` holds six rows. For every other
+source the caller SHALL decide: one it can build a selection for SHALL be restricted per batch, so that
+iterating a large table never loads more of a looked-up table than the batch references; one it cannot SHALL
+be pre-loaded once for the run. Size is not the criterion — a lookup table is what is loaded, and it is
+routinely far smaller than the number of rows citing it.
 
 `split` and `merge` SHALL perform no I/O. A caller SHALL be able to supply a hand-built `Map` in place of a
 loaded one, so that codecs are testable without a database, as `applyEnums` already is.
@@ -260,8 +273,8 @@ A codec SHALL throw, naming the codec and the unresolved value, when the context
 - **THEN** one query reads only the `persons` ids appearing in that batch
 
 #### Scenario: Restriction in the value direction
-- **WHEN** a caller is about to `split` payloads naming authorizers by permid
-- **THEN** it may select on the source's `value` column, and `persons` is read by `WHERE permid = ANY($1)`
+- **WHEN** a caller is about to `split` payloads naming references by permid
+- **THEN** it may select on the source's `value` column, and `refs` is read by `WHERE permid = ANY($1)`
 
 #### Scenario: One read serves both directions
 - **WHEN** a batch is merged and then split back
@@ -270,6 +283,14 @@ A codec SHALL throw, naming the codec and the unresolved value, when the context
 #### Scenario: Dictionary source is not batched
 - **WHEN** an audit of 275,554 collections runs in 5,000-row batches against a source in `dictionaries`
 - **THEN** that source is read once for the run and passed to each batch as `reuse`, not read once per batch
+
+#### Scenario: Versioned source resolves to the head
+- **WHEN** a permid is held by both a superseded ref and its head
+- **THEN** the context maps that permid to the head's `id`, and the superseded row appears in neither map
+
+#### Scenario: Unversioned source is not filtered
+- **WHEN** a source does not declare `versioned`
+- **THEN** no succession filter is applied, and a source such as `persons` resolves by its `UNIQUE` permid alone
 
 #### Scenario: Selection columns follow the annotations
 - **WHEN** `codecKeyColumns(personSource)` is called
@@ -304,20 +325,46 @@ On merge it SHALL accept the column as GeoJSON (as selected by `ST_AsGeoJSON(loc
 - **THEN** `split` throws
 
 ### Requirement: `collectionReferences` codec
-The `collectionReferences` codec SHALL, on split:
-- sort `references[]` by numeric `order`;
-- emit the first entry's `referenceID` as `columns.reference_id`;
-- emit the remaining entries, in sequence, as `additional_collection_refs` rows carrying `reference_id`.
+The `collectionReferences` codec SHALL declare the source
+`{ table: "refs", key: "id", value: "permid", versioned: true }`.
 
-On merge it SHALL emit the primary reference with `order: "1"`, followed by child rows ordered by `additional_collection_refs.id` ascending with `order: "2"`, `"3"`, and so on. `referenceID` SHALL carry `refs.id` as a string.
+On split it SHALL:
+- sort `references[]` by numeric `order`;
+- resolve the first entry's `referenceID` permid to that reference's head `id` and emit it as `columns.reference_id`;
+- resolve the remaining entries' permids and emit them, in sequence, as `additional_collection_refs` rows carrying `reference_id`.
+
+On merge it SHALL emit the primary reference with `order: "1"`, followed by child rows ordered by
+`additional_collection_refs.id` ascending with `order: "2"`, `"3"`, and so on, mapping each stored
+`reference_id` back to that reference's `permid`.
+
+`referenceID` SHALL carry a reference's permid, not `refs.id`. This project exposes permids rather than
+internal ids, and a collection's citation of a reference is the last converted payload field still carrying
+one. The storage topology is unchanged: the primary still occupies `collections.reference_id`, the rest are
+still `additional_collection_refs` rows, and those rows still have no order column, so order is still
+re-derived on merge.
+
+An unresolvable permid on split, or an unresolvable `reference_id` on merge, SHALL throw naming
+`collectionReferences` and the value.
 
 #### Scenario: Order normalized on round trip
 - **WHEN** a payload with references ordered `"1"` and `"5"` is split and merged back
 - **THEN** the merged references carry orders `"1"` and `"2"` with the same `referenceID`s in the same sequence
 
 #### Scenario: Primary goes to the column
-- **WHEN** a payload's references are `[{ referenceID: "12", order: "2" }, { referenceID: "7", order: "1" }]`
-- **THEN** `columns.reference_id` is `'7'` and one child row carries `reference_id` `'12'` (ids travel as strings, as node-postgres returns bigint)
+- **WHEN** a payload's references are `[{ referenceID: "<permid-B>", order: "2" }, { referenceID: "<permid-A>", order: "1" }]` and those permids belong to `refs.id` 7 and 12 respectively
+- **THEN** `columns.reference_id` is `7` and one child row carries `reference_id` `12`
+
+#### Scenario: Merge yields permids
+- **WHEN** a stored collection has `reference_id = 7` and one child row with `reference_id = 12`
+- **THEN** the merged payload's `references[]` carries those two references' permids, and no `refs.id` appears anywhere in the payload
+
+#### Scenario: Superseded reference is never cited
+- **WHEN** the ref at `id = 7` is superseded by a new version sharing its permid
+- **THEN** splitting a payload naming that permid yields the new head's `id`, not `7`
+
+#### Scenario: Unknown reference permid
+- **WHEN** a payload names a `referenceID` permid held by no reference
+- **THEN** `split` throws naming `collectionReferences` and that permid
 
 ### Requirement: `roleName` codec
 The `roleName` codec SHALL declare the source `{ table: "dictionaries.roles", key: "id", value: "name" }`.
@@ -343,15 +390,19 @@ roles route.
 - **THEN** `split` throws naming `roleName` and `'Curator'`
 
 ### Requirement: `personPermid` codec
-The `personPermid` codec SHALL declare the source `{ table: "persons", key: "id", value: "permid" }`.
+The `personPermid` codec SHALL declare the source `{ table: "persons", key: "id", value: "permid" }`, without
+`versioned`, because `persons` holds no succession lineage.
 
 On split it SHALL map the payload's `authorizer` permid to that person's `id` in
 `columns.authorizer_person_id`. On merge it SHALL map `columns.authorizer_person_id` to that person's
 `permid`. An absent `authorizer` on split SHALL emit no column.
 
-Resolving a permid to an `id` is exact rather than approximate: `persons.permid` is `NOT NULL UNIQUE`, and on
-versioned tables `swing_fks_to_new_version()` keeps every foreign key pointing at the lineage head, so an id
-and a permid name the same row in both directions.
+Resolving a permid to an `id` is exact rather than approximate, and two separate facts make it so. On
+`persons`, which is unversioned, `permid` is `NOT NULL UNIQUE`, so at most one row bears it and the reverse
+direction is a function. That reasoning does not transfer: on a versioned table every version shares one
+permid, `UNIQUE` is absent by design, and it is the head restriction of the requirement above that makes the
+reverse direction a function. What `swing_fks_to_new_version()` provides is the forward direction — it keeps
+every foreign key pointing at the lineage head, so a stored id always denotes the head on either kind of table.
 
 #### Scenario: Permid to id
 - **WHEN** a person payload names an `authorizer` whose permid belongs to `persons.id = 1106`
@@ -364,6 +415,7 @@ and a permid name the same row in both directions.
 #### Scenario: Unknown permid
 - **WHEN** a payload names an `authorizer` permid held by no person
 - **THEN** `split` throws naming `personPermid` and that permid
+
 ### Requirement: A shared ajv factory registers the annotations
 `createAjv()` SHALL return an ajv instance for draft 2019-09 with `allErrors: true` and `strict: true`, except `strictRequired: false`. `x-create` merges as an `allOf` entry whose `required` names properties defined on the parent node, which that check rejects. `x-enumFrom`, `x-storage`, `x-create`, and `x-variant` (the root marker `deriveVariant` sets) SHALL be registered as annotation keywords, so that every variant compiles in strict mode. The converted migrations and the audit SHALL obtain their validators from `createAjv()`.
 
