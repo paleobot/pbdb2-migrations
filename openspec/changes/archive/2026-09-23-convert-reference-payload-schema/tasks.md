@@ -53,4 +53,4 @@
 
 - [x] 7.1 Confirm the seven delta specs match what was implemented, amending them if implementation revealed anything different
 - [x] 7.2 Run `openspec validate convert-reference-payload-schema`
-- [ ] 7.3 Sync deltas into `openspec/specs/` via `/opsx:sync` or at archive time
+- [x] 7.3 Sync deltas into `openspec/specs/` via `/opsx:sync` or at archive time

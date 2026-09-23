@@ -142,11 +142,11 @@ anything if any check fails:
 2. **Connectivity.** The PostgreSQL connection succeeds, and the MariaDB connection succeeds if any
    selected step requires it.
 3. **Dictionaries.** All 22 `dictionaries.*` tables — `genders`, `roles`, `interval_types`, `zone_types`,
-   `taxonomy_ranks`, `reference_types`, `book_types`, `parts_preserved`, `notable_features`,
-   `namechange_reasons`, `nomenclatural_statuses`, `admin0`, `admin1`, `maritime`, and the payload
-   vocabularies `collection_methods`, `coordinate_bases`, `geographic_scales`, `lithologies`,
-   `lithology_adjectives`, `dating_methods`, `preservation_modes`, `institution_codes` — exist and are
-   non-empty.
+   `taxonomy_ranks`, `book_types`, `parts_preserved`, `notable_features`, `namechange_reasons`,
+   `nomenclatural_statuses`, `admin0`, `admin1`, `maritime`, and the payload vocabularies
+   `collection_methods`, `coordinate_bases`, `geographic_scales`, `lithologies`, `lithology_adjectives`,
+   `dating_methods`, `preservation_modes`, `institution_codes`, `languages` — exist and are non-empty.
+   `reference_types` is not among them: it no longer exists.
 4. **First-writer emptiness.** Every target table that a selected step is the *first* writer of is empty.
 5. **Required input files.** Every file a selected step reads from disk exists and is readable. Each step
    SHALL declare its input files, and the runner SHALL check the declared paths rather than inferring
@@ -179,6 +179,10 @@ anything if any check fails:
 #### Scenario: Unseeded payload vocabulary is caught up front
 - **WHEN** the target database has the schema created but `dictionaries.lithologies` is empty
 - **THEN** preflight fails naming that table, rather than the `collections` step failing at enum resolution after eight steps have loaded
+
+#### Scenario: Unseeded languages is caught up front
+- **WHEN** the target database has the schema created but `dictionaries.languages` is empty
+- **THEN** preflight fails naming that table, rather than the `refs` step failing at enum resolution
 
 ### Requirement: Per-step preconditions assert what earlier steps produced
 Immediately before spawning each step, the runner SHALL assert that step's preconditions against the
@@ -370,7 +374,7 @@ audited table, the block SHALL say so. The block SHALL end with the overall outc
 - **THEN** the run's block records the audit's exit code and, per entity, rows checked and violations
 
 ### Requirement: The runner audits stored payloads after the last selected step
-After the last selected step has passed its postconditions, the runner SHALL spawn `src/audit-payloads.js` as a child process, as it does for steps. The audit SHALL be scoped the same way postconditions are: the runner passes one `--entity` for each audit-registry entity whose table is written by a selected step (per the tables-written list in the postconditions requirement). Today `collections` → `collection` and `specimens` → `specimen`.
+After the last selected step has passed its postconditions, the runner SHALL spawn `src/audit-payloads.js` as a child process, as it does for steps. The audit SHALL be scoped the same way postconditions are: the runner passes one `--entity` for each audit-registry entity whose table is written by a selected step (per the tables-written list in the postconditions requirement). Today `persons` → `person`, `refs` → `reference`, `collections` → `collection` and `specimens` → `specimen`; the `pbot-persons` and `pbot-refs` steps write the same tables as `persons` and `refs`.
 
 - When no selected step writes an audited table, the runner SHALL NOT spawn the audit, and it SHALL record in the run log that no audited tables were written.
 - A non-zero audit exit SHALL be a run failure: the runner reports it and exits non-zero.
@@ -379,7 +383,7 @@ After the last selected step has passed its postconditions, the runner SHALL spa
 
 #### Scenario: Full run audits every audited entity
 - **WHEN** `specimens` passes its postconditions in a full run
-- **THEN** the runner spawns the audit with `--entity collection --entity specimen` and reports the run successful only if the audit exits 0
+- **THEN** the runner spawns the audit with one `--entity` for each of `collection`, `specimen`, `person` and `reference`, and reports the run successful only if the audit exits 0
 
 #### Scenario: Audit failure fails the run
 - **WHEN** every step succeeds but the audit reports a violation
@@ -390,10 +394,14 @@ After the last selected step has passed its postconditions, the runner SHALL spa
 - **THEN** the audit is spawned with `--entity specimen` only, and `collections` is not read
 
 #### Scenario: Run that writes no audited table
-- **WHEN** the runner is invoked with `--only persons`
+- **WHEN** the runner is invoked with `--only authorities`
 - **THEN** the audit is not spawned, and the run log records that no audited tables were written
 
 #### Scenario: No audit after a failure
 - **WHEN** `collections` fails its postconditions
 - **THEN** the runner halts without spawning the audit
+
+#### Scenario: The refs steps audit reference
+- **WHEN** the runner is invoked with `--only refs` or `--only pbot-refs`
+- **THEN** the audit is spawned with `--entity reference` only
 

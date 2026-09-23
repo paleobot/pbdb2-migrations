@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the in-database version-succession triggers that place new entity versions in their lineage and swing foreign-key references onto them on insert.
-
 ## Requirements
-
 ### Requirement: FK references swing to new version on insert
 When a new version of a versioned entity is inserted (i.e., a row with `preceded_by_id IS NOT NULL`), the system SHALL automatically update all foreign key columns in other tables that reference the old version's `id` to point to the new version's `id`.
 
@@ -113,7 +111,7 @@ Rationale: versioned tables consume `id` values per edit, not per entity, so `in
 - **THEN** that column SHALL be of type `bigint`
 
 #### Scenario: References to bounded tables stay integer
-- **WHEN** a column is a foreign key to `persons.id` or a `dictionaries.*` id (e.g. `authorizer_person_id`, `reference_type_id`)
+- **WHEN** a column is a foreign key to `persons.id` or a `dictionaries.*` id (e.g. `authorizer_person_id`, `enterer_person_id`)
 - **THEN** that column SHALL remain `integer`
 
 ### Requirement: Version-trigger helper functions operate on bigint identifiers
@@ -126,3 +124,4 @@ The `swing_fks_to_new_version` function SHALL accept `bigint` for its `old_id` a
 #### Scenario: Lineage placement handles bigint head ids
 - **WHEN** `place_in_lineage` looks up the current lineage head's `id`
 - **THEN** it SHALL hold that id in a `bigint` variable
+

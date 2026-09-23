@@ -2,14 +2,12 @@
 
 ## Purpose
 Define `src/audit-payloads.js`: validating every stored jsonb payload of the converted entities against the resolved `db` variant, reporting violations, and, with `--round-trip`, checking that merge and split reproduce each stored row. It is the after-the-fact guard that stands in for deferred database-level validation.
-
 ## Requirements
-
 ### Requirement: Audit every stored payload against the resolved `db` variant
 `src/audit-payloads.js` SHALL hold a registry of audited entities. Each entry names the entity, table, jsonb
 column, and annotated source, and SHALL state whether the entity's table is versioned. The registry SHALL
-contain collection (`collections.collection`), specimen (`specimens.specimen`) and person (`persons.person`).
-Collection and specimen are versioned; person is not.
+contain collection (`collections.collection`), specimen (`specimens.specimen`), person (`persons.person`) and
+reference (`refs.reference`). Collection, specimen and reference are versioned; person is not.
 
 For each entry the script SHALL:
 - resolve and compile the `db` variant once;
@@ -31,6 +29,10 @@ rather than audit anything. `permid` SHALL still be selected for every entry.
 #### Scenario: Unversioned entity is read without a head expression
 - **WHEN** the person entry is read
 - **THEN** the query selects `id`, `permid` and the `person` column and no `succeeded_by_id` expression, and every row in `persons` is validated
+
+#### Scenario: Every stored ref validates at rest
+- **WHEN** the reference entry is audited on a freshly migrated database
+- **THEN** every row is checked (93,946 on 2026-09-23: 93,705 PBDB and 241 PBot, a number the live PBot API grows), reported as heads and superseded, with zero violations, including the PBDB refs that carry a field their type does not allow on create
 
 ### Requirement: The audit reports violations and exits accordingly
 The script SHALL print, per entity:
@@ -96,7 +98,7 @@ batch would issue 56 queries across a collections audit.
 
 #### Scenario: Stable round trip
 - **WHEN** `--round-trip` runs on a freshly migrated database
-- **THEN** every head collection and specimen, and every person, round-trips with zero differences
+- **THEN** every head collection, specimen and reference, and every person, round-trips with zero differences
 
 #### Scenario: Codec defect detected
 - **WHEN** a codec swaps latitude and longitude on merge
@@ -121,3 +123,8 @@ batch would issue 56 queries across a collections audit.
 #### Scenario: Unaddressable source is read once for the run
 - **WHEN** 275,554 collections are round-tripped in 5,000-row batches
 - **THEN** `refs` is read once for the run and reused, not once per batch, because `collectionReferences` offers no key columns to select on
+
+#### Scenario: Reference round trip needs no codec context
+- **WHEN** `--round-trip` runs on reference
+- **THEN** each head row's `permid` is rebuilt from its column, the payload validates against `out`, and the split jsonb equals the stored jsonb; no codec source is loaded, because the reference source declares none
+
