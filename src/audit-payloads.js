@@ -17,6 +17,7 @@ import { collectionSource } from '../payloadSchemas/collection.schema.js';
 import { specimenSource } from '../payloadSchemas/specimen.schema.js';
 import { personSource } from '../payloadSchemas/person.schema.js';
 import { referenceSource } from '../payloadSchemas/reference.schema.js';
+import { authoritySource } from '../payloadSchemas/authority.schema.js';
 import { resolveEnums } from '../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../payloadSchemas/lib/variants.js';
 import { createAjv } from '../payloadSchemas/lib/ajv.js';
@@ -71,6 +72,15 @@ export const REGISTRY = [
     source: referenceSource,
     versioned: true,
     columns: ['permid'],
+    children: [],
+  },
+  {
+    entity: 'authority',
+    table: 'authorities',
+    column: 'authority',
+    source: authoritySource,
+    versioned: true,
+    columns: ['permid', 'reference_id'],
     children: [],
   },
 ];
@@ -134,8 +144,9 @@ async function auditEntity(pg, entry, opts) {
 
   // Codec lookups, where this entity has any. A source is selected per batch from
   // the keys that batch holds when the annotations name the columns those keys
-  // sit in. Dictionaries, and any source with no such columns (refs, whose keys
-  // sit in both a column and child rows), are read once for the run instead.
+  // sit in. Dictionaries, and any source with no such columns (refs for collection,
+  // whose keys sit in both a column and child rows), are read once for the run
+  // instead. Authority names refs by a column, so its refs are selected per batch.
   const codecSources = opts.roundTrip ? collectCodecSources(entry.source) : [];
   const keyColumns = codecKeyColumns(entry.source);
   const preloaded = (s) => isDictionarySource(s) || !keyColumns.has(s.table);

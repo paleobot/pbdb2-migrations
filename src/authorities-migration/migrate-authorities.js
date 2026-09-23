@@ -1,14 +1,13 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
 import { uuidv7 } from '../lib/uuidv7.js';
-import Ajv from 'ajv/dist/2019.js';
-import { authoritySchema } from '../../payloadSchemas/authority.schema.js';
+import { authoritySource } from '../../payloadSchemas/authority.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 import { buildCitationFromFields, buildDescriptorsFromFields } from '../lib/authorities-builders.js';
 
 const INSERT_BATCH_SIZE = 1000;
 const LOG_SAMPLE_LIMIT = 20;
-
-const ajv = new Ajv({ allErrors: true, strict: false });
-const validate = ajv.compile(authoritySchema);
 
 // ---------- Pure transforms ----------
 // buildCitationFromFields / buildDescriptorsFromFields (and the decodeEntities they
@@ -93,6 +92,9 @@ async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting authorities migration...`);
 
+  // The jsonb at rest: permid and reference are columns, so the db variant has neither.
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, authoritySource), 'db'));
+
   // Pre-load: refs (head version only)
   const { rows: refRows } = await pg.query(`
     SELECT id,
@@ -173,8 +175,7 @@ async function main() {
       const payload = buildAuthorityPayload(src, scenario, scenario === '1' ? refEntry : null);
 
       // Pre-DB-write validation (abort on failure)
-      const wrapper = { authority: payload };
-      if (!validate(wrapper)) {
+      if (!validate(payload)) {
         console.error(`\n  VALIDATION FAILED for taxon_no=${src.taxon_no}`);
         console.error('  errors:', JSON.stringify(validate.errors, null, 2));
         console.error('  payload:', JSON.stringify(payload, null, 2));

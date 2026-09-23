@@ -8,7 +8,7 @@ const ALL = ['persons', 'pbot-persons', 'refs', 'pbot-refs', 'pbot-schemas', 'au
   'authority-opinions', 'opinions', 'collections', 'specimens'];
 
 test('full run audits every entity', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen', 'person', 'reference']);
+  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen', 'person', 'reference', 'authority']);
 });
 
 test('--from collections audits both', () => {
@@ -31,8 +31,12 @@ test('the refs steps audit reference', () => {
   assert.deepEqual(auditEntitiesFor(stepsByName(['pbot-refs'])), ['reference']);
 });
 
+test('the authorities step audits authority', () => {
+  assert.deepEqual(auditEntitiesFor(stepsByName(['authorities'])), ['authority']);
+});
+
 test('a step writing no audited table audits nothing', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(['authorities'])), []);
+  assert.deepEqual(auditEntitiesFor(stepsByName(['authority-opinions'])), []);
 });
 
 test('summary lines are parsed per entity', () => {

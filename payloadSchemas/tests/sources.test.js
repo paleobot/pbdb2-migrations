@@ -1,4 +1,4 @@
-// The real collection, specimen, person and reference sources: every variant resolves and
+// The real collection, specimen, person, reference and authority sources: every variant resolves and
 // compiles in strict mode, and the variant rules hold on them. DB-free (fixture
 // enums).
 import { test } from 'node:test';
@@ -8,6 +8,7 @@ import * as collectionModule from '../collection.schema.js';
 import * as specimenModule from '../specimen.schema.js';
 import * as personModule from '../person.schema.js';
 import * as referenceModule from '../reference.schema.js';
+import * as authorityModule from '../authority.schema.js';
 import { applyEnums } from '../lib/enums.js';
 import { deriveVariant, VARIANTS } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
@@ -28,6 +29,7 @@ const sources = {
   specimen: specimenModule.specimenSource,
   person: personModule.personSource,
   reference: referenceModule.referenceSource,
+  authority: authorityModule.authoritySource,
 };
 const compile = (entity, variant) => createAjv().compile(deriveVariant(applyEnums(sources[entity], enums), variant));
 
@@ -35,6 +37,7 @@ test('modules export only the annotated source', () => {
   assert.deepEqual(Object.keys(collectionModule).sort(), ['collectionSource', 'default']);
   assert.deepEqual(Object.keys(specimenModule).sort(), ['default', 'specimenSource']);
   assert.deepEqual(Object.keys(personModule).sort(), ['default', 'personSource']);
+  assert.deepEqual(Object.keys(authorityModule).sort(), ['authoritySource', 'default']);
   // Plus the publication type table, which the PBot refs migration filters fields by.
   assert.deepEqual(Object.keys(referenceModule).sort(), ['PUBLICATION_TYPES', 'SHARED_FIELDS', 'default', 'referenceSource']);
 });
@@ -294,4 +297,66 @@ test('reference exposes no provenance columns and declares no codec', () => {
   for (const name of ['authorizer', 'enterer', 'authorizerPersonID', 'entererPersonID']) assert.equal(name in properties, false, name);
   assert.deepEqual(properties.permid['x-storage'], { column: 'permid' });
   assert.deepEqual(collectCodecSources(sources.reference), []);
+});
+
+// ---------- authority ----------
+
+const storedAuthority = () => ({
+  legacyIDs: { oldpbdbIDs: ['478544', '478546'] },
+  citation: 'Brazidec and Perrichot 2022',
+  descriptors: ['Brazidec', 'Perrichot'],
+  year: '2022',
+  publishedInReference: true,
+});
+const createAuthority = () => ({ reference: 'r-1', citation: 'Gaudry 1865', descriptors: ['Gaudry'], year: '1865', publishedInReference: false });
+
+test('authority db declares neither permid nor reference and requires only the legacy two', () => {
+  const db = deriveVariant(sources.authority, 'db');
+  assert.deepEqual(Object.keys(db.properties), ['legacyIDs', 'citation', 'descriptors', 'year', 'publishedInReference']);
+  assert.deepEqual(db.required, ['citation', 'publishedInReference']);
+  assert.equal('allOf' in db, false, 'x-create not merged into db');
+});
+
+test('authority db: stored and sentinel payloads pass; legacy rules still hold', () => {
+  const validate = compile('authority', 'db');
+  assert.equal(validate(storedAuthority()), true, JSON.stringify(validate.errors));
+  const sentinel = { legacyIDs: { oldpbdbIDs: ['12'] }, citation: 'authority unknown', descriptors: [], year: '0', publishedInReference: false };
+  assert.equal(validate(sentinel), true, JSON.stringify(validate.errors));
+  const { year, ...noYear } = storedAuthority();
+  assert.equal(validate(noYear), true);
+  const { citation, ...noCitation } = storedAuthority();
+  const { publishedInReference, ...noPir } = storedAuthority();
+  assert.equal(validate(noCitation), false);
+  assert.equal(validate(noPir), false);
+  assert.equal(validate({ ...storedAuthority(), year: '19690' }), false);
+  assert.equal(validate({ ...storedAuthority(), extinct: true }), false);
+  assert.equal(validate({ ...storedAuthority(), reference: 'r-1' }), false, 'reference lives in a column');
+  assert.equal(validate({ ...storedAuthority(), descriptors: [1] }), false);
+});
+
+test('authority in-create requires reference and a four-digit year when one is given', () => {
+  const validate = compile('authority', 'in-create');
+  assert.equal(validate(createAuthority()), true, JSON.stringify(validate.errors));
+  const { reference, ...noReference } = createAuthority();
+  assert.equal(validate(noReference), false);
+  assert.ok(validate.errors.some((e) => e.params?.missingProperty === 'reference'));
+  assert.equal(validate({ ...createAuthority(), year: '0' }), false);
+  assert.equal(validate({ ...createAuthority(), year: 'abc' }), false);
+  assert.equal(validate({ ...createAuthority(), year: '1969' }), true);
+  // The sentinel stays enterable, without a year.
+  assert.equal(validate({ reference: 'r-1', citation: 'authority unknown', descriptors: [], publishedInReference: false }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...createAuthority(), permid: 'x' }), false);
+  assert.equal(validate({ ...createAuthority(), legacyIDs: { oldpbdbIDs: ['1'] } }), false);
+});
+
+test('authority patch-guard blocks exactly permid and legacyIDs', () => {
+  const guard = deriveVariant(sources.authority, 'patch-guard');
+  assert.deepEqual(guard.propertyNames.not.enum, ['permid', 'legacyIDs']);
+  assert.equal(compile('authority', 'patch-guard')({ reference: 'r-2', year: '1999' }), true);
+});
+
+test('authority out requires reference', () => {
+  const validate = compile('authority', 'out');
+  assert.equal(validate({ ...storedAuthority(), permid: 'a-1', reference: 'r-1' }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...storedAuthority(), permid: 'a-1' }), false);
 });

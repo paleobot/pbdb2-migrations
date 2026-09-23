@@ -81,6 +81,21 @@ const collectionReferences = {
   },
 };
 
+// reference permid <-> a single refs.id column (authorities.reference_id). The
+// scalar counterpart of collectionReferences, over the same heads-only source.
+const referencePermid = {
+  sources: [REFS_SOURCE],
+  split({ reference }, storage, ctx) {
+    if (reference === undefined || reference === null) return {};
+    return { columns: { [storage.column]: String(lookup('referencePermid', REFS_SOURCE, ctx, 'byValue', reference)) } };
+  },
+  merge({ columns }, storage, ctx) {
+    const id = columns?.[storage.column];
+    if (id === undefined || id === null) return {};
+    return { reference: lookup('referencePermid', REFS_SOURCE, ctx, 'byKey', String(id)) };
+  },
+};
+
 // role name <-> persons.role_id. The payload carries the role's name and never
 // its id: this project exposes permids rather than internal ids, dictionaries.roles
 // has no permid, and a bare id means nothing to a client without a roles route.
@@ -116,7 +131,7 @@ const personPermid = {
   },
 };
 
-export const codecs = { wgs84Point, collectionReferences, roleName, personPermid };
+export const codecs = { wgs84Point, collectionReferences, referencePermid, roleName, personPermid };
 
 export function getCodec(name) {
   const codec = codecs[name];

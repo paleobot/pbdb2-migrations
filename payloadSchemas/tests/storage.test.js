@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { split, merge, collectCodecSources, loadCodecContext, isDictionarySource } from '../lib/storage.js';
+import { split, merge, collectCodecSources, loadCodecContext, isDictionarySource, codecKeyColumns } from '../lib/storage.js';
+import { authoritySource } from '../authority.schema.js';
 import { deriveVariant } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
 
@@ -159,6 +160,34 @@ test('a superseded reference is never cited: its permid resolves to the head', a
   assert.deepEqual(children.additional_collection_refs, [{ reference_id: '12' }]);
   // A stored id naming a superseded row is a violated invariant, and says so.
   assert.throws(() => merge(source, { jsonb: {}, columns: { reference_id: '7' } }, ctx), /refs.id has no entry for "7"/);
+});
+
+// ---------- referencePermid (authority) ----------
+
+test('referencePermid resolves permid to id and back, and no refs.id reaches the payload', () => {
+  const { jsonb, columns } = split(authoritySource, { reference: 'r-7', citation: 'c', publishedInReference: true }, refs);
+  assert.equal(columns.reference_id, '7');
+  assert.deepEqual(jsonb, { citation: 'c', publishedInReference: true });
+  const merged = merge(authoritySource, { jsonb, columns: { permid: 'a-1', reference_id: '7' } }, refs);
+  assert.equal(merged.reference, 'r-7');
+  assert.equal(merged.permid, 'a-1');
+});
+
+test('referencePermid resolves a superseded reference to its head', () => {
+  // Built as a loaded context would be: ref 7 superseded by 20, heads only.
+  const heads = refsContext([['20', 'r-7']]);
+  assert.equal(split(authoritySource, { reference: 'r-7' }, heads).columns.reference_id, '20');
+  assert.throws(() => merge(authoritySource, { jsonb: {}, columns: { reference_id: '7' } }, heads), /referencePermid: refs.id has no entry for "7"/);
+});
+
+test('referencePermid: absent emits nothing; unknown permid throws naming the codec', () => {
+  assert.deepEqual(split(authoritySource, { citation: 'c' }, refs).columns, {});
+  assert.deepEqual(merge(authoritySource, { jsonb: {}, columns: { reference_id: null } }, refs), {});
+  assert.throws(() => split(authoritySource, { reference: 'r-nobody' }, refs), /referencePermid: refs.permid has no entry for "r-nobody"/);
+});
+
+test('codecKeyColumns maps refs to authorities.reference_id', () => {
+  assert.deepEqual(codecKeyColumns(authoritySource), new Map([['refs', new Set(['reference_id'])]]));
 });
 
 // ---------- Codec context ----------

@@ -374,7 +374,7 @@ audited table, the block SHALL say so. The block SHALL end with the overall outc
 - **THEN** the run's block records the audit's exit code and, per entity, rows checked and violations
 
 ### Requirement: The runner audits stored payloads after the last selected step
-After the last selected step has passed its postconditions, the runner SHALL spawn `src/audit-payloads.js` as a child process, as it does for steps. The audit SHALL be scoped the same way postconditions are: the runner passes one `--entity` for each audit-registry entity whose table is written by a selected step (per the tables-written list in the postconditions requirement). Today `persons` → `person`, `refs` → `reference`, `collections` → `collection` and `specimens` → `specimen`; the `pbot-persons` and `pbot-refs` steps write the same tables as `persons` and `refs`.
+After the last selected step has passed its postconditions, the runner SHALL spawn `src/audit-payloads.js` as a child process, as it does for steps. The audit SHALL be scoped the same way postconditions are: the runner passes one `--entity` for each audit-registry entity whose table is written by a selected step (per the tables-written list in the postconditions requirement). Today `persons` → `person`, `refs` → `reference`, `authorities` → `authority`, `collections` → `collection` and `specimens` → `specimen`; the `pbot-persons` and `pbot-refs` steps write the same tables as `persons` and `refs`.
 
 - When no selected step writes an audited table, the runner SHALL NOT spawn the audit, and it SHALL record in the run log that no audited tables were written.
 - A non-zero audit exit SHALL be a run failure: the runner reports it and exits non-zero.
@@ -383,7 +383,7 @@ After the last selected step has passed its postconditions, the runner SHALL spa
 
 #### Scenario: Full run audits every audited entity
 - **WHEN** `specimens` passes its postconditions in a full run
-- **THEN** the runner spawns the audit with one `--entity` for each of `collection`, `specimen`, `person` and `reference`, and reports the run successful only if the audit exits 0
+- **THEN** the runner spawns the audit with one `--entity` for each of `collection`, `specimen`, `person`, `reference` and `authority`, and reports the run successful only if the audit exits 0
 
 #### Scenario: Audit failure fails the run
 - **WHEN** every step succeeds but the audit reports a violation
@@ -394,7 +394,7 @@ After the last selected step has passed its postconditions, the runner SHALL spa
 - **THEN** the audit is spawned with `--entity specimen` only, and `collections` is not read
 
 #### Scenario: Run that writes no audited table
-- **WHEN** the runner is invoked with `--only authorities`
+- **WHEN** the runner is invoked with `--only authority-opinions`
 - **THEN** the audit is not spawned, and the run log records that no audited tables were written
 
 #### Scenario: No audit after a failure
@@ -404,4 +404,8 @@ After the last selected step has passed its postconditions, the runner SHALL spa
 #### Scenario: The refs steps audit reference
 - **WHEN** the runner is invoked with `--only refs` or `--only pbot-refs`
 - **THEN** the audit is spawned with `--entity reference` only
+
+#### Scenario: The authorities step audits authority
+- **WHEN** the runner is invoked with `--only authorities`
+- **THEN** the audit is spawned with `--entity authority` only
 

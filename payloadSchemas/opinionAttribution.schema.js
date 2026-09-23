@@ -7,12 +7,12 @@ DRAFT — companion to postgresql/taxa-opinions-draft.sql, which is itself a dra
 for discussion and has never been run. Delete this file if the opinion tables'
 `attribution` column does not survive review.
 
-This exists because the opinion tables must NOT reuse authoritySchema. That
+This exists because the opinion tables must NOT reuse authoritySource. That
 schema describes an *authority record*: it carries legacyIDs.oldpbdbIDs and
 publishedInReference, both meaningless on an opinion, and it sets
 unevaluatedProperties: false, so it cannot be borrowed without dragging them in.
 
-Deliberately AUTHORS ONLY — there is no `year` here, even though authoritySchema
+Deliberately AUTHORS ONLY — there is no `year` here, even though authoritySource
 has one. The publication year lives in the opinion tables' own `pubyr` integer
 column because derive() sorts on it: every input to derive() is a typed,
 constrained, indexable column, and everything else is payload. Putting the year
