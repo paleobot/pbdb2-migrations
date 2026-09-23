@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseArgs, roundTripDifferences, REGISTRY, UsageError } from '../audit-payloads.js';
 
 test('defaults to every entity', () => {
-  assert.deepEqual(parseArgs([]), { entities: ['collection', 'specimen', 'person'], sample: 10, roundTrip: false });
+  assert.deepEqual(parseArgs([]), { entities: ['collection', 'specimen', 'person', 'reference'], sample: 10, roundTrip: false });
 });
 
 test('single and repeated --entity', () => {
@@ -12,21 +12,22 @@ test('single and repeated --entity', () => {
   assert.deepEqual(parseArgs(['--entity', 'specimen', '--entity', 'specimen']).entities, ['specimen']);
 });
 
-test('person is a valid entity', () => {
+test('person and reference are valid entities', () => {
   assert.deepEqual(parseArgs(['--entity', 'person']).entities, ['person']);
+  assert.deepEqual(parseArgs(['--entity', 'reference']).entities, ['reference']);
 });
 
 test('unknown entity lists the valid names', () => {
   assert.throws(
-    () => parseArgs(['--entity', 'reference']),
-    (err) => err instanceof UsageError && /collection, specimen, person/.test(err.message),
+    () => parseArgs(['--entity', 'opinion']),
+    (err) => err instanceof UsageError && /collection, specimen, person, reference/.test(err.message),
   );
 });
 
 test('the registry states whether each entity is versioned', () => {
   assert.deepEqual(
     REGISTRY.map((r) => [r.entity, r.versioned]),
-    [['collection', true], ['specimen', true], ['person', false]],
+    [['collection', true], ['specimen', true], ['person', false], ['reference', true]],
   );
 });
 

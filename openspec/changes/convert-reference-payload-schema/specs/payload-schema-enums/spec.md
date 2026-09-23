@@ -77,9 +77,11 @@ the foreign keys are to `id`.
 so resolution cannot change any validation outcome. `roles` SHALL NOT join the snapshot, because no schema
 ever held its values inline and there is no legacy array to reproduce.
 
-`book_types` SHALL join the snapshot: it is seeded `('monograph'),('compendium'),('Ph.D. thesis'),
-('M.S. thesis'),('guidebook')`, byte-identical and in the same order as the reference schema's inline
-`bookType` enum.
+`book_types` SHALL be seeded with the reference schema's inline `bookType` enum, in order —
+`('monograph'),('compendium'),('Ph.D. thesis'),('M.S. thesis'),('guidebook')` — followed by `('other')`. PBot's
+book types are not PBDB's (`thesis`, with no level, and `other`), and a PBot value with no match here is stored
+as `other` (see `pbot-refs-migration`). Because of that addition `book_types` SHALL NOT join the snapshot,
+which would otherwise assert that `other` is absent.
 
 `languages` SHALL be seeded in the order of the reference schema's inline `language` enum with one deliberate
 divergence: `Portuguese` in place of the legacy `Portugese`. It SHALL NOT join the snapshot, because a snapshot
@@ -106,9 +108,9 @@ would assert the misspelling this table exists to correct. The refs migration wr
 - **WHEN** the seed-fidelity test reads `dictionaries.genders.name` ordered by `id`
 - **THEN** it equals `["Male", "Female", "Other", "Anonymous"]`, the array the person schema previously held inline
 
-#### Scenario: Book types seed matches the enum it replaces
-- **WHEN** the seed-fidelity test reads `dictionaries.book_types.name` ordered by `id`
-- **THEN** it equals `["monograph", "compendium", "Ph.D. thesis", "M.S. thesis", "guidebook"]`
+#### Scenario: Book types extends the enum it replaces and has no snapshot
+- **WHEN** `dictionaries.book_types.name` is read ordered by `id`
+- **THEN** it equals `["monograph", "compendium", "Ph.D. thesis", "M.S. thesis", "guidebook", "other"]`, and the seed-fidelity test asserts nothing about it
 
 #### Scenario: Roles has no snapshot
 - **WHEN** the seed-fidelity test runs

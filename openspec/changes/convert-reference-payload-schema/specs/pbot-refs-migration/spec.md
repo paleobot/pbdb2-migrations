@@ -55,7 +55,7 @@ The script SHALL construct the `reference` JSONB column from PBot Reference fiel
 | `publicationNumber` | `journalNumber` | When publicationType is "journal article" |
 | `publisher` | `publisher` | When non-null |
 | `bookTitle` | `bookTitle` | When non-null |
-| `bookType` | `bookType` | When non-null |
+| `bookType` | `bookType` | When non-null; a value not in `dictionaries.book_types.name` becomes `other` |
 | `editors` | `editors` | When non-null |
 | `doi` | `doi` | When non-null |
 | `firstPage` / `lastPage` | `pages: {first, last}` | When firstPage is non-null and numeric |
@@ -110,6 +110,14 @@ entries), while PBDB's are bibliographic history.
 #### Scenario: Placeholder publisher dropped from an unpublished ref
 - **WHEN** a PBot Reference of type `unpublished` has `publisher = 'PBot'`
 - **THEN** the JSONB has no `publisher`, and the log names the `pbotID`, `publisher` and `"PBot"`
+
+#### Scenario: Unmatched book type becomes other
+- **WHEN** a PBot Reference of type `standalone book` has `bookType = 'thesis'`
+- **THEN** the JSONB contains `bookType: "other"`, and the log names the `pbotID` and the original value
+
+#### Scenario: Matching book type is kept
+- **WHEN** a PBot Reference of type `standalone book` has `bookType = 'monograph'`
+- **THEN** the JSONB contains `bookType: "monograph"`
 
 #### Scenario: Catch-all keeps every field
 - **WHEN** a PBot Reference of type `other` has `publisher = 'Geological Society of America'`

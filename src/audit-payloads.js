@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { collectionSource } from '../payloadSchemas/collection.schema.js';
 import { specimenSource } from '../payloadSchemas/specimen.schema.js';
 import { personSource } from '../payloadSchemas/person.schema.js';
+import { referenceSource } from '../payloadSchemas/reference.schema.js';
 import { resolveEnums } from '../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../payloadSchemas/lib/variants.js';
 import { createAjv } from '../payloadSchemas/lib/ajv.js';
@@ -61,6 +62,15 @@ export const REGISTRY = [
     // payload declares totalHours a number, so it is cast here rather than
     // failing the out variant on the first person who has one.
     columns: ['permid', 'role_id', 'authorizer_person_id', 'active', 'total_hours::float8 AS total_hours'],
+    children: [],
+  },
+  {
+    entity: 'reference',
+    table: 'refs',
+    column: 'reference',
+    source: referenceSource,
+    versioned: true,
+    columns: ['permid'],
     children: [],
   },
 ];

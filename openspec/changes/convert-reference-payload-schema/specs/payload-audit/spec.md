@@ -29,7 +29,7 @@ rather than audit anything. `permid` SHALL still be selected for every entry.
 
 #### Scenario: Every stored ref validates at rest
 - **WHEN** the reference entry is audited on a freshly migrated database
-- **THEN** all 93,944 rows are checked, reported as heads and superseded, with zero violations, including the PBDB refs that carry a field their type does not allow on create
+- **THEN** every row is checked (93,946 on 2026-09-23: 93,705 PBDB and 241 PBot, a number the live PBot API grows), reported as heads and superseded, with zero violations, including the PBDB refs that carry a field their type does not allow on create
 
 
 ### Requirement: Round-trip mode verifies split and merge on stored data

@@ -43,10 +43,12 @@ it.
   the column; the types are a closed set the schema's branching depends on, which `payload-schema-enums`
   already says stays inline.
 - **`bookType` becomes `x-enumFrom: book_types.name`**, with `dictionaries.book_types.book_type` renamed to
-  `name`. It drives no logic, so it is an open vocabulary.
+  `name`. It drives no logic, so it is an open vocabulary. `book_types` gains `other`, which PBot book types
+  with no match here (`thesis`, `other`) are stored as.
 - **New `dictionaries.languages`** (`name`, correctly spelled), and `language` becomes `x-enumFrom` on it.
   The 363 refs stored as `"Portugese"` are written as `"Portuguese"` by the migration.
-- **`migrate-refs.js`** stops writing `reference_type_id`, maps `Portugese` → `Portuguese`, and validates
+- **`migrate-refs.js`** stops writing `reference_type_id`, maps `Portugese` → `Portuguese`, writes a first
+  page of 0 as 1 (4 refs), and validates
   each jsonb against the `db` variant, as the collection, specimen and person migrations do.
 - **`migrate-pbot-refs.js`** stops writing `reference_type_id`, applies its two type aliases
   (`contributed article in edited book` → `article in edited collection`, `edited book of contributed
@@ -83,8 +85,7 @@ None.
 ## Impact
 
 **Payload schemas**: `payloadSchemas/reference.schema.js` (rewritten); `payloadSchemas/tests/` (source,
-variant and per-type rule coverage; seed fidelity for `book_types`); `payloadSchemas/tests/fixtures/
-legacy-enums.json` gains `book_types`.
+variant and per-type rule coverage).
 
 **Migrations**: `src/refs-migration/migrate-refs.js`, `src/pbot-refs-migration/migrate-pbot-refs.js`.
 

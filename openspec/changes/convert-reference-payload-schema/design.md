@@ -137,8 +137,13 @@ ref has.
 ### D5 — `bookType` and `language` are open vocabularies
 
 `bookType` drives no logic, so it becomes `x-enumFrom: { table: "book_types", column: "name" }`. The column
-`book_type` is renamed to `name`, the convention since `convert-person-payload-schema` D5. Its seed is
-byte-identical to the inline enum it replaces, so it joins the seed-fidelity snapshot.
+`book_type` is renamed to `name`, the convention since `convert-person-payload-schema` D5.
+
+PBot's book types are not PBDB's: 5 PBot standalone books carry `thesis` (3, with no level to choose between
+`Ph.D. thesis` and `M.S. thesis`) or `other` (2), found when the new `db` variant was run over the stored refs.
+`book_types` gains `other`, appended after the legacy values, and `migrate-pbot-refs.js` stores any PBot
+`bookType` not in `book_types` as `other`, logging the original. The seed therefore extends the legacy enum,
+and like `languages` it does not join the snapshot.
 
 `language` becomes `x-enumFrom: { table: "languages", column: "name" }` on a new
 `dictionaries.languages` (`id` identity, `name text NOT NULL UNIQUE`), seeded in the legacy order with one
@@ -209,6 +214,13 @@ and neither type has a field for one.
 ref, and moves `title` into `x-create` on the strength of how many refs lack one. Fixing the loss here means
 that count is measured once, on the corrected data.
 
+### D10 — A first page of 0 is written as 1
+
+Four PBDB refs (11244, 52520, 62283, 88689) have `firstpage = 0`, found when the new `db` variant was run
+over the stored refs. `pages.first` has `minimum: 1`, so the refs migration would abort on them. Pages are
+numbered from 1 and a range starting at 0 almost certainly means the first page, so the migration writes 1
+and logs the `reference_no`. The schema's minimum is left as it is, so a create body still cannot send page 0.
+
 ## Risks / Trade-offs
 
 **Refs forces the PATCH policy** → Around 15,600 stored refs would fail `in-create`. If merged PATCH documents
@@ -239,7 +251,7 @@ Edit `postgresql/create_new.sql`, rebuild the target from scratch, and re-run th
 path; Aurora databases are rebuilt, not patched. The collections step is unaffected: it resolves
 `reference_no → refs.id` and `collectionReferences` reads `refs.permid`, neither of which changes.
 
-Verify: seed fidelity passes (`book_types` included, `languages` excluded); both refs migrations report zero
+Verify: seed fidelity passes (`book_types` and `languages` excluded); both refs migrations report zero
 `db` violations; `migrate-pbot-refs.js` logs exactly the expected drops; `--round-trip` is clean across
 collection, specimen, person and reference; no stored ref has `language = 'Portugese'` or a
 `publicationType` outside the enum; exactly 542 refs have no `title`, and none is a standalone book or edited

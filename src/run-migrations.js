@@ -217,14 +217,15 @@ const STEP_NAMES = STEPS.map((s) => s.name);
 
 // Seeded by postgresql/create_new.sql. Every migration reads at least one of these,
 // so an unseeded target fails partway through the pipeline rather than at the start.
-// The last eight are payload vocabularies (x-enumFrom sources) that the
-// collections and specimens steps resolve into their validation schemas.
+// The last nine are payload vocabularies (x-enumFrom sources) that the
+// collections, specimens and refs steps resolve into their validation schemas.
 const DICTIONARY_TABLES = [
   'genders', 'roles', 'interval_types', 'zone_types', 'taxonomy_ranks',
-  'reference_types', 'book_types', 'parts_preserved', 'notable_features',
+  'book_types', 'parts_preserved', 'notable_features',
   'namechange_reasons', 'nomenclatural_statuses', 'admin0', 'admin1', 'maritime',
   'collection_methods', 'coordinate_bases', 'geographic_scales', 'lithologies',
   'lithology_adjectives', 'dating_methods', 'preservation_modes', 'institution_codes',
+  'languages',
 ];
 
 // --- Argument parsing -------------------------------------------------------

@@ -105,6 +105,29 @@ The script SHALL map the legacy `pubtitle` column to a type-specific jsonb field
 - **WHEN** a ref maps to "standalone book" and has a non-blank `reftitle`
 - **THEN** its `pubtitle` is not written to any jsonb field
 
+### Requirement: Pages mapping
+The script SHALL map `firstpage` and `lastpage` to a jsonb `pages` object with integer `first` and `last` properties. If either value is non-numeric, the script SHALL skip the `pages` object and log a warning.
+
+A `firstpage` of `0` SHALL be written as `first: 1` and logged with the `reference_no`. Pages are numbered from
+1 and the schema requires `first ≥ 1`; four legacy refs (11244, 52520, 62283, 88689) begin their range at 0,
+which is taken to mean the first page.
+
+#### Scenario: Numeric pages
+- **WHEN** a ref has `firstpage = '100'` and `lastpage = '150'`
+- **THEN** the jsonb contains `pages: {first: 100, last: 150}`
+
+#### Scenario: Only firstpage
+- **WHEN** a ref has `firstpage = '100'` and `lastpage` is NULL or empty
+- **THEN** the jsonb contains `pages: {first: 100, last: 100}`
+
+#### Scenario: Non-numeric pages
+- **WHEN** a ref has `firstpage = 'iv'`
+- **THEN** the `pages` object is omitted and the script logs a warning with the `reference_no` and raw values
+
+#### Scenario: First page zero
+- **WHEN** a ref has `firstpage = '0'` and `lastpage = '140'`
+- **THEN** the jsonb contains `pages: {first: 1, last: 140}` and the script logs the `reference_no`
+
 ### Requirement: Language mapping
 The script SHALL map the legacy `language` enum to the values of `dictionaries.languages.name` (Chinese, English, French, German, Italian, Japanese, Portuguese, Russian, Spanish, other, unknown). The legacy value `Portugese` SHALL map to `Portuguese`. Legacy values not in the target vocabulary SHALL map to "other". NULL SHALL map to "unknown".
 

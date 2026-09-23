@@ -1,8 +1,13 @@
 import { mariadb, pg, closeAll } from '../lib/db.js';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { referenceSource } from '../../payloadSchemas/reference.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 // --- Publication type mapping ---
-// Legacy value → { referenceType (target name), bookType (jsonb field or null) }
+// Legacy value → { referenceType (jsonb publicationType), bookType (jsonb field or null) }.
+// The targets are values of referenceSource's inline publicationType enum; no table backs them.
 const PUB_TYPE_MAP = {
   'journal article':   { referenceType: 'journal article', bookType: null },
   'serial monograph':  { referenceType: 'serial monograph', bookType: null },
@@ -18,28 +23,30 @@ const PUB_TYPE_MAP = {
   'abstract':          { referenceType: 'other', bookType: null },
 };
 
-// Target language enum
+// Target language vocabulary: dictionaries.languages.name. The legacy enum spells
+// Portuguese 'Portugese'; the dictionary corrects it.
 const TARGET_LANGUAGES = new Set([
   'Chinese', 'English', 'French', 'German', 'Italian',
-  'Japanese', 'Portugese', 'Russian', 'Spanish', 'other', 'unknown',
+  'Japanese', 'Portuguese', 'Russian', 'Spanish', 'other', 'unknown',
 ]);
+const LANGUAGE_CORRECTIONS = { Portugese: 'Portuguese' };
+
+// Types whose title legacy PBDB may keep in pubtitle, with reftitle empty: a
+// whole book. pubtitle has no other destination for these two.
+const PUBTITLE_TITLE_TYPES = new Set(['standalone book', 'edited collection']);
 
 // --- Transform functions ---
 
-function mapPublicationType(legacyType, refTypeMap) {
+function mapPublicationType(legacyType) {
   if (!legacyType) {
-    return { referenceTypeName: 'other', referenceTypeId: refTypeMap.get('other'), bookType: null };
+    return { referenceTypeName: 'other', bookType: null };
   }
   const mapping = PUB_TYPE_MAP[legacyType];
   if (mapping) {
-    return {
-      referenceTypeName: mapping.referenceType,
-      referenceTypeId: refTypeMap.get(mapping.referenceType),
-      bookType: mapping.bookType,
-    };
+    return { referenceTypeName: mapping.referenceType, bookType: mapping.bookType };
   }
   console.warn(`  WARNING: unmapped publication_type '${legacyType}' → "other"`);
-  return { referenceTypeName: 'other', referenceTypeId: refTypeMap.get('other'), bookType: null };
+  return { referenceTypeName: 'other', bookType: null };
 }
 
 function buildAuthors(ref, refAuthorsMap) {
@@ -143,10 +150,12 @@ function mapVolNo(ref, referenceTypeName) {
 function buildPages(firstpage, lastpage) {
   if (!firstpage || !firstpage.trim()) return null;
 
-  const first = parseInt(firstpage.trim(), 10);
+  let first = parseInt(firstpage.trim(), 10);
   if (isNaN(first)) {
     return null; // caller logs warning
   }
+  // Pages are numbered from 1; a range starting at 0 means the first page. Caller logs.
+  if (first === 0) first = 1;
 
   let last = first;
   if (lastpage && lastpage.trim()) {
@@ -162,7 +171,7 @@ function buildPages(firstpage, lastpage) {
 
 function mapLanguage(legacyLang) {
   if (!legacyLang) return 'unknown';
-  const trimmed = legacyLang.trim();
+  const trimmed = LANGUAGE_CORRECTIONS[legacyLang.trim()] ?? legacyLang.trim();
   if (TARGET_LANGUAGES.has(trimmed)) return trimmed;
   return 'other';
 }
@@ -187,12 +196,25 @@ function mapPersonIds(ref) {
   return { authorizerPersonId, entererPersonId };
 }
 
+// reftitle, or for a whole book with no reftitle its pubtitle, verbatim.
+function mapTitle(ref, referenceTypeName) {
+  const reftitle = ref.reftitle ? ref.reftitle.trim() : '';
+  if (reftitle) return reftitle;
+  const pubtitle = ref.pubtitle ? ref.pubtitle.trim() : '';
+  if (pubtitle && PUBTITLE_TITLE_TYPES.has(referenceTypeName)) return pubtitle;
+  return null;
+}
+
+const isPubtitleTitle = (ref, referenceTypeName) =>
+  !(ref.reftitle && ref.reftitle.trim()) && !!mapTitle(ref, referenceTypeName);
+
 function buildJsonb(ref, authors, editors, pubType, pages, pubtitleFields, volNoFields, language) {
   const jsonb = {};
 
   jsonb.publicationType = pubType.referenceTypeName;
-  if (ref.reftitle && ref.reftitle.trim()) {
-    jsonb.title = ref.reftitle.trim();
+  const title = mapTitle(ref, pubType.referenceTypeName);
+  if (title) {
+    jsonb.title = title;
   } else {
     console.warn(`  WARNING: reference_no=${ref.reference_no} has NULL/empty reftitle`);
   }
@@ -232,12 +254,9 @@ async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting refs migration...`);
 
-  // 1.2 Load reference_types dictionary
-  const { rows: refTypeRows } = await pg.query(
-    `SELECT id, reference_type FROM dictionaries.reference_types`
-  );
-  const refTypeMap = new Map(refTypeRows.map((r) => [r.reference_type, r.id]));
-  console.log(`  Loaded ${refTypeRows.length} reference types: ${JSON.stringify(Object.fromEntries(refTypeMap))}`);
+  // Resolved before any source row is read, so an empty dictionary aborts up front.
+  const validate = createAjv().compile(deriveVariant(await resolveEnums(pg, referenceSource), 'db'));
+  console.log('  Resolved and compiled the reference db variant');
 
   // 2.1 Read all refs
   const [refs] = await mariadb.query(
@@ -275,10 +294,12 @@ async function main() {
   // 5.1 Transform all rows
   const pubTypeCounts = {};
   let nonNumericPageCount = 0;
+  let pageZeroCount = 0;
+  let pubtitleTitleCount = 0;
   let warningCount = 0;
 
   const targetRows = refs.map((ref) => {
-    const pubType = mapPublicationType(ref.publication_type, refTypeMap);
+    const pubType = mapPublicationType(ref.publication_type);
     pubTypeCounts[pubType.referenceTypeName] = (pubTypeCounts[pubType.referenceTypeName] || 0) + 1;
 
     const authors = buildAuthors(ref, refAuthorsMap);
@@ -291,15 +312,30 @@ async function main() {
       nonNumericPageCount++;
       warningCount++;
     }
+    if (pages && parseInt(ref.firstpage.trim(), 10) === 0) {
+      console.warn(`  WARNING: reference_no=${ref.reference_no} firstpage=0 written as 1`);
+      pageZeroCount++;
+    }
+    if (isPubtitleTitle(ref, pubType.referenceTypeName)) {
+      console.log(`  reference_no=${ref.reference_no} title taken from pubtitle`);
+      pubtitleTitleCount++;
+    }
     const language = mapLanguage(ref.language);
     const { authorizerPersonId, entererPersonId } = mapPersonIds(ref);
 
     const jsonb = buildJsonb(ref, authors, editors, pubType, pages, pubtitleFields, volNoFields, language);
+    // PBDB refs keep fields their type would not allow on create: the db variant
+    // applies no per-type rule, and those fields are bibliographic history.
+    if (!validate(jsonb)) {
+      console.error(`  Validation failed for reference_no=${ref.reference_no}`);
+      console.error(JSON.stringify(validate.errors, null, 2));
+      console.error(JSON.stringify(jsonb, null, 2));
+      throw new Error('payload failed reference db-schema validation');
+    }
 
     return {
       id: ref.reference_no,
       permid: uuidv7(),
-      reference_type_id: pubType.referenceTypeId,
       authorizer_person_id: authorizerPersonId,
       enterer_person_id: entererPersonId,
       reference: jsonb,
@@ -323,12 +359,11 @@ async function main() {
 
     for (const row of batch) {
       values.push(
-        `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8})`
+        `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7})`
       );
       params.push(
         row.id,
         row.permid,
-        row.reference_type_id,
         row.authorizer_person_id,
         row.enterer_person_id,
         JSON.stringify(row.reference),
@@ -336,14 +371,13 @@ async function main() {
         row.succeeded_by_id,
         row.removed,
       );
-      paramIdx += 9;
+      paramIdx += 8;
     }
 
     await pg.query(
-      `INSERT INTO refs (id, permid, reference_type_id, authorizer_person_id, enterer_person_id, reference, preceded_by_id, succeeded_by_id, removed)
+      `INSERT INTO refs (id, permid, authorizer_person_id, enterer_person_id, reference, preceded_by_id, succeeded_by_id, removed)
        VALUES ${values.join(', ')}
        ON CONFLICT (id) DO UPDATE SET
-         reference_type_id = EXCLUDED.reference_type_id,
          authorizer_person_id = EXCLUDED.authorizer_person_id,
          enterer_person_id = EXCLUDED.enterer_person_id,
          reference = EXCLUDED.reference,
@@ -388,6 +422,8 @@ async function main() {
   const endTime = new Date();
   const elapsed = ((endTime - startTime) / 1000).toFixed(1);
   console.log(`  Non-numeric page warnings: ${nonNumericPageCount}`);
+  console.log(`  First page 0 written as 1: ${pageZeroCount}`);
+  console.log(`  Titles taken from pubtitle: ${pubtitleTitleCount}`);
   console.log(`  Total warnings: ${warningCount}`);
   console.log(`[${endTime.toISOString()}] Refs migration complete in ${elapsed}s`);
 }

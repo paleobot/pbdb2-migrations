@@ -1,10 +1,20 @@
 import { pg, closePg } from '../lib/pg-pool.js';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { referenceSource, PUBLICATION_TYPES, SHARED_FIELDS } from '../../payloadSchemas/reference.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 // --- Constants ---
 
 const PBOT_GRAPHQL_URL = 'https://pbot.paleobiodb.org/graphql';
 const AUTHORIZER_PERSON_ID = 1106; // Douglas Meredith
+
+// PBot publication types that are not values of referenceSource's enum.
+const PUB_TYPE_ALIASES = {
+  'contributed article in edited book': 'article in edited collection',
+  'edited book of contributed articles': 'edited collection',
+};
 
 // --- GraphQL fetch ---
 
@@ -92,13 +102,40 @@ function resolveEnterer(ref) {
   return sorted[0];
 }
 
+// --- Publication type ---
+
+// A value of the publicationType enum: as given, aliased, or "other".
+function normalizePublicationType(ref) {
+  const given = ref.publicationType || null;
+  if (!given) return 'other';
+  if (given in PUBLICATION_TYPES) return given;
+  if (given in PUB_TYPE_ALIASES) return PUB_TYPE_ALIASES[given];
+  console.warn(`  WARNING: Reference ${ref.pbotID} unmapped publicationType '${given}' → "other"`);
+  return 'other';
+}
+
+// Keep only the fields the type allows, per PUBLICATION_TYPES. PBot's extras are
+// entry noise from a UI that never enforced types (publisher "PBot", "self" on
+// unpublished workbench entries), so they are dropped, each one logged.
+function dropDisallowedFields(jsonb, pbotID) {
+  const { fields, unrestricted } = PUBLICATION_TYPES[jsonb.publicationType];
+  if (unrestricted) return [];
+  const allowed = new Set([...SHARED_FIELDS, ...fields]);
+  const dropped = [];
+  for (const [field, value] of Object.entries(jsonb)) {
+    if (allowed.has(field)) continue;
+    console.warn(`  DROPPED: Reference ${pbotID} ${field}=${JSON.stringify(value)} (not allowed on '${jsonb.publicationType}')`);
+    delete jsonb[field];
+    dropped.push(field);
+  }
+  return dropped;
+}
+
 // --- Reference JSONB builder ---
 
-function buildReferenceJsonb(ref, refTypeMap) {
+function buildReferenceJsonb(ref, pubType) {
   const jsonb = {};
 
-  // publicationType
-  const pubType = ref.publicationType || 'other';
   jsonb.publicationType = pubType;
 
   // title
@@ -190,16 +227,14 @@ async function main() {
   const startTime = new Date();
   console.log(`[${startTime.toISOString()}] Starting PBot refs migration...`);
 
-  // --- 1.2 Load dictionary lookups ---
+  // --- Validator, resolved before fetching so an empty dictionary aborts up front ---
 
-  const { rows: refTypeRows } = await pg.query(
-    `SELECT id, reference_type FROM dictionaries.reference_types`
-  );
-  const refTypeMap = new Map(refTypeRows.map((r) => [r.reference_type, r.id]));
-  // PBot publication type aliases → PG reference_type
-  refTypeMap.set('contributed article in edited book', refTypeMap.get('article in edited collection'));
-  refTypeMap.set('edited book of contributed articles', refTypeMap.get('edited collection'));
-  console.log(`  Loaded ${refTypeRows.length} reference types`);
+  const resolved = await resolveEnums(pg, referenceSource);
+  const validate = createAjv().compile(deriveVariant(resolved, 'db'));
+  // PBot's book types are not PBDB's ("thesis", "other"); one with no match in
+  // dictionaries.book_types is stored as "other".
+  const bookTypes = new Set(resolved.properties.bookType.enum);
+  console.log('  Resolved and compiled the reference db variant');
 
   // --- 2.1 Fetch PBot data ---
 
@@ -238,6 +273,8 @@ async function main() {
 
   let upsertCount = 0;
   let warningCount = 0;
+  let droppedFieldCount = 0;
+  let droppedRefCount = 0;
 
   for (const ref of pbotOnlyRefs) {
     // 4.1 Resolve enterer — look up in persons table
@@ -260,19 +297,24 @@ async function main() {
     }
     const entererPgId = personRows[0].id;
 
-    // 4.2 Map reference_type_id
-    const pubType = ref.publicationType || null;
-    let referenceTypeId = refTypeMap.get(pubType);
-    if (!referenceTypeId) {
-      if (pubType) {
-        console.warn(`  WARNING: Reference ${ref.pbotID} unmapped publicationType '${pubType}' → "other"`);
-        warningCount++;
-      }
-      referenceTypeId = refTypeMap.get('other');
+    // Build JSONB from the normalized type, keep what the type allows, validate
+    const pubType = normalizePublicationType(ref);
+    const jsonb = buildReferenceJsonb(ref, pubType);
+    const dropped = dropDisallowedFields(jsonb, ref.pbotID);
+    if (dropped.length) {
+      droppedFieldCount += dropped.length;
+      droppedRefCount++;
     }
-
-    // 4.3 + 4.4 Build JSONB
-    const jsonb = buildReferenceJsonb(ref, refTypeMap);
+    if (jsonb.bookType && !bookTypes.has(jsonb.bookType)) {
+      console.warn(`  WARNING: Reference ${ref.pbotID} bookType '${jsonb.bookType}' → "other"`);
+      jsonb.bookType = 'other';
+    }
+    if (!validate(jsonb)) {
+      console.error(`  Validation failed for pbotID=${ref.pbotID}`);
+      console.error(JSON.stringify(validate.errors, null, 2));
+      console.error(JSON.stringify(jsonb, null, 2));
+      throw new Error('payload failed reference db-schema validation');
+    }
 
     // 5.1 Idempotent upsert keyed on legacyIDs.pbotID.
     // permid is now a generated UUIDv7 (a fresh value each run), so we can no
@@ -287,31 +329,28 @@ async function main() {
     if (existingRows.length > 0) {
       await pg.query(
         `UPDATE refs SET
-           reference_type_id = $2,
-           authorizer_person_id = $3,
-           enterer_person_id = $4,
-           reference = $5,
+           authorizer_person_id = $2,
+           enterer_person_id = $3,
+           reference = $4,
            removed = false
          WHERE id = $1`,
         [
           existingRows[0].id,      // $1
-          referenceTypeId,         // $2
-          AUTHORIZER_PERSON_ID,    // $3
-          entererPgId,             // $4
-          JSON.stringify(jsonb),   // $5
+          AUTHORIZER_PERSON_ID,    // $2
+          entererPgId,             // $3
+          JSON.stringify(jsonb),   // $4
         ]
       );
     } else {
       await pg.query(
-        `INSERT INTO refs (permid, reference_type_id, authorizer_person_id, enterer_person_id,
+        `INSERT INTO refs (permid, authorizer_person_id, enterer_person_id,
                                    reference, preceded_by_id, succeeded_by_id, removed)
-         VALUES ($1, $2, $3, $4, $5, NULL, NULL, false)`,
+         VALUES ($1, $2, $3, $4, NULL, NULL, false)`,
         [
           uuidv7(),                // $1 — generated UUIDv7 permid
-          referenceTypeId,         // $2
-          AUTHORIZER_PERSON_ID,    // $3
-          entererPgId,             // $4
-          JSON.stringify(jsonb),   // $5
+          AUTHORIZER_PERSON_ID,    // $2
+          entererPgId,             // $3
+          JSON.stringify(jsonb),   // $4
         ]
       );
     }
@@ -347,6 +386,7 @@ async function main() {
   const endTime = new Date();
   const elapsed = ((endTime - startTime) / 1000).toFixed(1);
   console.log(`  Upserted: ${upsertCount}, Warnings: ${warningCount}`);
+  console.log(`  Dropped ${droppedFieldCount} fields from ${droppedRefCount} references`);
   console.log(`[${endTime.toISOString()}] PBot refs migration complete in ${elapsed}s`);
 }
 
