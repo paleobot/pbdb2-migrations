@@ -103,8 +103,10 @@ const schemaProperties = {
 
 > Applies to API route definitions that wrap a derived variant in a fastify
 > envelope. Annotated sources themselves have no envelope. Note that
-> `deriveVariant` does not yet follow `$defs`/`$ref`; it needs that before
-> `schema.schema.js` (recursive characters/states) is converted.
+> `deriveVariant` does not follow `$defs`/`$ref`. It would need to only if the
+> API created a schema's whole character/state tree in one call; separate
+> schema, character and state routes need neither (see the sketch at the end of
+> `schema.schema.js`).
 
 AJV compiles `createSchema.body` as the root schema document. `#` in any
 `$ref` resolves relative to that root. So `$defs` must be inside `body`, not

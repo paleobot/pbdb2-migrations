@@ -296,5 +296,25 @@
     "Female",
     "Other",
     "Anonymous"
+  ],
+  "parts_preserved.name": [
+    "root",
+    "shoot/axis/wood",
+    "leaf",
+    "pollen/spore",
+    "inflorescence/flower",
+    "infructescence/fruit",
+    "ovuliferous (seed) cone",
+    "staminate (pollen) cone",
+    "seed",
+    "cuticle",
+    "other",
+    "unknown"
+  ],
+  "notable_features.name": [
+    "cuticle/epidermal features",
+    "wood anatomy (secondary growth)",
+    "internal anatomy",
+    "trace fossils (e.g., insect damage)"
   ]
 }

@@ -8,7 +8,8 @@
 //
 // Resolve enums on the source first (./enums.js), then derive. Recurses through
 // properties, items, allOf/anyOf/oneOf, if/then/else and not. $defs/$ref are not
-// supported yet; schema.schema.js will need them before it is converted.
+// followed. They would be needed only if the API created a schema's whole
+// character/state tree in one call (the sketch at the end of schema.schema.js).
 // See openspec/specs/payload-schema-variants/spec.md.
 
 export const VARIANTS = ['db', 'in-create', 'patch-guard', 'out'];

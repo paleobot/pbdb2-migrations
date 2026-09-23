@@ -48,22 +48,24 @@ const wgs84Point = {
   },
 };
 
-// references[] <-> collections.reference_id (the primary) + child rows. The child
-// table has no order column, so order is normalized: split sorts by numeric
+// references[] <-> the parent's reference_id (the primary) + rows of the child
+// table x-storage names (additional_collection_refs, additional_schema_refs). The
+// child table has no order column, so order is normalized: split sorts by numeric
 // `order`, the first goes to the column, the rest become child rows in sequence;
 // merge emits the primary as order "1" and child rows by ascending id as "2"...
+// The child rows' key back to their parent is the caller's business, not the codec's.
 //
 // referenceID is the reference's permid; the columns hold refs.id. refs is
 // versioned and every version shares one permid, so the source is read from
 // lineage heads only, which is what makes permid -> id a function. refs.id is a
 // bigint, which node-postgres returns as a string, so ids are keyed as strings.
 const REFS_SOURCE = { table: 'refs', key: 'id', value: 'permid', versioned: true };
-const collectionReferences = {
+const referenceList = {
   sources: [REFS_SOURCE],
   split({ references }, storage, ctx) {
     if (references === undefined || references === null) return {};
     const sorted = [...references].sort((a, b) => Number(a.order) - Number(b.order));
-    const toId = (r) => String(lookup('collectionReferences', REFS_SOURCE, ctx, 'byValue', r.referenceID));
+    const toId = (r) => String(lookup('referenceList', REFS_SOURCE, ctx, 'byValue', r.referenceID));
     const [primary, ...rest] = sorted;
     return {
       columns: { reference_id: primary ? toId(primary) : null },
@@ -73,7 +75,7 @@ const collectionReferences = {
   merge({ columns, children }, storage, ctx) {
     const primary = columns?.reference_id;
     if (primary === null || primary === undefined) return {};
-    const toPermid = (id) => lookup('collectionReferences', REFS_SOURCE, ctx, 'byKey', String(id));
+    const toPermid = (id) => lookup('referenceList', REFS_SOURCE, ctx, 'byKey', String(id));
     const rows = [...(children?.[storage.table] ?? [])].sort((a, b) => Number(a.id) - Number(b.id));
     const references = [{ referenceID: toPermid(primary), order: '1' }];
     rows.forEach((r, i) => references.push({ referenceID: toPermid(r.reference_id), order: String(i + 2) }));
@@ -82,7 +84,7 @@ const collectionReferences = {
 };
 
 // reference permid <-> a single refs.id column (authorities.reference_id). The
-// scalar counterpart of collectionReferences, over the same heads-only source.
+// scalar counterpart of referenceList, over the same heads-only source.
 const referencePermid = {
   sources: [REFS_SOURCE],
   split({ reference }, storage, ctx) {
@@ -131,7 +133,7 @@ const personPermid = {
   },
 };
 
-export const codecs = { wgs84Point, collectionReferences, referencePermid, roleName, personPermid };
+export const codecs = { wgs84Point, referenceList, referencePermid, roleName, personPermid };
 
 export function getCodec(name) {
   const codec = codecs[name];

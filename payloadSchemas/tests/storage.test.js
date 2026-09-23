@@ -28,7 +28,7 @@ const source = {
     references: {
       type: 'array',
       items: { type: 'object', properties: { referenceID: { type: 'string' }, order: { type: 'string' } } },
-      'x-storage': { table: 'additional_collection_refs', codec: 'collectionReferences' },
+      'x-storage': { table: 'additional_collection_refs', codec: 'referenceList' },
     },
   },
   required: ['name'],
@@ -114,7 +114,7 @@ test('split of an in-create-valid payload yields db-valid jsonb', () => {
   }
 });
 
-test('collectionReferences merges stored ids to permids, and no refs.id reaches the payload', () => {
+test('referenceList merges stored ids to permids, and no refs.id reaches the payload', () => {
   const merged = merge(source, {
     jsonb: { name: 'n' },
     columns: { reference_id: '7' },
@@ -123,16 +123,38 @@ test('collectionReferences merges stored ids to permids, and no refs.id reaches 
   assert.deepEqual(merged.references, [{ referenceID: 'r-7', order: '1' }, { referenceID: 'r-12', order: '2' }]);
 });
 
-test('collectionReferences throws naming itself on an unknown permid or id', () => {
+test('referenceList throws naming itself on an unknown permid or id', () => {
   assert.throws(
     () => split(source, { name: 'n', references: [{ referenceID: 'r-nobody', order: '1' }] }, refs),
-    /collectionReferences: refs.permid has no entry for "r-nobody"/,
+    /referenceList: refs.permid has no entry for "r-nobody"/,
   );
   assert.throws(
     () => merge(source, { jsonb: {}, columns: { reference_id: '7' }, children: { additional_collection_refs: [{ id: '1', reference_id: '404' }] } }, refs),
-    /collectionReferences: refs.id has no entry for "404"/,
+    /referenceList: refs.id has no entry for "404"/,
   );
-  assert.throws(() => split(source, { name: 'n', references: [{ referenceID: 'r-7', order: '1' }] }), /collectionReferences: no codec context loaded for refs/);
+  assert.throws(() => split(source, { name: 'n', references: [{ referenceID: 'r-7', order: '1' }] }), /referenceList: no codec context loaded for refs/);
+});
+
+test('referenceList writes child rows to the table its annotation names', () => {
+  const schemaLike = {
+    type: 'object',
+    properties: {
+      references: {
+        type: 'array',
+        items: { type: 'object', properties: { referenceID: { type: 'string' }, order: { type: 'string' } } },
+        'x-storage': { table: 'additional_schema_refs', codec: 'referenceList' },
+      },
+    },
+  };
+  const { columns, children } = split(schemaLike, { references: [{ referenceID: 'r-9', order: '2' }, { referenceID: 'r-3', order: '1' }] }, refs);
+  assert.equal(columns.reference_id, '3');
+  assert.deepEqual(children, { additional_schema_refs: [{ reference_id: '9' }] });
+});
+
+test('the old codec name is gone', () => {
+  const old = { type: 'object', properties: { references: { type: 'array', 'x-storage': { table: 't', codec: 'collectionReferences' } } } };
+  assert.throws(() => split(old, { references: [] }, refs), /collectionReferences/);
+  assert.throws(() => merge(old, { jsonb: {}, columns: {}, children: {} }, refs), /collectionReferences/);
 });
 
 test('a superseded reference is never cited: its permid resolves to the head', async () => {

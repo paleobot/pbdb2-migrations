@@ -438,7 +438,7 @@ collectionProperties.references = {
     type: "array",
     items: {
         type: "object",
-        required: ["order"],
+        required: ["referenceID", "order"],
         properties: {
             referenceID: {
                 type: "string",
@@ -451,7 +451,7 @@ collectionProperties.references = {
         }
     },
     minItems: 1,
-    "x-storage": { table: "additional_collection_refs", codec: "collectionReferences" },
+    "x-storage": { table: "additional_collection_refs", codec: "referenceList" },
     description: "List of references for this collection"
 };
 

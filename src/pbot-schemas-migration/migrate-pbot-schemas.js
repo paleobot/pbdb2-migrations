@@ -1,5 +1,9 @@
 import { pg, closePg } from '../lib/pg-pool.js';
 import { uuidv7 } from '../lib/uuidv7.js';
+import { schemaSource } from '../../payloadSchemas/schema.schema.js';
+import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
+import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
+import { createAjv } from '../../payloadSchemas/lib/ajv.js';
 
 if (!process.env.PBOT_TOKEN) {
   console.error('Missing required .env variable: PBOT_TOKEN');
@@ -11,31 +15,11 @@ if (!process.env.PBOT_TOKEN) {
 const PBOT_GRAPHQL_URL = 'https://pbot.paleobiodb.org/graphql';
 const AUTHORIZER_PERSON_ID = 1106; // Douglas Meredith
 
-const PARTS_PRESERVED_ENUMS = [
-  'root',
-  'shoot/axis/wood',
-  'leaf',
-  'pollen/spore',
-  'inflorescence/flower',
-  'infructescence/fruit',
-  'ovuliferous (seed) cone',
-  'staminate (pollen) cone',
-  'seed',
-  'cuticle',
-  'other',
-  'unknown',
-];
-
-const NOTABLE_FEATURES_ENUMS = [
-  'cuticle/epidermal features',
-  'wood anatomy (secondary growth)',
-  'internal anatomy',
-  'trace fossils (e.g., insect damage)',
-];
-
-// Build lowercase lookup maps for case-insensitive matching
-const PARTS_PRESERVED_MAP = new Map(PARTS_PRESERVED_ENUMS.map((v) => [v.toLowerCase(), v]));
-const NOTABLE_FEATURES_MAP = new Map(NOTABLE_FEATURES_ENUMS.map((v) => [v.toLowerCase(), v]));
+// Lowercase lookup map for case-insensitive matching, built from an enum the
+// schema source resolved from its dictionaries table, so the table is the only list.
+function enumMap(values) {
+  return new Map(values.map((v) => [v.toLowerCase(), v]));
+}
 
 // --- GraphQL queries ---
 
@@ -214,7 +198,7 @@ function mapEnumValues(values, enumMap, fieldName, recordPbotID) {
 
 // --- Schema JSONB builder ---
 
-function buildSchemaJsonb(schema) {
+function buildSchemaJsonb(schema, enumMaps) {
   const jsonb = {
     legacyIDs: { pbotID: schema.pbotID },
     title: schema.title,
@@ -230,11 +214,11 @@ function buildSchemaJsonb(schema) {
   }
 
   // partsPreserved — case-insensitive enum mapping
-  const parts = mapEnumValues(schema.partsPreserved, PARTS_PRESERVED_MAP, 'partsPreserved', schema.pbotID);
+  const parts = mapEnumValues(schema.partsPreserved, enumMaps.partsPreserved, 'partsPreserved', schema.pbotID);
   if (parts) jsonb.partsPreserved = parts;
 
   // notableFeatures — case-insensitive enum mapping
-  const features = mapEnumValues(schema.notableFeatures, NOTABLE_FEATURES_MAP, 'notableFeatures', schema.pbotID);
+  const features = mapEnumValues(schema.notableFeatures, enumMaps.notableFeatures, 'notableFeatures', schema.pbotID);
   if (features) jsonb.notableFeatures = features;
 
   // authors from authoredBy, sorted by order, preserving order value
@@ -292,6 +276,15 @@ async function main() {
     statesFetched: 0, statesInserted: 0, stateOrphans: 0, statesSkipped: 0,
   };
 
+  // Resolve the schema source once: its db variant validates every payload, and its
+  // dictionary enums drive the case-insensitive mapping.
+  const resolved = await resolveEnums(pg, schemaSource);
+  const validate = createAjv().compile(deriveVariant(resolved, 'db'));
+  const enumMaps = {
+    partsPreserved: enumMap(resolved.properties.partsPreserved.items.enum),
+    notableFeatures: enumMap(resolved.properties.notableFeatures.items.enum),
+  };
+
   // =====================================================================
   // PHASE 1: Schemas
   // =====================================================================
@@ -300,6 +293,27 @@ async function main() {
   const allSchemas = await fetchPbot(SCHEMA_QUERY, 'Schema');
   stats.schemasFetched = allSchemas.length;
   console.log(`  Fetched ${allSchemas.length} schemas from PBot`);
+
+  // Build and validate every payload before inserting any row. The script has no
+  // transaction, so a failure found mid-insert would leave the step half written.
+  // Schemas the loop below skips are validated too: a malformed payload is a
+  // defect either way.
+  const schemaJsonb = new Map(); // pbotID → validated jsonb
+  let invalid = 0;
+  for (const schema of allSchemas) {
+    const jsonb = buildSchemaJsonb(schema, enumMaps);
+    if (!validate(jsonb)) {
+      invalid++;
+      console.error(`  INVALID: Schema ${schema.pbotID} fails the db variant of schemaSource`);
+      console.error('  payload:', JSON.stringify(jsonb));
+      console.error('  errors:', JSON.stringify(validate.errors, null, 2));
+    }
+    schemaJsonb.set(schema.pbotID, jsonb);
+  }
+  if (invalid > 0) {
+    throw new Error(`${invalid} schema payload(s) failed validation; nothing was inserted`);
+  }
+  console.log(`  Validated ${allSchemas.length} schema payloads`);
 
   const schemaPbotIdToId = new Map(); // pbotID → PG id
 
@@ -341,8 +355,7 @@ async function main() {
       continue;
     }
 
-    // Build JSONB
-    const jsonb = buildSchemaJsonb(schema);
+    const jsonb = schemaJsonb.get(schema.pbotID);
 
     // Insert schema
     const { rows } = await pg.query(

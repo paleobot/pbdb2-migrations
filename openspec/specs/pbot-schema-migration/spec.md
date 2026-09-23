@@ -2,9 +2,7 @@
 
 ## Purpose
 Migrate PBot GraphQL Schema nodes (with their relationships) into the new PostgreSQL schemas table.
-
 ## Requirements
-
 ### Requirement: Fetch Schemas from PBot GraphQL API
 The script SHALL fetch all Schema nodes from `https://pbot.paleobiodb.org/graphql` using a POST request with a Bearer token from the `PBOT_TOKEN` environment variable. The query SHALL retrieve schema scalar fields (`pbotID`, `title`, `year`, `purpose`, `acknowledgments`), `partsPreserved` and `notableFeatures` (as relationship nodes or string values), `references` (with `order` and Reference `pbotID`), `authoredBy` (with `order` and Person `given`, `surname`), and `enteredBy` (with `type`, `timestamp`, and Person `pbotID`).
 
@@ -113,9 +111,9 @@ The script SHALL construct the `schema` JSONB column from PBot Schema fields usi
 - **THEN** the JSONB contains only `legacyIDs`, `title`, and `year`
 
 ### Requirement: Map partsPreserved case-insensitively
-The script SHALL map each PBot `partsPreserved` value to the enum values defined in `schema.schema.js` using case-insensitive comparison. Values that do not match any enum entry SHALL be logged as warnings and excluded from the array.
+The script SHALL map each PBot `partsPreserved` value to the enum values of `partsPreserved.items` in the `schemaSource` it has resolved with `resolveEnums`, which are the `name` values of `dictionaries.parts_preserved` ordered by `id`, using case-insensitive comparison. The script SHALL NOT hold its own copy of the list. Values that do not match any enum entry SHALL be logged as warnings and excluded from the array.
 
-Valid enum values: `root`, `shoot/axis/wood`, `leaf`, `pollen/spore`, `inflorescence/flower`, `infructescence/fruit`, `ovuliferous (seed) cone`, `staminate (pollen) cone`, `seed`, `cuticle`, `other`, `unknown`.
+Valid enum values, as seeded: `root`, `shoot/axis/wood`, `leaf`, `pollen/spore`, `inflorescence/flower`, `infructescence/fruit`, `ovuliferous (seed) cone`, `staminate (pollen) cone`, `seed`, `cuticle`, `other`, `unknown`.
 
 #### Scenario: Matching value with different case
 - **WHEN** PBot returns `partsPreserved` containing `'Leaf'`
@@ -125,10 +123,14 @@ Valid enum values: `root`, `shoot/axis/wood`, `leaf`, `pollen/spore`, `infloresc
 - **WHEN** PBot returns `partsPreserved` containing `'bark'`
 - **THEN** `'bark'` is excluded from the array and a warning is logged
 
-### Requirement: Map notableFeatures case-insensitively
-The script SHALL map each PBot `notableFeatures` value to the enum values defined in `schema.schema.js` using case-insensitive comparison. Values that do not match any enum entry SHALL be logged as warnings and excluded from the array.
+#### Scenario: Added dictionary value is mapped
+- **WHEN** `dictionaries.parts_preserved` gains a row `bark` and PBot returns `partsPreserved` containing `'Bark'`
+- **THEN** it is mapped to `'bark'`, and the payload validates, with no code change
 
-Valid enum values: `cuticle/epidermal features`, `wood anatomy (secondary growth)`, `internal anatomy`, `trace fossils (e.g., insect damage)`.
+### Requirement: Map notableFeatures case-insensitively
+The script SHALL map each PBot `notableFeatures` value to the enum values of `notableFeatures.items` in the `schemaSource` it has resolved with `resolveEnums`, which are the `name` values of `dictionaries.notable_features` ordered by `id`, using case-insensitive comparison. The script SHALL NOT hold its own copy of the list. Values that do not match any enum entry SHALL be logged as warnings and excluded from the array.
+
+Valid enum values, as seeded: `cuticle/epidermal features`, `wood anatomy (secondary growth)`, `internal anatomy`, `trace fossils (e.g., insect damage)`.
 
 #### Scenario: Matching value with different case
 - **WHEN** PBot returns `notableFeatures` containing `'Internal Anatomy'`
@@ -316,3 +318,30 @@ The schema API query SHALL return only the latest version of each entity (schema
 #### Scenario: Recursive tree walk unaffected
 - **WHEN** the latest version of a character (id=42, `succeeded_by_id = NULL`) has child characters and states pointing to it via `parent_character_id = 42`
 - **THEN** the recursive CTEs traverse those children normally without additional version filtering
+
+### Requirement: Validate every schema payload before any schema is inserted
+Before fetching from PBot, the script SHALL resolve `schemaSource` (`payloadSchemas/schema.schema.js`) with
+`resolveEnums` and compile its `db` variant with `createAjv`. After fetching schemas and before inserting any,
+it SHALL build the `schema` jsonb for every fetched schema and validate each, as built, with no `{ schema }`
+envelope. The object validated SHALL be the object later inserted into `schemas.schema`.
+
+On any validation failure the script SHALL log the schema's `pbotID`, the payload and the ajv errors, and exit
+non-zero before inserting any `schemas`, `additional_schema_refs`, `characters` or `states` row.
+
+Every fetched schema SHALL be validated, including one the insert phase would then skip for an unresolved
+enterer or primary reference.
+
+Character and state payloads are not validated by this requirement.
+
+#### Scenario: Valid payloads are inserted as built
+- **WHEN** every fetched schema's payload validates against the `db` variant
+- **THEN** the script inserts them exactly as validated, and the stored jsonb equals the validated object
+
+#### Scenario: Invalid payload aborts before any insert
+- **WHEN** a fetched schema's author has no `order`, so its built payload carries `order: 0`
+- **THEN** the script logs that schema's `pbotID`, the payload and the error, exits non-zero, and `schemas`, `additional_schema_refs`, `characters` and `states` are all still empty
+
+#### Scenario: A schema later skipped is still validated
+- **WHEN** a fetched schema has no resolvable enterer and its payload is invalid
+- **THEN** the script exits non-zero on the validation failure rather than skipping the schema
+

@@ -1,4 +1,4 @@
-// The real collection, specimen, person, reference and authority sources: every variant resolves and
+// The real collection, specimen, person, reference, authority and schema sources: every variant resolves and
 // compiles in strict mode, and the variant rules hold on them. DB-free (fixture
 // enums).
 import { test } from 'node:test';
@@ -9,6 +9,7 @@ import * as specimenModule from '../specimen.schema.js';
 import * as personModule from '../person.schema.js';
 import * as referenceModule from '../reference.schema.js';
 import * as authorityModule from '../authority.schema.js';
+import * as schemaModule from '../schema.schema.js';
 import { applyEnums } from '../lib/enums.js';
 import { deriveVariant, VARIANTS } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
@@ -30,6 +31,7 @@ const sources = {
   person: personModule.personSource,
   reference: referenceModule.referenceSource,
   authority: authorityModule.authoritySource,
+  schema: schemaModule.schemaSource,
 };
 const compile = (entity, variant) => createAjv().compile(deriveVariant(applyEnums(sources[entity], enums), variant));
 
@@ -38,6 +40,7 @@ test('modules export only the annotated source', () => {
   assert.deepEqual(Object.keys(specimenModule).sort(), ['default', 'specimenSource']);
   assert.deepEqual(Object.keys(personModule).sort(), ['default', 'personSource']);
   assert.deepEqual(Object.keys(authorityModule).sort(), ['authoritySource', 'default']);
+  assert.deepEqual(Object.keys(schemaModule).sort(), ['default', 'schemaSource']);
   // Plus the publication type table, which the PBot refs migration filters fields by.
   assert.deepEqual(Object.keys(referenceModule).sort(), ['PUBLICATION_TYPES', 'SHARED_FIELDS', 'default', 'referenceSource']);
 });
@@ -359,4 +362,81 @@ test('authority out requires reference', () => {
   const validate = compile('authority', 'out');
   assert.equal(validate({ ...storedAuthority(), permid: 'a-1', reference: 'r-1' }), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...storedAuthority(), permid: 'a-1' }), false);
+});
+
+// ---------- schema ----------
+
+const storedSchema = () => ({
+  legacyIDs: { pbotID: '565ba802-d652-4116-a895-56ebe06ed17b' },
+  title: 'Fungi Morphology',
+  year: '2023',
+  purpose: 'Describe fungal remains',
+  authors: [{ order: 1, givenName: 'Claire', familyName: 'Cleveland' }],
+  partsPreserved: ['leaf'],
+  notableFeatures: ['trace fossils (e.g., insect damage)'],
+});
+const createSchema = () => ({ ...storedSchema(), legacyIDs: undefined, references: [{ referenceID: 'r-1', order: '1' }] });
+const withoutUndefined = (o) => JSON.parse(JSON.stringify(o));
+
+test('schema db declares neither permid nor references and requires only title and year', () => {
+  const db = deriveVariant(sources.schema, 'db');
+  assert.deepEqual(Object.keys(db.properties), ['legacyIDs', 'title', 'year', 'purpose', 'authors', 'acknowledgments', 'partsPreserved', 'notableFeatures']);
+  assert.deepEqual(db.required, ['title', 'year']);
+  assert.equal('allOf' in db, false, 'x-create not merged into db');
+});
+
+test('schema source declares no character/state tree', () => {
+  for (const key of ['characters', 'states', 'schemaDefinition']) assert.equal(key in sources.schema.properties, false, key);
+  assert.equal('$defs' in sources.schema, false);
+});
+
+test('schema db: a stored payload passes; legacy rules still hold', () => {
+  const validate = compile('schema', 'db');
+  assert.equal(validate(storedSchema()), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ legacyIDs: { pbotID: 'p' }, title: 't', year: '2009' }), true, 'minimal payload');
+  const { title, ...noTitle } = storedSchema();
+  const { year, ...noYear } = storedSchema();
+  assert.equal(validate(noTitle), false);
+  assert.equal(validate(noYear), false);
+  assert.equal(validate({ ...storedSchema(), year: '20230' }), false);
+  assert.equal(validate({ ...storedSchema(), year: 'abc' }), true, 'db is loose on year beyond its length');
+  assert.equal(validate({ ...storedSchema(), authors: [] }), false);
+  assert.equal(validate({ ...storedSchema(), authors: [{ order: 0, givenName: 'a', familyName: 'b' }] }), false);
+  assert.equal(validate({ ...storedSchema(), characters: [] }), false);
+  assert.equal(validate({ ...storedSchema(), references: [{ referenceID: 'r-1', order: '1' }] }), false, 'references live in a column and child rows');
+});
+
+test('schema db: dictionary values are enforced', () => {
+  const validate = compile('schema', 'db');
+  assert.equal(validate({ ...storedSchema(), partsPreserved: ['bark'] }), false);
+  assert.equal(validate({ ...storedSchema(), notableFeatures: ['pith structure'] }), false);
+});
+
+test('schema in-create requires references with permids and a four-digit year', () => {
+  const validate = compile('schema', 'in-create');
+  const body = withoutUndefined(createSchema());
+  assert.equal(validate(body), true, JSON.stringify(validate.errors));
+  const { references, ...noReferences } = body;
+  assert.equal(validate(noReferences), false);
+  assert.ok(validate.errors.some((e) => e.params?.missingProperty === 'references'));
+  assert.equal(validate({ ...body, references: [] }), false);
+  assert.equal(validate({ ...body, references: [{ order: '1' }] }), false);
+  assert.ok(validate.errors.some((e) => e.params?.missingProperty === 'referenceID'));
+  assert.equal(validate({ ...body, year: '0' }), false);
+  assert.equal(validate({ ...body, year: 'abc' }), false);
+  assert.equal(validate({ ...body, year: '2023' }), true);
+  assert.equal(validate({ ...body, permid: 'x' }), false);
+  assert.equal(validate({ ...body, legacyIDs: { pbotID: 'p' } }), false);
+});
+
+test('schema patch-guard blocks exactly permid and legacyIDs', () => {
+  const guard = deriveVariant(sources.schema, 'patch-guard');
+  assert.deepEqual(guard.propertyNames.not.enum, ['permid', 'legacyIDs']);
+});
+
+test('schema out requires references', () => {
+  const validate = compile('schema', 'out');
+  const references = [{ referenceID: 'r-1', order: '1' }];
+  assert.equal(validate({ ...storedSchema(), permid: 's-1', references }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...storedSchema(), permid: 's-1' }), false);
 });
