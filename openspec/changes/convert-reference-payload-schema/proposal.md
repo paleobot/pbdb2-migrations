@@ -8,7 +8,7 @@ fail it.
 
 Most of those failures are not bad data. They are the schema demanding at rest what it should demand only on
 create: legacy refs lack a publisher, a volume, a title, because the records they came from did. What is left
-once that is separated out is small and nameable: 2,782 rows carry a field their type does not allow, and 17
+once that is separated out is small and nameable: 2,351 rows carry a field their type does not allow, and 15
 PBot rows (e.g. `publisher: "PBot"`, `"self"`, `"Ellen"` on unpublished workbench entries) carry values that
 are placeholders, not bibliography.
 
@@ -31,6 +31,9 @@ it.
   `x-create`, enforces per type both the required fields and the allowed fields (`propertyNames`), so a
   client sending `publisher` on a journal article is rejected by name rather than silently stripped. The
   `bookType`-inside-`if` bug disappears with the structure it lived in.
+- **Two allowed-field lists widen.** `serial monograph` allows `editors`, since edited volumes inside a
+  series are real. `other`, the catch-all, allows every declared field and requires nothing beyond the
+  shared rules. All other lists and every required list carry over as they are.
 - **`title` moves from base `required` to `x-create`.** 542 refs have none even after the fix below.
 - **`migrate-refs.js` stops discarding book titles.** Legacy PBDB keeps a whole book's title in `pubtitle`
   with `reftitle` empty, and the migration maps `pubtitle` to nothing for `standalone book` and `edited
@@ -49,7 +52,7 @@ it.
   (`contributed article in edited book` → `article in edited collection`, `edited book of contributed
   articles` → `edited collection`) to the jsonb `publicationType` instead, writes only fields the ref's type
   allows — logging each field dropped, with its `pbotID` — and validates against the `db` variant. This
-  corrects the 17 PBot rows, including the 7 placeholder publishers on `unpublished` refs.
+  corrects the 15 PBot rows, including the 7 placeholder publishers on `unpublished` refs.
 - **The audit covers `reference`**: a `REGISTRY` entry with `versioned: true`, round trip included.
 - **Not exposed:** `authorizer_person_id` and `enterer_person_id`. They are provenance, as on collections,
   which keep both columns and expose neither.
@@ -93,10 +96,9 @@ entities follow from `REGISTRY` with no code change).
 Rebuild from scratch; no ALTER against an existing database.
 
 **Stored data**: every ref is rewritten by the re-run: 1,468 titles restored, 363 language values corrected, 17 aliased PBot
-types normalized, and fields dropped from 17 PBot refs. PBDB-origin refs otherwise keep their jsonb, extras
+types normalized, and fields dropped from 15 PBot refs. PBDB-origin refs otherwise keep their jsonb, extras
 included.
 
 **Risk**: the drop list in `migrate-pbot-refs.js` discards user-entered PBot values. Every drop is logged
-with its `pbotID`, and the count is known in advance (17 rows); a run that drops more is a regression.
-Two per-type field lists (`other`, and `editors` on `serial monograph`) await an offline decision and may
-change what is dropped; see `design.md`.
+with its `pbotID`, and the count is known in advance (15 rows, 18 fields); a run that drops more is a
+regression.

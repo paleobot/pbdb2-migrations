@@ -7,8 +7,9 @@ No migration validates against it. Measured against the 93,944 stored refs on lo
 ```
 invalid 15,643 / 93,944 against today's schema
 ├── required-field gaps     publisher, editors, journalVolume, title (2,010), pages, …
-└── fields a type forbids   2,782 rows (3.0%) — measured directly, per type:
+└── fields a type forbids   2,782 rows (3.0%) against today's lists — measured directly, per type:
       journal article 2,161 · other 322 · standalone book 180 · serial monograph 109 · unpublished 8 · …
+                            2,351 rows (2.5%) against the lists D2 adopts
 ```
 
 Validating directly overcounts the second category: when a row fails a type's `then`, ajv stops treating that
@@ -33,7 +34,7 @@ columns directly and validate against `db`, rather than routing through `split()
 - Publication types defined once, beside the logic that branches on them.
 - A client creating a ref is told, by field name, when it sends a field its type does not allow.
 - `language` and `bookType` backed by dictionaries; `"Portugese"` corrected.
-- The 17 PBot rows with disallowed or placeholder fields corrected at migration.
+- The 15 PBot rows with disallowed or placeholder fields corrected at migration.
 - The 1,468 book titles the refs migration currently discards restored.
 
 **Non-Goals:**
@@ -85,9 +86,20 @@ const PUBLICATION_TYPES = {
 ```
 
 From it, `publicationType.enum` is `Object.keys(PUBLICATION_TYPES)`, the top-level `properties` include the
-union of every type's fields, and `x-create` holds one conditional per type. The allowed and required lists
-are carried over from today's `then` blocks unchanged (subject to Open Questions), with `bookType` moved
-from the `if` it was misplaced in to `standalone book`'s allowed fields.
+union of every type's fields, and `x-create` holds one conditional per type. The required lists are carried over
+from today's `then` blocks unchanged. The allowed lists are too, with three changes:
+
+- `bookType` moves from the `if` it was misplaced in to `standalone book`'s allowed fields.
+- **`serial monograph` allows `editors`.** 109 legacy refs are edited volumes inside a series (e.g. NMMNH
+  Bulletins, "S. G. Lucas and M. Morales"), a real kind of publication the type list could not otherwise
+  express. `editors` is optional; the required list is unchanged.
+- **`other` allows every declared field.** It is the catch-all, and legacy `abstract` and `news article` refs
+  mapped into it routinely carry a publisher, city and editors (234 / 242 / 216 rows). A catch-all that
+  forbids fields forces a client either to mistype a ref or to discard what it knows. `other` gets no
+  `propertyNames` rule and no required fields; its table entry says so explicitly rather than listing every
+  field, so a field added to another type is allowed on `other` without a second edit.
+
+Against these lists, 2,351 stored refs carry a field their type does not allow, down from 2,782.
 
 The source is a JS module, so generating schema from data is ordinary. The 60-line `description` string is
 deleted: it documented the same lists by hand and has already drifted (`publicationTitle`,
@@ -114,7 +126,7 @@ It also removes the problem the legacy TODO describes, where `unevaluatedPropert
 declared inside conditionals. Nothing is declared inside a conditional any more.
 
 *Alternative considered: keep per-type properties inside `then`.* Rejected: `db` would then have to reject the
-2,782 legacy rows, or carry a widened copy of every list.
+2,351 legacy rows, or carry a widened copy of every list.
 
 ### D4 — `title` is required on create only
 
@@ -138,7 +150,8 @@ are values clients send, and treating absence as `unknown` would rewrite 6,168 r
 
 ### D6 — The PBot migration writes only what the type allows, and logs what it drops
 
-`migrate-pbot-refs.js` builds jsonb for 239 refs, of which 17 carry a field their type forbids. The values
+`migrate-pbot-refs.js` builds jsonb for 239 refs, of which 15 carry a field their type forbids (18 fields;
+the 2 PBot `other` refs with a `publisher` keep it under D2). The values
 are placeholders or noise: `publisher: "PBot"` / `"self"` / `"TBD"` / `"Ellen"` on `unpublished` workbench
 entries, stray `bookType` on journal articles. The builder now:
 
@@ -148,7 +161,7 @@ entries, stray `bookType` on journal articles. The builder now:
 3. validates against `db`.
 
 PBot refs get the create-time rule and PBDB refs do not, because PBot is a small, recent source curated
-through a UI that never enforced types, so its extras are entry noise. PBDB's 2,765 are four decades of
+through a UI that never enforced types, so its extras are entry noise. PBDB's 2,336 are four decades of
 bibliographic history, and many are true facts (the publisher of a journal) or evidence of a misclassified
 type that a curator should resolve, not a migration.
 
@@ -203,12 +216,12 @@ are validated against `in-create`, a typo fix on any of them is rejected until t
 "ratchet" policy in `DESIGN_NOTES.md` handles this. Not decided here; the proposal of the first refs route
 must.
 
-**`propertyNames` rejects fields a client may legitimately want** → The per-type lists are inherited, and
-the stored data shows two places where they may be too narrow (Open Questions 1–2). A wrong list costs a
-client a rejected create, not lost data, and widening it is a one-line change to `PUBLICATION_TYPES`.
+**`propertyNames` rejects fields a client may legitimately want** → The lists are inherited apart from the
+two widenings in D2, which the stored data showed were too narrow. A list still too narrow costs a client a
+rejected create, not lost data, and widening it is a one-line change to `PUBLICATION_TYPES`.
 
 **PBot drops are data loss by design** → Mitigated by logging every drop with its `pbotID`, and by the
-count being known in advance (17 rows). A run dropping more is a regression.
+count being known in advance (15 rows, 18 fields). A run dropping more is a regression.
 
 **Dropping `reference_types` breaks anything that reads it** → Verified no reader outside the two
 migrations and `run-migrations.js`'s dictionary list. `migration_exploration/` references the column and may
@@ -231,14 +244,3 @@ Verify: seed fidelity passes (`book_types` included, `languages` excluded); both
 collection, specimen, person and reference; no stored ref has `language = 'Portugese'` or a
 `publicationType` outside the enum; exactly 542 refs have no `title`, and none is a standalone book or edited
 collection whose legacy `pubtitle` was non-blank with a blank `reftitle`.
-
-## Open Questions
-
-1. **`other`'s allowed fields** *(awaiting offline feedback).* As defined, `other` allows only the shared
-   fields. 234 / 242 / 216 legacy `other` refs carry `publisher` / `publicationCity` / `editors`; they come
-   from legacy `abstract` and `news article` and look like abstracts in meeting volumes. Allow those three,
-   or keep `other` bare?
-2. **`editors` on `serial monograph`** *(awaiting offline feedback).* 109 refs are edited volumes inside a
-   series (e.g. NMMNH Bulletins, "S. G. Lucas and M. Morales"), a shape the type list cannot otherwise
-   express. Allow `editors` (optional, no required change), or leave it out?
-   Either answer to 1 or 2 changes what D6 drops for PBot (`other :: publisher` is 2 of the 17).
