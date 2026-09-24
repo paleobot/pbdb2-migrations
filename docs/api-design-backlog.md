@@ -91,6 +91,10 @@ four-digit `year` and the non-empty `name`, to edits of migrated rows that preda
 example, editing only the `citation` of an authority whose stored year is the sentinel `"0"` would
 be rejected.
 
+The options, including a ratchet (always validate against `db`, and against `in-create` only if the
+stored row already passed it), are compared in `payloadSchemas/DESIGN_NOTES.md`, "Edit route
+pattern".
+
 *Reasoning:* `openspec/specs/payload-schema-variants/spec.md` (`patch-guard` requirement).
 
 ## Fields the server supplies

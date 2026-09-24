@@ -1,7 +1,9 @@
 # Payload Schema Design Notes
 
-Decisions and patterns established during design review of `schema.schema.js`.
-Apply these when rewriting all schema definition files.
+Decisions and patterns behind the annotated payload sources in this directory.
+The normative rules are in `openspec/specs/payload-schema-variants/spec.md` and
+`openspec/specs/payload-schema-enums/spec.md`. Questions left for the API design
+are collected in `docs/api-design-backlog.md`.
 
 ---
 
@@ -16,7 +18,7 @@ enums on the source with `resolveEnums` (`lib/enums.js`):
 | Variant | Used for |
 |---|---|
 | `db` | the jsonb at rest; migrations and `src/audit-payloads.js` validate against it |
-| `in-create` | POST bodies, and (see below) merged PATCH documents |
+| `in-create` | POST bodies (whether it also validates merged PATCH documents is open; see below) |
 | `patch-guard` | the first check on a PATCH body |
 | `out` | responses; dictionary enums are documented, not enforced |
 
@@ -29,9 +31,12 @@ Annotations on the source:
   splits a payload into jsonb + columns + child rows and merges them back;
   `lib/codecs.js` handles fields that don't map one-to-one.
 - `readOnly: true` — server-assigned (e.g. `permid`, `legacyIDs`). Root
-  properties only.
+  properties only. It does not mean "privileged": fields only some callers may
+  set (person `role`, `authorizer`, `active`) stay writable, because `readOnly`
+  would make them unsettable by anyone. Who may set them is a route concern.
 - `x-create` — extra rules applied only in `in-create` (extra `required`,
-  conditional rules such as the admin1-required country list).
+  conditional rules such as the admin1-required country list, and create-only
+  constraints such as a four-digit `year` or a non-empty `name`).
 
 The `createSchema` / `editSchema` dichotomy is a PBot artifact and is not
 carried forward.
@@ -69,6 +74,11 @@ rejects:
 | merged vs. `db` | accepted | accepted — edits can degrade records |
 | ratchet: vs. `db` always, plus vs. `in-create` if the stored row already passed it | accepted | rejected if the row was complete |
 
+Create-only rules make the `in-create` policy stricter still. An authority
+migrated with the sentinel year `"0"` could not have only its `citation` edited,
+because `in-create` requires a four-digit `year`. This question is also tracked in
+`docs/api-design-backlog.md`.
+
 ---
 
 ## Schema file structure
@@ -99,77 +109,21 @@ const schemaProperties = {
 };
 ```
 
-### $defs must live inside body
-
-> Applies to API route definitions that wrap a derived variant in a fastify
-> envelope. Annotated sources themselves have no envelope. Note that
-> `deriveVariant` does not follow `$defs`/`$ref`. It would need to only if the
-> API created a schema's whole character/state tree in one call; separate
-> schema, character and state routes need neither (see the sketch at the end of
-> `schema.schema.js`).
-
-AJV compiles `createSchema.body` as the root schema document. `#` in any
-`$ref` resolves relative to that root. So `$defs` must be inside `body`, not
-at the `createSchema` level.
-
-```js
-export const createSchema = {
-    tags: ["Schema"],
-    hide: true,
-    body: {
-        type: 'object',
-        $defs: {           // ← here, so #/$defs/... resolves correctly
-            state: { ... },
-            character: { ... },
-        },
-        properties: {
-            schema: {
-                type: "object",
-                properties: schemaProperties,
-                unevaluatedProperties: false,
-                required: ["title", "year", "schemaDefinition"]
-            }
-        }
-    }
-}
-```
-
 ---
 
-## Recursive schemas ($defs + $ref)
+## Character/state trees
 
-For nested structures like characters (which can contain sub-characters) and
-states (which can contain sub-states), use `$defs` with `$ref`. The recursion
-is expressed naturally:
+Characters and states form trees under a schema, stored as rows with parent and
+`sort_order` columns. Their sources (`character.schema.js`, `state.schema.js`)
+are flat: no parent, no order, no nesting. Whether the API creates each node on
+its own (separate routes, with parent and order in the body) or a whole tree in
+one call from a schemas route is undecided; see `docs/api-design-backlog.md`.
 
-```js
-$defs: {
-    state: {
-        type: "object",
-        properties: {
-            name:       { type: "string" },
-            definition: { type: "string" },
-            order:      { type: "integer", minimum: 1 },
-            states:     { type: "array", items: { $ref: "#/$defs/state" } }
-        },
-        // quantitative state convention
-        if:   { properties: { name: { const: "quantity" } } },
-        then: { properties: { value: { type: "string" } }, required: ["value"] }
-    },
-    character: {
-        type: "object",
-        properties: {
-            name:       { type: "string" },
-            definition: { type: "string" },
-            order:      { type: "integer", minimum: 1 },
-            states:     { type: "array", items: { $ref: "#/$defs/state" } },
-            characters: { type: "array", items: { $ref: "#/$defs/character" } }
-        }
-    }
-}
-```
-
-AJV supports this natively with Draft 2019-09. No extra configuration needed.
+Only the one-call option needs `$defs`/`$ref`, and `deriveVariant` does not
+follow them yet. A sketch of that option is kept as a comment at the end of
+`schema.schema.js`. It predates `states.quantitative`: its `name = "quantity"
+→ value` rule is not a state rule to revive, because a measured value belongs to
+an observation of a state, not to the state.
 
 ---
 
@@ -181,8 +135,11 @@ AJV supports this natively with Draft 2019-09. No extra configuration needed.
 - **Copy-paste `title`**: check that the `title` metadata field reflects the
   actual resource, not a previous resource (e.g., "Collection" copied into a
   schema file).
-- **`partsPreserved` casing**: enum values must match `dictionaries.parts_preserved`
-  exactly. All lowercase (`"leaf"`, not `"Leaf"`).
+- **Dictionary values match exactly**: a stored value must equal a
+  `dictionaries` row byte for byte (`"leaf"`, not `"Leaf"`). Sources carry
+  `x-enumFrom`, not the values; a migration that receives other spellings maps
+  them first, as the PBot schemas migration does case-insensitively for
+  `partsPreserved` and `notableFeatures`.
 - **Dictionary values are append-only in practice**: stored jsonb holds the
   string, with no FK protecting it. Renaming or deleting a dictionary value
   needs a data migration of the rows using it; `node src/audit-payloads.js`
