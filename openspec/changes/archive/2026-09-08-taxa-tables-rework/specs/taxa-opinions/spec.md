@@ -137,19 +137,19 @@ The pre-inversion `taxa` / `assignment_opinions` / `rank_opinions` / `rename_opi
 
 ### Requirement: Lineage grouping collapses spellings of one name
 
-For each subject permid, `derive_linnaean()` SHALL select its single top-ranked current `lineage`-class opinion (`ORDER BY evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`). If that winner is non-negating, its edge (subject → target) feeds the lineage union-find; if the winner is negating (`negates = true`), the subject contributes no lineage edge this round. `derive_linnaean()` SHALL union the resulting edges into name-lineages and assign every permid in a lineage the same `original_permid`. `original_permid` SHALL be the lineage's topological sink — the permid that is the target of one of these winning lineage edges but is never itself the subject of one. When a lineage has more than one such sink, or none, `derive_linnaean()` SHALL fall back to the canonical `ORDER BY` over the candidate set (the tied sinks, when there is more than one; every lineage member, when there is none), consistent with the seniority tiebreak defined elsewhere in this spec.
+For each subject permid, `derive_linnaean()` SHALL select its single top-ranked current `name`-class opinion (`ORDER BY evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`). If that winner is non-negating, its edge (subject → target) feeds the lineage union-find; if the winner is negating (`negates = true`), the subject contributes no edge to the lineage union-find this round. `derive_linnaean()` SHALL union the resulting edges into name-lineages and assign every permid in a lineage the same `original_permid`. `original_permid` SHALL be the lineage's topological sink — the permid that is the target of one of these winning name edges but is never itself the subject of one. When a lineage has more than one such sink, or none, `derive_linnaean()` SHALL fall back to the canonical `ORDER BY` over the candidate set (the tied sinks, when there is more than one; every lineage member, when there is none), consistent with the seniority tiebreak defined elsewhere in this spec.
 
 #### Scenario: A correction and its root share an original_permid
 
-- **WHEN** permid B is introduced by a `lineage`-class name edge targeting root permid A
+- **WHEN** permid B is introduced by a `name`-class edge targeting root permid A
 - **THEN** `derive_linnaean()` reports `original_permid = A` for both A and B, and A is the lineage's unique topological sink
 
 #### Scenario: A two-way tie between candidate originals resolves deterministically
 
-- **WHEN** a lineage has two permids that are each never the subject of a lineage edge (two candidate sinks) and no lineage edge distinguishes them
+- **WHEN** a lineage has two permids that are each never the subject of a name edge (two candidate sinks) and no name edge distinguishes them
 - **THEN** `derive_linnaean()` picks exactly one as `original_permid` via the canonical-order/pubyr/permid fallback, and repeated calls return the same choice
 
-  (Note: given each subject contributes at most one winning lineage edge — see "Lineage grouping
+  (Note: given each subject contributes at most one winning name edge — see "Lineage grouping
   collapses spellings of one name" — a lineage's reachability graph is a functional graph, which
   cannot have two genuine sinks in one weakly-connected component; this case is not currently
   constructible from live opinions, but the fallback's `ORDER BY` expression is exercised by the
@@ -157,17 +157,17 @@ For each subject permid, `derive_linnaean()` SHALL select its single top-ranked 
 
 #### Scenario: A lineage-level cycle has no sink and still resolves deterministically
 
-- **WHEN** every permid in a lineage is the subject of some live lineage edge (a cycle, with no permid ever left unreferenced as a subject)
+- **WHEN** every permid in a lineage is the subject of some live name edge (a cycle, with no permid ever left unreferenced as a subject)
 - **THEN** `derive_linnaean()` selects one `original_permid` for the lineage via the fallback over all lineage members, and repeated calls return the same choice
 
 #### Scenario: A later, higher-ranked opinion redirects a subject's lineage
 
-- **WHEN** subject B has two current `lineage`-class opinions targeting different permids, and the higher-ranked one (by `evidence`/`pubyr`/`id`) targets C
+- **WHEN** subject B has two current `name`-class opinions targeting different permids, and the higher-ranked one (by `evidence`/`pubyr`/`id`) targets C
 - **THEN** `derive_linnaean()` unions B into C's lineage, not the lower-ranked opinion's target's lineage
 
 #### Scenario: A winning negation removes a subject from its claimed lineage
 
-- **WHEN** subject B's current `lineage`-class opinions are a lower-ranked one (reason `misspelling`, `negates = false`, target A) asserting B is a misspelling of A, and a higher-ranked one citing the same `misspelling` reason with `negates = true` and the same target A, rejecting that claim
+- **WHEN** subject B's current `name`-class opinions are a lower-ranked one (reason `misspelling`, `negates = false`, target A) asserting B is a misspelling of A, and a higher-ranked one citing the same `misspelling` reason with `negates = true` and the same target A, rejecting that claim
 - **THEN** `derive_linnaean()` reports `original_permid = B` for B — B forms its own lineage, not A's
 
 ### Requirement: Concept grouping collapses synonyms
@@ -201,7 +201,11 @@ For each lineage, `derive_linnaean()` SHALL select the single top-ranked current
 
 ### Requirement: Accepted spelling is the top-ranked opinion of the senior lineage
 
-Per lineage, `derive_linnaean()` SHALL choose `accepted_spelling_permid` as the permid, among those eligible, whose own canonical introducing `name_opinions` edge (the top-ranked edge naming it as subject, by `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`, considering only edges with `negates = false`) ranks highest by that same order. A negating edge SHALL NOT be eligible to be a permid's canonical introducing edge in the first place — negation rejects a relationship to another permid, it is not an account of this permid's own identity, so it never wins that ranking; since every permid's own `root` row is always a non-negating candidate, this can never by itself leave a permid with no canonical introducing edge. A permid SHALL be excluded from eligibility if its own canonical introducing edge's reason is `never_accepted` (misspellings), or if its own winning `validity_opinions` row bars candidacy (`nomen nudum`). Both exclusions SHALL be evaluated per permid, using that permid's own canonical introducing edge — not any other edge that happens to name it as subject — so a permid is not made eligible merely because it also carries a `root` mint that is not itself excluded. The accepted rank rides along (the accepted spelling's `rank_id`). Grouping SHALL be resolved before spelling selection, and the concept's accepted name SHALL be scoped to the **senior** lineage only.
+Per lineage, `derive_linnaean()` SHALL choose `accepted_spelling_permid` by the following procedure. First, rank the permids not excluded by the `never_accepted` rule below by each one's own canonical introducing `name_opinions` edge (the top-ranked edge naming it as subject, by `evidence DESC, COALESCE(pubyr, ref.pubyr) DESC, id DESC`, considering only edges with `negates = false`) ranking highest by that same order. A negating edge SHALL NOT be eligible to be a permid's canonical introducing edge in the first place — negation rejects a relationship to another permid, it is not an account of this permid's own identity, so it never wins that ranking; since every permid's own `root` row is always a non-negating candidate, this can never by itself leave a permid with no canonical introducing edge. A permid SHALL be excluded from this ranking entirely if its own canonical introducing edge's reason is `never_accepted` (misspellings) — evaluated using that permid's own canonical introducing edge, not any other edge that happens to name it as subject, so a permid is not made eligible merely because it also carries an unexcluded `root` mint.
+
+Second, take the top-ranked remaining permid as the provisional winner and check it against the validity veto: if its own current winning `validity_opinions` row has a status where `invalidates = true`, compare that opinion's rating (`evidence DESC, yr DESC, id DESC`) against the best rating among (a) the permid's own canonical introducing edge, and (b) any current, non-negating `concept`-class opinion naming the permid's lineage as its **target** (something else deferring to it) — any sign elsewhere in the ledger that this name kept being treated as legitimate after the invalidating ruling. Assignment (classification) opinions are excluded from this comparison: placing a taxon in a hierarchy does not imply an opinion on whether it is dubious. If the invalidating opinion outranks that best counter-signal, the permid is permanently excluded from this lineage's contest and the procedure repeats from the top-ranked remaining permid — except once only one `never_accepted`-eligible permid remains in the lineage, it is not further excluded by this veto regardless of its own validity status. Validity is therefore never a pre-filter — a `nomen dubium`/`nomen nudum`/`nomen vanum` permid competes normally and only loses its win, never its eligibility outright, when the invalidating opinion is not itself outranked.
+
+The accepted rank rides along (the accepted spelling's `rank_id`). Grouping SHALL be resolved before spelling selection, and the concept's accepted name SHALL be scoped to the **senior** lineage only.
 
 #### Scenario: A more-recent, higher-evidence spelling wins within a lineage
 
@@ -220,31 +224,46 @@ Per lineage, `derive_linnaean()` SHALL choose `accepted_spelling_permid` as the 
 
 #### Scenario: A permid is not made eligible by an unexcluded root mint alone
 
-- **WHEN** a permid's only introducing claim as subject is a `never_accepted` lineage edge, and that permid also has its own `root` mint (which is not itself `never_accepted`)
+- **WHEN** a permid's only introducing claim as subject is a `never_accepted` name edge, and that permid also has its own `root` mint (which is not itself `never_accepted`)
 - **THEN** `derive_linnaean()` still excludes the permid from `accepted_spelling_permid` eligibility, because its own canonical introducing edge is the `never_accepted` one
-
-#### Scenario: A permid barred by a winning nomen nudum ruling is excluded
-
-- **WHEN** a permid's winning `validity_opinions` row has status `nomen nudum` (`bars_candidacy = true`)
-- **THEN** `derive_linnaean()` excludes that permid from its lineage's `accepted_spelling_permid` contest, and a later, better-evidenced non-barring validity opinion on the same permid reverses the exclusion
 
 #### Scenario: A negating opinion never wins canonical-introducing-edge ranking, but its permid stays eligible via its own root row
 
-- **WHEN** a permid's only introducing claim as subject other than its own `root` mint is a `negates = true` lineage edge with higher `evidence`/`pubyr` than that `root` mint
+- **WHEN** a permid's only introducing claim as subject other than its own `root` mint is a `negates = true` name edge with higher `evidence`/`pubyr` than that `root` mint
 - **THEN** `derive_linnaean()` does not read the negating edge's `evidence`/`pubyr` as spelling evidence; the permid's canonical introducing edge is its own `root` mint instead, so it remains eligible and — if it forms a lineage of one, per the winning negation removing it from any claimed lineage — is its own `accepted_spelling_permid`
+
+#### Scenario: A permid barred by a winning nomen nudum ruling is excluded
+
+- **WHEN** a permid's winning `validity_opinions` row has status `nomen nudum`, and neither its own canonical introducing edge nor any `concept`-class opinion targeting its lineage outranks that ruling
+- **THEN** `derive_linnaean()` excludes that permid from its lineage's `accepted_spelling_permid` contest, and a later, better-rated validity opinion or `concept`-class opinion targeting its lineage reverses the exclusion
+
+#### Scenario: An invalidated permid with no counter-signal is excluded
+
+- **WHEN** the top-ranked permid's winning `validity_opinions` row has a status where `invalidates = true`, and neither its own canonical introducing edge nor any `concept`-class opinion targeting its lineage outranks that invalidating opinion
+- **THEN** `derive_linnaean()` excludes that permid from the lineage's `accepted_spelling_permid` contest, and the next-ranked remaining permid is considered instead
+
+#### Scenario: A later reversal signal elsewhere in the ledger overrides an old invalidating opinion
+
+- **WHEN** a permid's winning `validity_opinions` row is an early, unevidenced `nomen dubium`, `nomen nudum`, or `nomen vanum` ruling, and a later, better-rated non-negating `concept`-class opinion names the permid's lineage as its target
+- **THEN** `derive_linnaean()` does not exclude the permid — the invalidating opinion is outranked by the counter-signal, and the permid wins if it was otherwise top-ranked
+
+#### Scenario: A lineage where every candidate is invalidated still selects one
+
+- **WHEN** every `never_accepted`-eligible permid in a lineage would otherwise be excluded by the validity veto
+- **THEN** `derive_linnaean()` stops excluding once one permid remains, and selects it as `accepted_spelling_permid` regardless of its own validity status
 
 ### Requirement: An exhausted lineage or concept emits no rows for its permids
 
-When every permid in a lineage is excluded from `accepted_spelling_permid` eligibility (per the never-accepted, nomen-nudum, and negation exclusions), `derive_linnaean()` SHALL NOT select an `accepted_spelling_permid` for that lineage and SHALL NOT emit a row for any permid belonging to it — consistent with ICZN Article 23.1, under which priority and valid-name status are defined only among available names, so an exhausted lineage has nothing valid to materialize as its accepted spelling. This SHALL hold even when the lineage's concept survives via a different, still-eligible sibling lineage. If every lineage in a concept is simultaneously exhausted, the whole concept SHALL emit no rows for any of its permids — a genuine terminal state, not an error to raise.
+When every permid in a lineage is excluded from `accepted_spelling_permid` eligibility by the `never_accepted` rule, `derive_linnaean()` SHALL NOT select an `accepted_spelling_permid` for that lineage and SHALL NOT emit a row for any permid belonging to it — consistent with ICZN Article 23.1, under which priority and valid-name status are defined only among available names, so an exhausted lineage has nothing valid to materialize as its accepted spelling. The validity veto (see "Accepted spelling is the top-ranked opinion of the senior lineage") never causes exhaustion by itself: it stops excluding once one candidate remains, so a lineage with at least one `never_accepted`-eligible permid always has an `accepted_spelling_permid`. This SHALL hold even when the lineage's concept survives via a different, still-eligible sibling lineage. If every lineage in a concept is simultaneously exhausted by the `never_accepted` rule, the whole concept SHALL emit no rows for any of its permids — a genuine terminal state, not an error to raise.
 
 #### Scenario: A concept survives when only one of its lineages is exhausted
 
-- **WHEN** a concept has two lineages, one where every candidate is excluded (all `never_accepted` or nomen-nudum-barred) and one with an eligible candidate
+- **WHEN** a concept has two lineages, one where every candidate is `never_accepted` and one with an eligible candidate
 - **THEN** `derive_linnaean()` emits no rows for the exhausted lineage's permids, while the concept's other members still receive rows with `concept_permid` equal to the eligible lineage's accepted spelling
 
 #### Scenario: A fully exhausted concept emits no rows at all
 
-- **WHEN** every lineage in a concept has zero eligible `accepted_spelling_permid` candidates
+- **WHEN** every lineage in a concept has zero `never_accepted`-eligible `accepted_spelling_permid` candidates
 - **THEN** `derive_linnaean()` emits no rows for any permid in that concept, and `taxa_linnaean.accepted_spelling_permid`/`concept_permid` stay `NOT NULL` because no row is ever materialized rather than one with a null triad
 
 ### Requirement: Classification is pooled across the whole concept (junior-synonym borrowing)
@@ -298,7 +317,11 @@ When every permid in a lineage is excluded from `accepted_spelling_permid` eligi
 
 ### Requirement: Seniority tiebreak is total and deterministic
 
-When `concept`-class edges yield no unique senior sink (e.g. equal-rank, equal-priority mutual synonymy), `derive_linnaean()` SHALL select the senior lineage by, in order: (a) a lineage with no currently-active, winning, non-negating `concept`-class opinion naming it junior to anything is preferred over one that has such an opinion; (b) the canonical `ORDER BY` on each lineage's accepted opinion; (c) oldest `original` `pubyr`; (d) lowest `permid`. Criterion (a) SHALL be computed from each lineage's current winning `concept`-class opinion only — a lineage is never deprioritized by a `concept`-class opinion that is outranked or negated, even if one exists in its history.
+`derive_linnaean()` SHALL select each concept's senior lineage by the following procedure. First, rank candidate lineages ignoring validity status entirely, in order: (a) a lineage with no currently-active, winning, non-negating `concept`-class opinion naming it junior to anything is preferred over one that has such an opinion; (b) the canonical `ORDER BY` on each lineage's accepted opinion; (c) oldest `original` `pubyr`; (d) lowest `permid`. Criterion (a) SHALL be computed from each lineage's current winning `concept`-class opinion only — a lineage is never deprioritized by a `concept`-class opinion that is outranked or negated, even if one exists in its history.
+
+Second, take the top-ranked remaining lineage as the provisional senior and check it against the validity veto: if its accepted-spelling permid's current winning `validity_opinions` row has a status where `invalidates = true`, compare that opinion's rating (`evidence DESC, yr DESC, id DESC`) against the best rating among (a) the permid's own canonical introducing edge, and (b) any current, non-negating `concept`-class opinion naming this lineage as its **target**. If the invalidating opinion outranks that best counter-signal, the lineage is permanently excluded from this concept's senior contest, and criteria (a)-(d) are reapplied among the remaining lineages — except once only one lineage remains in the concept, it is not further excluded regardless of its own validity status. Once a lineage is excluded by this veto, a current, winning, non-negating `concept`-class opinion naming it as target SHALL NOT be treated as a disqualifying edge under criterion (a) in subsequent rounds — deferring to a lineage that has been excluded from winning is not a genuine deferral.
+
+Third, for a concept where the veto excludes some but not all lineages (its candidate pool is genuinely narrowed, as opposed to a concept with no invalidated candidate or one where every candidate is invalidated), criterion (c) (oldest `original` `pubyr` — priority) SHALL be promoted ahead of criterion (b) (the canonical `ORDER BY` on each lineage's accepted opinion) among the surviving candidates, in place of the normal (b)-before-(c) ordering. Excluding the invalidated candidates alone is not sufficient: the survivors can still tie on criterion (a) and fall through to (b), whose `evidence DESC, yr DESC NULLS LAST, id DESC` shape is recency-biased and reproduces the same root-cause error one level down (a genuinely older, senior candidate loses to a merely more-recently-opined one). Promoting (c) ahead of (b) only for narrowed concepts resolves that recurrence without touching concepts where validity was never a factor. A concept with no invalidated candidate, and a concept fully consumed by the all-invalidated escape hatch, both resolve by criteria (a)-(d) in their normal order, identical to before this change.
 
 #### Scenario: Mutual synonymy resolves to one deterministic senior
 
@@ -307,8 +330,38 @@ When `concept`-class edges yield no unique senior sink (e.g. equal-rank, equal-p
 
 #### Scenario: An outranked or negated concept claim does not deprioritize a lineage's seniority
 
-- **WHEN** lineage L's only `concept`-class opinion (asserting L is a junior synonym of some lineage) is either outranked by a later non-negating opinion targeting a different lineage, or itself negated by a higher-ranked negating opinion, and L is tied with another lineage M (which has no `concept`-class opinion at all) on criterion (b)/(c)/(d)
+- **WHEN** lineage L's only `concept`-class opinion (asserting L is a junior synonym of some lineage) is either outranked by a later non-negating opinion targeting a different lineage, or itself negated by a higher-ranked negating opinion, and L is tied with another lineage M (which has no `concept`-class opinion at all) on criteria (b)/(c)/(d)
 - **THEN** `derive_linnaean()` treats L the same as M under criterion (a) — L is not deprioritized for a claim that is no longer active
+
+#### Scenario: A validity-invalidated senior candidate is evicted and the contest reruns
+
+- **WHEN** the top-ranked candidate lineage (by criteria (a)-(d)) has a winning invalidating `validity_opinions` row that outranks the best counter-signal among its own canonical introducing edge and any `concept`-class opinion targeting it
+- **THEN** `derive_linnaean()` excludes that lineage from senior candidacy and reapplies criteria (a)-(d) among the remaining lineages, rather than selecting it
+
+#### Scenario: A later reversal signal elsewhere in the ledger overrides an old invalidating opinion
+
+- **WHEN** the top-ranked candidate lineage's winning `validity_opinions` row is an early, unevidenced `nomen dubium`, `nomen nudum`, or `nomen vanum` ruling, and a later, better-rated non-negating `concept`-class opinion names that lineage as its target
+- **THEN** `derive_linnaean()` does not exclude that lineage — it wins the concept despite carrying an invalidating status
+
+#### Scenario: An edge to an evicted lineage no longer disqualifies its source
+
+- **WHEN** lineage L's only current, winning, non-negating `concept`-class opinion names a lineage B that has already been excluded from senior candidacy by the validity veto
+- **THEN** criterion (a) does not treat L as having a disqualifying edge in subsequent rounds — L competes as if it had no such opinion
+
+#### Scenario: A concept where every candidate is invalidated still selects one
+
+- **WHEN** every lineage in a concept would otherwise be excluded by the validity veto
+- **THEN** `derive_linnaean()` stops excluding once one lineage remains, and selects it as senior regardless of its own validity status
+
+#### Scenario: A concept with no invalidated candidate is unaffected
+
+- **WHEN** no lineage in a concept carries a winning invalidating `validity_opinions` row
+- **THEN** `derive_linnaean()` selects the senior lineage purely by criteria (a)-(d) in their normal order, identical to before this change
+
+#### Scenario: Priority is promoted ahead of the mechanical tiebreak only for a genuinely narrowed pool
+
+- **WHEN** the validity veto excludes some but not all lineages in a concept, and the surviving lineages tie on criterion (a) and would otherwise be ordered by criterion (b)'s recency-biased `evidence DESC, yr DESC, id DESC` shape
+- **THEN** `derive_linnaean()` orders the survivors by criterion (c) (oldest `original` `pubyr`) ahead of criterion (b) instead, so a genuinely senior survivor is not passed over for a merely more-recently-opined one — the same failure shape the veto itself was introduced to fix, recurring one level down
 
 ### Requirement: derive_linnaean() terminates on cycles and surfaces containment cycles
 
@@ -350,7 +403,7 @@ When `concept`-class edges yield no unique senior sink (e.g. equal-rank, equal-p
 
 ### Requirement: derive_linnaean() is total over minted permids
 
-`derive_linnaean()` SHALL return exactly one row for every permid that has a minting `name_opinions` row (`edge_class = 'root'`), with `name`, `rank_id`, and `authority_id` taken from that root row — never from a `lineage`-class edge, which carries no identity. It SHALL NOT emit a row for a permid with no root row. A permid belonging to a lineage with no eligible `accepted_spelling_permid` candidate, or to a concept where every lineage is simultaneously exhausted, SHALL NOT receive a row (see the exhausted-lineage/-concept requirement) — this is the sole exception to one-row-per-minted-permid. `derive_linnaean()` SHALL raise an error, rather than emit any row for the permid, if more than one live root row exists for the same permid (an identity-integrity violation, not a ranking contest).
+`derive_linnaean()` SHALL return exactly one row for every permid that has a minting `name_opinions` row (`edge_class = 'root'`), with `name`, `rank_id`, and `authority_id` taken from that root row — never from a `name`-class edge, which carries no identity. It SHALL NOT emit a row for a permid with no root row. A permid belonging to a lineage with no eligible `accepted_spelling_permid` candidate, or to a concept where every lineage is simultaneously exhausted, SHALL NOT receive a row (see the exhausted-lineage/-concept requirement) — this is the sole exception to one-row-per-minted-permid. `derive_linnaean()` SHALL raise an error, rather than emit any row for the permid, if more than one live root row exists for the same permid (an identity-integrity violation, not a ranking contest).
 
 #### Scenario: Every minted permid gets exactly one row
 
@@ -359,7 +412,7 @@ When `concept`-class edges yield no unique senior sink (e.g. equal-rank, equal-p
 
 #### Scenario: A permid with competing lineage claims still gets exactly one row
 
-- **WHEN** a permid has its own root mint plus two competing `lineage`-class edges naming it as subject (e.g. two different opinions each claiming a different form-of relationship for it)
+- **WHEN** a permid has its own root mint plus two competing `name`-class edges naming it as subject (e.g. two different opinions each claiming a different form-of relationship for it)
 - **THEN** `derive_linnaean()` returns exactly one row for that permid, not one per competing edge
 
 #### Scenario: A permid with duplicate root mints raises

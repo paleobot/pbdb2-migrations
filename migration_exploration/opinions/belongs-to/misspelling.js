@@ -43,10 +43,10 @@ async function main() {
   console.log(`  Loaded ${refMap.size} reference ids (reference_no -> refs.id)`);
 
   const { rows: reasonRows } = await pg.query(
-    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'misspelling' AND edge_class = 'lineage'`,
+    `SELECT id FROM dictionaries.namechange_reasons WHERE reason = 'misspelling' AND edge_class = 'name'`,
   );
   if (reasonRows.length !== 1) {
-    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='misspelling'/edge_class='lineage', got ${reasonRows.length}`);
+    console.error(`  FATAL: expected exactly one namechange_reasons row for reason='misspelling'/edge_class='name', got ${reasonRows.length}`);
     process.exit(1);
   }
   const misspellingReasonId = reasonRows[0].id;
@@ -249,7 +249,7 @@ async function main() {
         values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12},$${p+13},$${p+14},$${p+15},$${p+16})`);
         params.push(
           r.permid, r.authorizerPersonId, r.entererPersonId, null, r.subjectPermid,
-          r.targetPermid, r.reasonId, 'lineage', null, null, null, null,
+          r.targetPermid, r.reasonId, 'name', null, null, null, null,
           r.referenceId, r.publicationYear,
           r.attribution === null ? null : JSON.stringify(r.attribution), r.evidence, false,
         );

@@ -57,7 +57,7 @@ async function main() {
   const replacedByReasonId = reasonRows[0].id;
 
   const { rows: lineageReasonRows } = await pg.query(
-    `SELECT reason, id FROM dictionaries.namechange_reasons WHERE edge_class = 'lineage'`,
+    `SELECT reason, id FROM dictionaries.namechange_reasons WHERE edge_class = 'name'`,
   );
   const lineageReasonId = new Map(lineageReasonRows.map((r) => [r.reason, r.id]));
   for (const token of new Set(MISTAGGED_LINEAGE_REASON.values())) {
@@ -239,7 +239,7 @@ async function main() {
         values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12},$${p+13},$${p+14},$${p+15},$${p+16})`);
         params.push(
           r.permid, r.authorizerPersonId, r.entererPersonId, null, r.subjectPermid,
-          r.targetPermid, r.reasonId, 'lineage', null, null, null, null,
+          r.targetPermid, r.reasonId, 'name', null, null, null, null,
           r.referenceId, r.publicationYear,
           r.attribution === null ? null : JSON.stringify(r.attribution), r.evidence, false,
         );
