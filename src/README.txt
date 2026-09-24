@@ -4,6 +4,16 @@ To run full migration on clean db:
     createdb -h localhost -U postgres pbdb
     node src/run-migrations.js --createdb
 
+--createdb initializes an EMPTY database from postgresql/create_new.sql; it
+cannot reset a populated one, hence the drop and create. A full run takes about
+3 minutes.
+
+.env must hold PG_HOST/PG_USER/PG_PASSWORD/PG_DATABASE, MARIADB_HOST/
+MARIADB_USER/MARIADB_PASSWORD/MARIADB_DATABASE and PBOT_TOKEN. The runner checks
+the variables the selected steps need before running any of them. The pbot-*
+steps fetch live from the PBot GraphQL API, so their counts can grow between
+runs.
+
 Run order (src/run-migrations.js; the authoritative statement is the run-order
 table in openspec/specs/migration-runner/spec.md):
 
@@ -25,7 +35,8 @@ run whose steps write none of them (e.g. --only authority-opinions) skips the
 audit. To audit the whole database outside a run:
     node src/audit-payloads.js                 # every row vs. the db schema
     node src/audit-payloads.js --round-trip    # plus merge/split round trip
-The latest report is written to src/audit-payloads.log.
+The latest report is written to src/audit-payloads.log. Each runner invocation
+is appended to src/run-migrations.log.
 
 To run one step, or to resume from one:
     node src/run-migrations.js --only specimens
@@ -36,4 +47,5 @@ The specimens step migrates classic `specimens` only (167,150 rows). Occurrences
 and measurements are separate, later migrations; `oldpbdb_occurrence_no` is the
 join key they will attach to. Most specimens carry no taxon of their own, so
 `name_opinions_permid` is NULL on 144,690 rows by design — see
-openspec/specs/specimen-migration/spec.md and design.md D1.
+openspec/specs/specimen-migration/spec.md and D1 of
+openspec/changes/archive/2026-09-17-create-specimens-migration/design.md.
