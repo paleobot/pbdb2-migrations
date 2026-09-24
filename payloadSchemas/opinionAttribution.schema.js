@@ -3,9 +3,12 @@ Validation schemas in JSON Schema format. Note that fastify uses ajv (https://aj
 */
 
 /*
-DRAFT — companion to postgresql/taxa-opinions-draft.sql, which is itself a draft
-for discussion and has never been run. Delete this file if the opinion tables'
-`attribution` column does not survive review.
+Validates the `attribution` jsonb column of the opinion tables (name_opinions,
+assignment_opinions, validity_opinions). In use: migrate-authority-opinions.js, and
+migrate-opinions.js through src/lib/attribution.js, validate every attribution
+they write against it. It is a fragment for one column, not an entity source, so it
+has not been converted to the annotated-source form; that waits until the opinion
+tables get a payload source of their own (see docs/api-design-backlog.md).
 
 This exists because the opinion tables must NOT reuse authoritySource. That
 schema describes an *authority record*: it carries legacyIDs.oldpbdbIDs and
