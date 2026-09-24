@@ -1,4 +1,4 @@
-// The real collection, specimen, person, reference, authority and schema sources: every variant resolves and
+// The real collection, specimen, person, reference, authority, schema, character and state sources: every variant resolves and
 // compiles in strict mode, and the variant rules hold on them. DB-free (fixture
 // enums).
 import { test } from 'node:test';
@@ -10,10 +10,12 @@ import * as personModule from '../person.schema.js';
 import * as referenceModule from '../reference.schema.js';
 import * as authorityModule from '../authority.schema.js';
 import * as schemaModule from '../schema.schema.js';
+import * as characterModule from '../character.schema.js';
+import * as stateModule from '../state.schema.js';
 import { applyEnums } from '../lib/enums.js';
 import { deriveVariant, VARIANTS } from '../lib/variants.js';
 import { createAjv } from '../lib/ajv.js';
-import { collectCodecSources } from '../lib/storage.js';
+import { collectCodecSources, split, merge } from '../lib/storage.js';
 
 const legacy = JSON.parse(readFileSync(new URL('./fixtures/legacy-enums.json', import.meta.url), 'utf8'));
 const specimenExample = JSON.parse(readFileSync(new URL('./fixtures/specimen-example.json', import.meta.url), 'utf8'));
@@ -32,6 +34,8 @@ const sources = {
   reference: referenceModule.referenceSource,
   authority: authorityModule.authoritySource,
   schema: schemaModule.schemaSource,
+  character: characterModule.characterSource,
+  state: stateModule.stateSource,
 };
 const compile = (entity, variant) => createAjv().compile(deriveVariant(applyEnums(sources[entity], enums), variant));
 
@@ -41,6 +45,8 @@ test('modules export only the annotated source', () => {
   assert.deepEqual(Object.keys(personModule).sort(), ['default', 'personSource']);
   assert.deepEqual(Object.keys(authorityModule).sort(), ['authoritySource', 'default']);
   assert.deepEqual(Object.keys(schemaModule).sort(), ['default', 'schemaSource']);
+  assert.deepEqual(Object.keys(characterModule).sort(), ['characterSource', 'default']);
+  assert.deepEqual(Object.keys(stateModule).sort(), ['default', 'stateSource']);
   // Plus the publication type table, which the PBot refs migration filters fields by.
   assert.deepEqual(Object.keys(referenceModule).sort(), ['PUBLICATION_TYPES', 'SHARED_FIELDS', 'default', 'referenceSource']);
 });
@@ -439,4 +445,59 @@ test('schema out requires references', () => {
   const references = [{ referenceID: 'r-1', order: '1' }];
   assert.equal(validate({ ...storedSchema(), permid: 's-1', references }), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...storedSchema(), permid: 's-1' }), false);
+});
+
+// ---------- character and state ----------
+
+for (const entity of ['character', 'state']) {
+  const stored = { legacyIDs: { pbotID: 'p-1' }, name: 'General Features', definition: 'Position, attachement, organ' };
+
+  test(`${entity} db declares legacyIDs, name and definition and requires only name`, () => {
+    const db = deriveVariant(sources[entity], 'db');
+    assert.deepEqual(Object.keys(db.properties), ['legacyIDs', 'name', 'definition']);
+    assert.deepEqual(db.required, ['name']);
+    assert.equal('allOf' in db, false, 'x-create not merged into db');
+  });
+
+  test(`${entity} db: definition optional, never null; legacy rules hold`, () => {
+    const validate = compile(entity, 'db');
+    assert.equal(validate(stored), true, JSON.stringify(validate.errors));
+    const { definition, ...noDefinition } = stored;
+    assert.equal(validate(noDefinition), true, JSON.stringify(validate.errors));
+    assert.equal(validate({ ...stored, definition: null }), false);
+    const { name, ...noName } = stored;
+    assert.equal(validate(noName), false);
+    assert.equal(validate({ ...stored, name: '' }), true, 'db is not stricter than the legacy schema');
+    for (const key of ['order', 'parentCharacter', 'quantitative']) assert.equal(validate({ ...stored, [key]: 1 }), false, key);
+  });
+
+  test(`${entity} in-create requires a non-empty name`, () => {
+    const validate = compile(entity, 'in-create');
+    assert.equal(validate({ name: '' }), false);
+    assert.equal(validate({ name: 'Leaf shape' }), true, JSON.stringify(validate.errors));
+    assert.equal(validate({}), false);
+    assert.equal(validate({ name: 'x', permid: 'p' }), false);
+    assert.equal(validate({ name: 'x', legacyIDs: { pbotID: 'p' } }), false);
+  });
+
+  test(`${entity} patch-guard blocks exactly permid and legacyIDs`, () => {
+    assert.deepEqual(deriveVariant(sources[entity], 'patch-guard').propertyNames.not.enum, ['permid', 'legacyIDs']);
+  });
+}
+
+test('state in-create: quantitative is settable and optional', () => {
+  const validate = compile('state', 'in-create');
+  assert.equal(validate({ name: 'length', quantitative: true }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ name: 'ovate' }), true);
+  assert.equal(compile('character', 'in-create')({ name: 'x', quantitative: true }), false, 'character has no quantitative');
+  assert.equal(compile('state', 'patch-guard')({ quantitative: false }), true);
+});
+
+test('state quantitative round-trips through its column, and is absent from split when omitted', () => {
+  const merged = merge(sources.state, { jsonb: { name: 'quantity' }, columns: { permid: 's-1', quantitative: true } });
+  assert.deepEqual(merged, { name: 'quantity', permid: 's-1', quantitative: true });
+  assert.equal(compile('state', 'out')(merged), true);
+  const { permid, ...writable } = merged;
+  assert.deepEqual(split(sources.state, writable), { jsonb: { name: 'quantity' }, columns: { quantitative: true }, children: {} });
+  assert.deepEqual(split(sources.state, { name: 'ovate' }).columns, {});
 });

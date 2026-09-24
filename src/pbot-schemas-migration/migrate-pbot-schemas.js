@@ -1,6 +1,8 @@
 import { pg, closePg } from '../lib/pg-pool.js';
 import { uuidv7 } from '../lib/uuidv7.js';
 import { schemaSource } from '../../payloadSchemas/schema.schema.js';
+import { characterSource } from '../../payloadSchemas/character.schema.js';
+import { stateSource } from '../../payloadSchemas/state.schema.js';
 import { resolveEnums } from '../../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../../payloadSchemas/lib/variants.js';
 import { createAjv } from '../../payloadSchemas/lib/ajv.js';
@@ -241,24 +243,26 @@ function buildSchemaJsonb(schema, enumMaps) {
 
 // --- Character JSONB builder ---
 
+// A definition PBot does not have is omitted, not stored as null.
 function buildCharacterJsonb(character) {
   const jsonb = {
     legacyIDs: { pbotID: character.pbotID },
     name: character.name,
-    definition: character.definition,
   };
+  if (character.definition != null) jsonb.definition = character.definition;
 
   return jsonb;
 }
 
 // --- State JSONB builder ---
 
+// As for characters, a missing definition is omitted, not stored as null.
 function buildStateJsonb(state) {
   const jsonb = {
     legacyIDs: { pbotID: state.pbotID },
     name: state.name,
-    definition: state.definition,
   };
+  if (state.definition != null) jsonb.definition = state.definition;
 
   return jsonb;
 }
@@ -276,17 +280,22 @@ async function main() {
     statesFetched: 0, statesInserted: 0, stateOrphans: 0, statesSkipped: 0,
   };
 
-  // Resolve the schema source once: its db variant validates every payload, and its
-  // dictionary enums drive the case-insensitive mapping.
+  // Resolve each source once: its db variant validates every payload, and the
+  // schema source's dictionary enums drive the case-insensitive mapping.
+  const ajv = createAjv();
   const resolved = await resolveEnums(pg, schemaSource);
-  const validate = createAjv().compile(deriveVariant(resolved, 'db'));
+  const validators = {
+    Schema: ajv.compile(deriveVariant(resolved, 'db')),
+    Character: ajv.compile(deriveVariant(await resolveEnums(pg, characterSource), 'db')),
+    State: ajv.compile(deriveVariant(await resolveEnums(pg, stateSource), 'db')),
+  };
   const enumMaps = {
     partsPreserved: enumMap(resolved.properties.partsPreserved.items.enum),
     notableFeatures: enumMap(resolved.properties.notableFeatures.items.enum),
   };
 
   // =====================================================================
-  // PHASE 1: Schemas
+  // PHASE 0: Fetch and validate everything
   // =====================================================================
 
   console.log(`\n  Fetching schemas from ${PBOT_GRAPHQL_URL}...`);
@@ -294,26 +303,47 @@ async function main() {
   stats.schemasFetched = allSchemas.length;
   console.log(`  Fetched ${allSchemas.length} schemas from PBot`);
 
+  console.log(`\n  Fetching characters from ${PBOT_GRAPHQL_URL}...`);
+  const allCharacters = await fetchPbot(CHARACTER_QUERY, 'Character');
+  stats.charactersFetched = allCharacters.length;
+  console.log(`  Fetched ${allCharacters.length} characters from PBot`);
+
+  console.log(`\n  Fetching states from ${PBOT_GRAPHQL_URL}...`);
+  const allStates = await fetchPbot(STATE_QUERY, 'State');
+  stats.statesFetched = allStates.length;
+  console.log(`  Fetched ${allStates.length} states from PBot`);
+
   // Build and validate every payload before inserting any row. The script has no
   // transaction, so a failure found mid-insert would leave the step half written.
-  // Schemas the loop below skips are validated too: a malformed payload is a
-  // defect either way.
-  const schemaJsonb = new Map(); // pbotID → validated jsonb
+  // Records the insert phases skip, or leave as orphans, are validated too: a
+  // malformed payload is a defect either way.
   let invalid = 0;
-  for (const schema of allSchemas) {
-    const jsonb = buildSchemaJsonb(schema, enumMaps);
-    if (!validate(jsonb)) {
-      invalid++;
-      console.error(`  INVALID: Schema ${schema.pbotID} fails the db variant of schemaSource`);
-      console.error('  payload:', JSON.stringify(jsonb));
-      console.error('  errors:', JSON.stringify(validate.errors, null, 2));
+  const buildAll = (kind, records, build) => {
+    const built = new Map(); // pbotID → validated jsonb
+    const validate = validators[kind];
+    for (const record of records) {
+      const jsonb = build(record);
+      if (!validate(jsonb)) {
+        invalid++;
+        console.error(`  INVALID: ${kind} ${record.pbotID} fails its db variant`);
+        console.error('  payload:', JSON.stringify(jsonb));
+        console.error('  errors:', JSON.stringify(validate.errors, null, 2));
+      }
+      built.set(record.pbotID, jsonb);
     }
-    schemaJsonb.set(schema.pbotID, jsonb);
-  }
+    return built;
+  };
+  const schemaJsonb = buildAll('Schema', allSchemas, (schema) => buildSchemaJsonb(schema, enumMaps));
+  const characterJsonb = buildAll('Character', allCharacters, buildCharacterJsonb);
+  const stateJsonb = buildAll('State', allStates, buildStateJsonb);
   if (invalid > 0) {
-    throw new Error(`${invalid} schema payload(s) failed validation; nothing was inserted`);
+    throw new Error(`${invalid} payload(s) failed validation; nothing was inserted`);
   }
-  console.log(`  Validated ${allSchemas.length} schema payloads`);
+  console.log(`\n  Validated ${allSchemas.length} schema, ${allCharacters.length} character and ${allStates.length} state payloads`);
+
+  // =====================================================================
+  // PHASE 1: Schemas
+  // =====================================================================
 
   const schemaPbotIdToId = new Map(); // pbotID → PG id
 
@@ -404,11 +434,6 @@ async function main() {
   // PHASE 2: Characters (level-by-level)
   // =====================================================================
 
-  console.log(`\n  Fetching characters from ${PBOT_GRAPHQL_URL}...`);
-  const allCharacters = await fetchPbot(CHARACTER_QUERY, 'Character');
-  stats.charactersFetched = allCharacters.length;
-  console.log(`  Fetched ${allCharacters.length} characters from PBot`);
-
   const charPbotIdToId = new Map(); // pbotID → PG id
   let remaining = [...allCharacters];
   let level = 0;
@@ -450,7 +475,7 @@ async function main() {
         continue;
       }
 
-      const jsonb = buildCharacterJsonb(char);
+      const jsonb = characterJsonb.get(char.pbotID);
 
       const sortOrder = char.order != null ? parseInt(char.order, 10) : null;
 
@@ -495,11 +520,6 @@ async function main() {
   // PHASE 3: States (level-by-level)
   // =====================================================================
 
-  console.log(`\n  Fetching states from ${PBOT_GRAPHQL_URL}...`);
-  const allStates = await fetchPbot(STATE_QUERY, 'State');
-  stats.statesFetched = allStates.length;
-  console.log(`  Fetched ${allStates.length} states from PBot`);
-
   const statePbotIdToId = new Map(); // pbotID → PG id
   remaining = [...allStates];
   level = 0;
@@ -541,7 +561,7 @@ async function main() {
         continue;
       }
 
-      const jsonb = buildStateJsonb(state);
+      const jsonb = stateJsonb.get(state.pbotID);
 
       // Quantitative flag
       const quantitative = (state.name || '').toLowerCase() === 'quantity';

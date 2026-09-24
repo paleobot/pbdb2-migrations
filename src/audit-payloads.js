@@ -19,6 +19,8 @@ import { personSource } from '../payloadSchemas/person.schema.js';
 import { referenceSource } from '../payloadSchemas/reference.schema.js';
 import { authoritySource } from '../payloadSchemas/authority.schema.js';
 import { schemaSource } from '../payloadSchemas/schema.schema.js';
+import { characterSource } from '../payloadSchemas/character.schema.js';
+import { stateSource } from '../payloadSchemas/state.schema.js';
 import { resolveEnums } from '../payloadSchemas/lib/enums.js';
 import { deriveVariant } from '../payloadSchemas/lib/variants.js';
 import { createAjv } from '../payloadSchemas/lib/ajv.js';
@@ -92,6 +94,24 @@ export const REGISTRY = [
     versioned: true,
     columns: ['permid', 'reference_id'],
     children: [{ table: 'additional_schema_refs', fk: 'schema_id', columns: ['id', 'reference_id'] }],
+  },
+  {
+    entity: 'character',
+    table: 'characters',
+    column: 'character',
+    source: characterSource,
+    versioned: true,
+    columns: ['permid'],
+    children: [],
+  },
+  {
+    entity: 'state',
+    table: 'states',
+    column: 'state',
+    source: stateSource,
+    versioned: true,
+    columns: ['permid', 'quantitative'],
+    children: [],
   },
 ];
 

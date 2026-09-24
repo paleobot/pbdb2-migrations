@@ -8,7 +8,7 @@ const ALL = ['persons', 'pbot-persons', 'refs', 'pbot-refs', 'pbot-schemas', 'au
   'authority-opinions', 'opinions', 'collections', 'specimens'];
 
 test('full run audits every entity', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen', 'person', 'reference', 'authority', 'schema']);
+  assert.deepEqual(auditEntitiesFor(stepsByName(ALL)), ['collection', 'specimen', 'person', 'reference', 'authority', 'schema', 'character', 'state']);
 });
 
 test('--from collections audits both', () => {
@@ -35,8 +35,8 @@ test('the authorities step audits authority', () => {
   assert.deepEqual(auditEntitiesFor(stepsByName(['authorities'])), ['authority']);
 });
 
-test('the pbot-schemas step audits schema', () => {
-  assert.deepEqual(auditEntitiesFor(stepsByName(['pbot-schemas'])), ['schema']);
+test('the pbot-schemas step audits schema, character and state', () => {
+  assert.deepEqual(auditEntitiesFor(stepsByName(['pbot-schemas'])), ['schema', 'character', 'state']);
 });
 
 test('a step writing no audited table audits nothing', () => {

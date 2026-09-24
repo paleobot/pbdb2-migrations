@@ -1,8 +1,5 @@
-# payload-audit Specification
+## MODIFIED Requirements
 
-## Purpose
-Define `src/audit-payloads.js`: validating every stored jsonb payload of the converted entities against the resolved `db` variant, reporting violations, and, with `--round-trip`, checking that merge and split reproduce each stored row. It is the after-the-fact guard that stands in for deferred database-level validation.
-## Requirements
 ### Requirement: Audit every stored payload against the resolved `db` variant
 `src/audit-payloads.js` SHALL hold a registry of audited entities. Each entry names the entity, table, jsonb
 column, and annotated source, and SHALL state whether the entity's table is versioned. The registry SHALL
@@ -47,30 +44,6 @@ rather than audit anything. `permid` SHALL still be selected for every entry.
 #### Scenario: Every stored character and state validates at rest
 - **WHEN** the character and state entries are audited on a freshly migrated database
 - **THEN** every row is checked (336 characters and 1,325 states on localhost `pbdb` on 2026-09-23, all heads, numbers the live PBot API grows), with zero violations, and no row carries `definition: null`
-
-### Requirement: The audit reports violations and exits accordingly
-The script SHALL print, per entity:
-- rows checked — for a versioned entity, heads and superseded separately; for an unversioned one, a single count;
-- violation count;
-- up to `--sample <n>` offending rows (default 10), each with its `id`, `permid`, and ajv errors.
-
-It SHALL write the same report as a run artifact beside itself. It SHALL exit 0 when there are no violations, and non-zero when there is any violation or when resolution or compilation fails.
-
-#### Scenario: Clean database
-- **WHEN** every row validates
-- **THEN** the script exits 0 and the report shows 0 violations per entity
-
-#### Scenario: Orphaned dictionary value
-- **WHEN** a stored collection holds a `lithology` value later deleted from `dictionaries.lithologies`
-- **THEN** the report lists that row's `id` and the enum error, and the script exits non-zero
-
-#### Scenario: Resolution failure
-- **WHEN** a dictionary table used by an audited source is empty
-- **THEN** the script exits non-zero before reading any payload rows
-
-#### Scenario: Unversioned entity reports one count
-- **WHEN** the person entry is reported
-- **THEN** its line gives a single rows-checked count with no head/superseded split, and an offending person is still identified by `id` and `permid`
 
 ### Requirement: The audit can be narrowed to selected entities
 `--entity <name>` MAY be repeated. When at least one is given, the audit SHALL read and report only those registry entries. With none, it SHALL audit every entry. An unknown name SHALL exit non-zero, listing the valid names, before any row is read.
@@ -168,4 +141,3 @@ with `column: "reference_id"`, so `codecKeyColumns` names the column the batch's
 #### Scenario: State round trip rebuilds quantitative
 - **WHEN** `--round-trip` runs on state
 - **THEN** each head row's `permid` and `quantitative` are rebuilt from their columns, the payload validates against `out`, and splitting it back yields the stored jsonb and the same `quantitative`; no codec source is loaded, because neither the character nor the state source declares one
-

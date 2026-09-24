@@ -128,6 +128,8 @@ export default schemaSource;
  * schema with its whole character/state tree. It would add schemaDefinition to
  * the create body and needs $defs/$ref support in deriveVariant, which does not
  * exist yet. Separate schema, character and state routes would need neither.
+ * Its state rule "name = quantity requires value" predates states.quantitative,
+ * and a measured value belongs to an observation of a state, not to the state.
  *
  * $defs: {
  *     state: {

@@ -20,9 +20,9 @@ table in openspec/specs/migration-runner/spec.md):
 
 After the last selected step, the runner audits stored payloads
 (src/audit-payloads.js) for the audited entities those steps wrote: persons,
-refs, authorities, schemas, collections and specimens. A run whose steps write
-none of them (e.g. --only authority-opinions) skips the audit. To audit the
-whole database outside a run:
+refs, authorities, schemas, characters, states, collections and specimens. A
+run whose steps write none of them (e.g. --only authority-opinions) skips the
+audit. To audit the whole database outside a run:
     node src/audit-payloads.js                 # every row vs. the db schema
     node src/audit-payloads.js --round-trip    # plus merge/split round trip
 The latest report is written to src/audit-payloads.log.
