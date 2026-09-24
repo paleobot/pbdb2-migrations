@@ -29,7 +29,9 @@ Everything else the API exposes has no source yet (see [Opinions](#opinions) and
 
 ## Schema, character and state: separate routes or one-call tree
 
-**Open.** Two shapes:
+**Reads decided; writes open.** `pbdb2-api` already returns a schema as an aggregate tree: its
+`schema-tree.js` read nests the characters and states, keyed by permid. For writes, two shapes
+remain:
 
 ```
 separate routes                         one-call tree
@@ -181,6 +183,81 @@ Revisit if writes will come from anywhere other than the API.
 *Reasoning:* the `payload-schema-variants` change (archived 2026-09-18).
 
 ---
+
+## API responses vs. the `out` variants
+
+**Open; decide before API writes.** The API was built before the payload conversions, and its GET
+responses have diverged from the `out` variants. It reads the jsonb directly
+(`{ permid, ...row.payload }`) and adds relationships through its own link enrichment
+(`pbdb2-api/src/lib/resource-tables.js`):
+
+```
+our `out` (referenceList codec)            pbdb2-api GET today
+references: [                              primaryReference: { title, permid, href }
+  { referenceID: <permid>, order: "1" },   additionalReferences: [ { title, permid, href }, … ]
+  { referenceID: <permid>, order: "2" } ]
+```
+
+The intent is to move the API to the variant approach: build responses with `merge()`, describe them
+with `out`, and validate writes with `in-create` / `patch-guard`. What remains open is how the API's
+enrichment relates to `out`:
+- adopt the API's shape in the sources, which changes `referenceList`;
+- adopt `references[]` in the API;
+- keep both, with enrichment as a presentation layer over `out`. That is plausible, since `title`
+  and `href` are conveniences that `out` deliberately leaves out.
+
+Whichever is chosen, a create body has to be consistent with what GET returns.
+
+The API is about 2,000 lines. Its transport layer (envelope, pagination, discovery, filters,
+405 handling; about 950 lines, specified and tested) doesn't depend on payload shape. About
+580 lines of data layer (`repository.js`, `resource-tables.js` links, `link-hydration.js`, parts of
+`schema-tree.js`) would change. That argues for refactoring the API rather than rewriting it. The
+`taxa` reads have no payload and are unaffected.
+
+## Serving the schemas to clients
+
+**Proposed.** The API could serve the derived variants as JSON Schema documents, for example
+`GET /api/v1/schemas/{entity}/{in-create|out|patch-guard}`, beside its existing discovery routes.
+Clients would get the API contract over HTTP instead of depending on backend code:
+- The frontend validates forms against exactly what the *deployed* API enforces, not against a
+  pinned package version.
+- Served schemas can have dictionary enums already resolved (`x-enumFrom` filled in), so dropdowns
+  carry the current vocabulary from the database. A compiled-in package cannot do that.
+- Clients need no backend access, not even read access (see the next entry).
+
+Open: whether to serve `db` (probably not: it describes storage, not the contract), and caching,
+since resolved enums change only when a dictionary does.
+
+## Repository boundary: backend monorepo vs. frontend
+
+**Proposed; depends on one question.** The plan is to merge `pbdb2-migrations` and `pbdb2-api` into a
+new monorepo with both histories:
+- `apps/migrations`, `apps/api`, `packages/payload-schemas`, and `packages/db` for
+  `create_new.sql`;
+- histories rewritten into their subdirectories with `git filter-repo`;
+- first, merge `main` into `ddm-dev` in the migrations repo. They have diverged since 2026-09-04,
+  and the merge is clean.
+
+The DDL, payload sources, migrations and API would then change together. For example, the
+character/state conversion silently changed a GET response in the separate API repo.
+
+Including the client (`pbdb_frontend`) depends on what a colleague's concern means. The concern is
+that third-party contributors might be invited to work on the frontend code but explicitly not the
+backend:
+- **If it means they may not *change* backend code:** a full monorepo works. `CODEOWNERS` plus
+  branch protection require backend-team approval for any PR touching `apps/api/**`,
+  `apps/migrations/**` or `packages/**`. Contributors can still read everything.
+- **If it means they may not *see* backend code:** the frontend must stay in its own repo. Git hosts
+  grant access per repository, never per directory. A mirrored public frontend repo (subtree split,
+  Copybara, josh-proxy) is possible but means permanent two-way sync, and is not recommended for a
+  small team.
+
+Leaning: a backend monorepo plus a separate frontend repo, with the frontend consuming the served
+schemas (previous entry). Before any code becomes public, scan the *history* for credentials, for
+example with `gitleaks`.
+
+Nothing deploys from these repos yet, so nothing needs re-pointing. Project memory for Claude Code is
+keyed to the directory path and must be copied to the new location.
 
 ## Known data issues that affect the API
 
