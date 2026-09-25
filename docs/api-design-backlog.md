@@ -230,34 +230,100 @@ since resolved enums change only when a dictionary does.
 
 ## Repository boundary: backend monorepo vs. frontend
 
-**Proposed; depends on one question.** The plan is to merge `pbdb2-migrations` and `pbdb2-api` into a
-new monorepo with both histories:
-- `apps/migrations`, `apps/api`, `packages/payload-schemas`, and `packages/db` for
-  `create_new.sql`;
-- histories rewritten into their subdirectories with `git filter-repo`;
-- first, merge `main` into `ddm-dev` in the migrations repo. They have diverged since 2026-09-04,
-  and the merge is clean.
+**Decided 2026-09-25: grow `pbdb2-migrations` into `pbdb2-backend` (option B), with migrations as a
+leaf.** The DDL, payload sources, migrations and API change together in one repo. For example, the
+character/state conversion silently changed a GET response in the separate API repo. Today the API
+imports nothing from migrations. Its only hard link is the integration harness loading
+`create_new.sql` from a sibling checkout. Everything else is code that was copied and "mirrors" the
+original, and copies like that drift.
 
-The DDL, payload sources, migrations and API would then change together. For example, the
-character/state conversion silently changed a GET response in the separate API repo.
+**How the repo is formed.** Rename `pbdb2-migrations` to `pbdb2-backend` on GitHub and graft the API
+in. A new repo with both histories rewritten by `git filter-repo` (option A) was rejected:
 
-Including the client (`pbdb_frontend`) depends on what a colleague's concern means. The concern is
-that third-party contributors might be invited to work on the frontend code but explicitly not the
-backend:
-- **If it means they may not *change* backend code:** a full monorepo works. `CODEOWNERS` plus
-  branch protection require backend-team approval for any PR touching `apps/api/**`,
-  `apps/migrations/**` or `packages/**`. Contributors can still read everything.
+| | A. New repo, rewrite both | **B. Rename migrations, graft the API (chosen)** |
+|---|---|---|
+| Migrations history (234 commits) | every SHA rewritten | SHAs kept; one "move into `migrations/`" commit |
+| API history (15 commits, one author) | rewritten into `api/` | rewritten into `api/`, merged with `--allow-unrelated-histories` |
+| Issues/PRs (e.g. #16, #30) | left in the old repo | stay; GitHub redirects the old name |
+| Collaborators' clones | re-clone | `git pull` still works |
+| Commit hashes cited in docs and memory | all dangle | all stay valid |
+| Log/blame across the move | seamless | per file with `--follow` |
+
+`pbdb2-api` is then archived on GitHub, read-only, with a README pointing to the new home.
+
+**The leaf rule.** Migrations will fade once PBDB Classic and PBot are shut down (perhaps a couple of
+years out). Migrations may depend on everything, and nothing may depend on migrations:
+
+```
+pbdb2-backend/
+├── package.json        npm workspaces
+├── openspec/           one root (see below)
+├── db/create_new.sql          ◀──────┐
+├── payloadSchemas/            ◀──┐   │    durable
+├── api/  ───────────────────────┼───┤
+└── migrations/  ────────────────┴───┘    leaf: src/, mariadb/, play/, pg-*.js,
+                                          payloadSchemas' mappings/*.md
+```
+
+When migrations retires, a `retire-migrations` change removes `migrations/`, its workspace entry and
+its specs in one commit. What remains is the API with the DDL and payload schemas. The migration code
+stays in history for provenance. The `apps/` + `packages/` layout from the earlier proposal was
+dropped as structure built ahead of need.
+
+*Rejected alternative:* moving the DDL and the payloadSchemas lib into `pbdb2-api` and having
+migrations depend on it through a GitHub URL in `package.json`. That targets the end state, but for
+the next two years most DDL and schema changes start in migrations. Every such change would span two
+repos and require `npm update` (the lockfile pins a SHA), or `npm link`, which leaves the lockfile
+out of step with what was tested. Separate repos would win only if the API might go public while
+migrations stays private, or if write access differs. Neither applies.
+
+**One OpenSpec root, not one per app.** 7 of the 24 migrations specs describe durable parts
+(`entity-versioning-triggers`, `payload-schema-variants`, `payload-schema-enums`, `taxa-unified`,
+`taxa-clades`, `taxa-opinions`, `clade-attachments`). 2 more are mixed (`permid-uuidv7`: the API will
+mint permids too; `payload-audit`). The other 15 are migration-only. With two roots, the durable specs
+would either go when migrations goes, or live under `api/` where migrations changes can't touch them.
+Delta specs apply only within their own root, so a change spanning DDL, schemas, a migration and the
+API would have to be split into two coordinated changes. No spec names collide between the repos.
+
+The cost is one shared `config.yaml` context. Rules are keyed by artifact type, not by area, so the
+MariaDB-specific rules must be made conditional ("for changes that read legacy data: …"). A rule
+also enforces the leaf rule on every proposal ("nothing outside `migrations/` may import from or
+spec against it"). Run `openspec init` once at the root with the expanded workflow profile
+(`new`/`ff`/`continue`/`verify`), not the API's core profile.
+
+**Order of work:**
+1. *Prerequisite change: split `payloadSchemas/`* into durable and migration-only parts. Needed under
+   any option. `tests/enums.test.js` and `tests/dictionary-seeds.test.js` import the migrations pool
+   (`src/lib/pg-pool.js`). `mappings/*.md` belong to migrations. `legacyIDs` stays durable, since it
+   is persisted data.
+2. Housekeeping: decide `graph-visuals`; delete merged/stale branches (`patch-derive-taxa`,
+   `backup/ddm-dev-pre-merge`, …); finish or park `clade-hierarchy-user-guide`; clear the untracked
+   root files.
+3. Tell collaborators; confirm no unpushed work on the old paths.
+4. *Monorepo change:* one `git mv` commit into `migrations/`, `create_new.sql` → `db/`, then fix
+   relative imports. `npm test` and a full `run-migrations` must reproduce the totals.
+5. Graft the API (`filter-repo --to-subdirectory-filter api` on a fresh clone, merge unrelated
+   histories). Move its specs and archive into the root `openspec/`. Point the integration harness
+   at `db/create_new.sql`.
+6. Root `package.json` with workspaces and one lockfile; root `npm test` runs both.
+7. Tooling: merge the `CLAUDE.md` files and `config.yaml` contexts (the API's `CLAUDE.md` says
+   "separate repos"). Fix the Purposes of `opinions-migration` and `taxa-opinions` (still "TBD").
+   Generalize `permid-uuidv7` to the backend. Copy the Claude Code memory directory to the new path.
+8. Rename on GitHub; archive `pbdb2-api`. Run `gitleaks` over the history.
+
+**Frontend.** Including the client (`pbdb_frontend`) depends on what a colleague's concern means. The
+concern is that third-party contributors might be invited to work on the frontend code but explicitly
+not the backend:
+- **If it means they may not *change* backend code:** a monorepo with `CODEOWNERS` and branch
+  protection would work.
 - **If it means they may not *see* backend code:** the frontend must stay in its own repo. Git hosts
-  grant access per repository, never per directory. A mirrored public frontend repo (subtree split,
-  Copybara, josh-proxy) is possible but means permanent two-way sync, and is not recommended for a
-  small team.
+  grant access per repository, never per directory.
 
-Leaning: a backend monorepo plus a separate frontend repo, with the frontend consuming the served
-schemas (previous entry). Before any code becomes public, scan the *history* for credentials, for
-example with `gitleaks`.
+The name `pbdb2-backend` assumes a separate frontend repo that consumes the served schemas (previous
+entry). That is the leaning, not yet confirmed. Before any code becomes public, scan the *history*
+for credentials, for example with `gitleaks`.
 
-Nothing deploys from these repos yet, so nothing needs re-pointing. Project memory for Claude Code is
-keyed to the directory path and must be copied to the new location.
+Nothing deploys from these repos yet, so nothing needs re-pointing.
 
 ## Known data issues that affect the API
 
